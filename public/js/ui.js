@@ -65,6 +65,9 @@ const UI = (() => {
         // Build a dictionary of steps with their logs for navigation
         const stepDict = buildStepDictionary(result.logs.edges);
         
+        // Add execution details to sidebar
+        addExecutionDetailsToSidebar(result);
+        
         // Update the step navigation in the sidebar
         updateStepNavigation(stepDict);
 
@@ -98,7 +101,135 @@ const UI = (() => {
         resultsDiv.innerHTML = logsHtml;
 
         // Detect and setup JSON viewers
-        UI.detectAndSetupJsonViewers(result.logs.edges);
+        detectAndSetupJsonViewers(result.logs.edges);
+    }
+
+    // Add execution details to the sidebar
+    function addExecutionDetailsToSidebar(result) {
+        const sidebar = document.querySelector('.sidebar');
+        
+        // Remove existing execution details if any
+        let existingDetails = document.getElementById('execution-details');
+        if (existingDetails) {
+            existingDetails.remove();
+        }
+        
+        // Create execution details panel
+        const detailsPanel = document.createElement('div');
+        detailsPanel.id = 'execution-details';
+        detailsPanel.className = 'execution-details mb-4';
+        
+        detailsPanel.innerHTML = `
+            <h5 class="border-bottom pb-2 mb-2">Execution Details</h5>
+            <div class="mb-2">
+                <strong>Instance:</strong>
+                <div class="text-truncate">${result.instance?.name || 'Unknown'}</div>
+            </div>
+            <div class="mb-2">
+                <strong>Flow:</strong>
+                <div class="text-truncate">${result.flow?.name || 'Unknown'}</div>
+            </div>
+            <div class="mb-2">
+                <strong>Status:</strong>
+                <span class="badge ${getStatusBadgeClass(result.status)}">${result.status || 'Unknown'}</span>
+            </div>
+            <div class="mb-2">
+                <strong>Started:</strong>
+                <div>${result.startedAt ? new Date(result.startedAt).toLocaleString() : 'Unknown'}</div>
+            </div>
+        `;
+        
+        // Insert execution details at the beginning of sidebar, after input fields
+        const lastInputGroup = sidebar.querySelector('div.mb-3:last-of-type');
+        if (lastInputGroup) {
+            lastInputGroup.insertAdjacentElement('afterend', detailsPanel);
+        } else {
+            sidebar.prepend(detailsPanel);
+        }
+    }
+
+    // Helper function to get appropriate badge class for status
+    function getStatusBadgeClass(status) {
+        switch (status) {
+            case 'SUCCEEDED':
+                return 'bg-success';
+            case 'FAILED':
+                return 'bg-danger';
+            case 'RUNNING':
+                return 'bg-primary';
+            case 'PENDING':
+                return 'bg-warning';
+            default:
+                return 'bg-secondary';
+        }
+    }
+
+    // Initialize sticky header behavior
+    function initStickyHeader() {
+        const header = document.querySelector('.sticky-header');
+        const headerContainer = document.querySelector('.sticky-header-container');
+        const spacer = document.querySelector('.header-spacer');
+        const resultsContainer = document.querySelector('.results-container');
+        
+        if (!header || !headerContainer || !spacer || !resultsContainer) return;
+        
+        // Store the original position of the header
+        const headerRect = headerContainer.getBoundingClientRect();
+        const originalTop = headerRect.top + window.scrollY;
+        const headerHeight = headerRect.height;
+        
+        // Set the spacer height to match the header height
+        spacer.style.height = headerHeight + 'px';
+        
+        // Function to handle scroll events
+        function handleScroll() {
+            const resultsContainerScroll = resultsContainer.scrollTop;
+            
+            if (resultsContainerScroll > 10) { // Small threshold to trigger fixed positioning
+                // Fixed position when scrolled
+                header.classList.add('fixed-header');
+                spacer.style.display = 'block';
+                
+                // Calculate the width dynamically based on the results container
+                const containerWidth = resultsContainer.clientWidth;
+                header.style.width = containerWidth + 'px';
+            } else {
+                // Normal position when at the top
+                header.classList.remove('fixed-header');
+                spacer.style.display = 'none';
+                header.style.width = '100%';
+            }
+        }
+        
+        // Add scroll event listener to the results container instead of window
+        resultsContainer.addEventListener('scroll', handleScroll);
+        
+        // Add resize event listener to adjust width if window is resized
+        window.addEventListener('resize', handleScroll);
+        
+        // Initial call to set the correct state
+        handleScroll();
+    }
+
+    // Add a welcome message function
+    function showWelcome() {
+        const resultsDiv = document.getElementById('results');
+        resultsDiv.innerHTML = `
+            <div class="col-12">
+                <div class="p-4 mb-4 bg-light rounded-3">
+                    <h2>Welcome to Prismatic Loggie</h2>
+                    <p class="lead">Enter an Execution ID and click "Load" to view execution logs.</p>
+                    <hr>
+                    <p>This tool helps you analyze and navigate through Prismatic execution logs with features like:</p>
+                    <ul>
+                        <li>Step-by-step navigation with the TOC sidebar</li>
+                        <li>JSON data auto-detection and formatted viewing</li>
+                        <li>Loop iterations organized in a tree structure</li>
+                        <li>Dark/light theme support</li>
+                    </ul>
+                </div>
+            </div>
+        `;
     }
 
     // Build a hierarchical dictionary of steps for navigation
@@ -150,18 +281,19 @@ const UI = (() => {
             
             const heading = document.createElement('h5');
             heading.textContent = 'Step Navigation';
+            heading.className = 'border-bottom pb-2 mb-2';
             stepNav.appendChild(heading);
             
             sidebar.appendChild(stepNav);
         } else {
             // Clear existing navigation
-            stepNav.innerHTML = '<h5>Step Navigation</h5>';
+            stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2">Step Navigation</h5>';
         }
         
         // Create a collapsible tree component
         const navContainer = document.createElement('div');
         navContainer.className = 'step-nav-container mt-2 border rounded p-2 bg-light';
-        navContainer.style.maxHeight = '100%';
+        navContainer.style.maxHeight = '300px';
         navContainer.style.overflowY = 'auto';
         
         // Build tree structure
@@ -469,6 +601,22 @@ const UI = (() => {
         let mainJsonElement;
         let nestedJsonElement;
         
+        // Get step details from the closest log card
+        const logCard = event.target.closest('.log-card');
+        const stepName = logCard ? logCard.querySelector('h5').textContent : 'Unknown Step';
+        const timestamp = logCard ? logCard.querySelector('.timestamp').textContent : '';
+        
+        // Check for loop information
+        let loopInfo = '';
+        const loopBadge = logCard ? logCard.querySelector('.badge') : null;
+        if (loopBadge) {
+            loopInfo = loopBadge.textContent;
+        }
+        
+        // Look for loop path if it exists
+        const loopPathElement = logCard ? logCard.querySelector('.loop-info') : null;
+        const loopPath = loopPathElement ? loopPathElement.textContent : '';
+        
         try {
             // First attempt - parse the direct JSON string
             const jsonObj = JSON.parse(jsonStr);
@@ -556,7 +704,15 @@ const UI = (() => {
             modal.innerHTML = `
                 <div class="modal-content">
                     <span class="close-modal">&times;</span>
-                    <h3>JSON Data</h3>
+                    <div class="step-details mb-3">
+                        <h3>JSON Data</h3>
+                        <div class="step-info border-top border-bottom py-2 my-2">
+                            <div id="modalStepName" class="fw-bold"></div>
+                            <div id="modalTimestamp" class="text-muted small"></div>
+                            <div id="modalLoopInfo" class="mt-1 badge-container"></div>
+                            <div id="modalLoopPath" class="small text-secondary fst-italic"></div>
+                        </div>
+                    </div>
                     <div id="jsonContent" class="code-container"></div>
                     <div id="nestedJsonContainer" style="display: none; margin-top: 20px;">
                         <h4>Nested JSON Data</h4>
@@ -579,6 +735,25 @@ const UI = (() => {
                 }
             });
         }
+        
+        // Update step details in the modal
+        document.getElementById('modalStepName').textContent = stepName;
+        document.getElementById('modalTimestamp').textContent = timestamp;
+        
+        // Add loop information if available
+        const modalLoopInfo = document.getElementById('modalLoopInfo');
+        modalLoopInfo.innerHTML = '';
+        if (loopInfo) {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-secondary';
+            badge.textContent = loopInfo;
+            modalLoopInfo.appendChild(badge);
+        }
+        
+        // Add loop path if available
+        const modalLoopPath = document.getElementById('modalLoopPath');
+        modalLoopPath.textContent = loopPath;
+        modalLoopPath.style.display = loopPath ? 'block' : 'none';
         
         // Set content and display modal
         const jsonContentDiv = document.getElementById('jsonContent');
@@ -682,6 +857,7 @@ const UI = (() => {
         showError,
         showLoading,
         displayResults,
+        showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,
         showJsonModal

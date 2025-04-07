@@ -64,6 +64,12 @@ const API = (() => {
         query QueryExecutionResult($id: ID!) {
             executionResult(id: $id) {
                 id
+                instance {
+                    name
+                }
+                flow {
+                    name
+                }
                 logs(orderBy: {direction: DESC, field: TIMESTAMP}) {
                     edges {
                         node {
@@ -74,9 +80,14 @@ const API = (() => {
                             loopStepIndex
                             loopPath
                             timestamp
+                            instanceName
+                            flowName
                         }
                     }
                 }
+                startedAt
+                status
+                stepCount
             }
         }
     `;
@@ -88,6 +99,7 @@ const API = (() => {
         if (!apiToken) {
             throw new Error('API token is required.');
         }
+        console.log(`Fetching execution results for ID: ${executionId}`);
 
         const response = await fetch(apiEndpoint, {
             method: 'POST',
@@ -117,9 +129,15 @@ const API = (() => {
     }
 
     // Return public methods
-    return {
+    const apiModule = {
         fetchExecutionResults,
         loadSavedConfig,
         updateConfig
     };
+
+    // Export as module and maintain global for backward compatibility
+    return apiModule;
 })();
+
+// Export as both module and global variable for backward compatibility
+window.API = API; // Keep global access for existing code

@@ -417,3 +417,95 @@ pre[class*="language-"] {
 [data-theme="dark"] .step-nav-tree .toggle-step {
     color: #e1e1e1;
 }
+
+/* Execution Header Styles */
+.execution-header {
+    background-color: var(--light-bg-color);
+    border-color: var(--border-color);
+    border-radius: 8px;
+}
+
+.execution-header h3 {
+    color: var(--primary-color);
+    margin-bottom: 15px;
+}
+
+/* Dark theme support */
+[data-theme="dark"] .execution-header {
+    background-color: #2d2d2d !important;
+    border-color: #444 !important;
+}
+
+[data-theme="dark"] .execution-header h3 {
+    color: #6ea8fe;
+}
+
+/* Sticky Header Styles */
+.sticky-header-container {
+    position: relative;
+    z-index: 100;
+}
+
+.sticky-header {
+    background-color: var(--light-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    margin-bottom: 1.5rem;
+    position: -webkit-sticky; /* Safari */
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Dark theme support */
+[data-theme="dark"] .sticky-header {
+    background-color: #2d2d2d !important;
+    border-color: #444 !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Add these styles to make header sticky with pure CSS */
+.results-container {
+    /* Keep your existing styles */
+    position: relative;
+}
+
+/* Execution Details Styles */
+.execution-details {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    background-color: var(--light-bg-color);
+}
+
+.execution-details h5 {
+    color: var(--primary-color);
+    font-size: 1rem;
+    margin-bottom: 10px;
+}
+
+.execution-details strong {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.execution-details .text-truncate {
+    max-width: 100%;
+}
+
+/* Dark theme support */
+[data-theme="dark"] .execution-details {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+[data-theme="dark"] .execution-details h5 {
+    color: #6ea8fe;
+    border-bottom-color: #444;
+}
+
+[data-theme="dark"] .execution-details strong {
+    color: #adb5bd;
+}
