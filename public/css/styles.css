@@ -1,0 +1,198 @@
+/* Base styles */
+:root {
+  --background-color: #ffffff;
+  --text-color: #333333;
+  --card-background: #f8f9fa;
+  --border-color: #dee2e6;
+  --primary-color: #0d6efd;
+  --success-color: #198754;
+  --danger-color: #dc3545;
+  --warning-color: #ffc107;
+}
+
+[data-theme="dark"] {
+  --background-color: #121212;
+  --text-color: #f8f9fa;
+  --card-background: #2a2a2a;
+  --border-color: #444444;
+  --primary-color: #3d8bfd;
+  --success-color: #2ea868;
+  --danger-color: #e35d6a;
+  --warning-color: #ffca2c;
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Theme switch styling */
+.theme-switch-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.theme-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+
+.theme-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.4s;
+}
+
+input:checked + .slider {
+  background-color: var(--primary-color);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--primary-color);
+}
+
+input:checked + .slider:before {
+  transform: translateX(26px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* Card styling */
+.card {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+  margin-bottom: 1rem;
+}
+
+.card-header {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Input styling */
+.form-control {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+
+.form-control:focus {
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+/* Status indicators */
+.success-text {
+  color: var(--success-color);
+}
+
+.error-text {
+  color: var(--danger-color);
+}
+
+/* JSON viewer */
+pre {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1rem;
+  overflow: auto;
+  white-space: pre-wrap;       /* Enable text wrapping */
+  word-wrap: break-word;       /* Break long words to prevent overflow */
+}
+
+/* Log card styling */
+.log-card {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Modal styling */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  margin: 5% auto;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 80%;
+  max-width: 800px;
+  max-height: 80vh;
+  overflow-y: auto;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.close-modal {
+  color: var(--text-color);
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.close-modal:hover,
+.close-modal:focus {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+/* View JSON button styling */
+.view-json-btn {
+  margin-top: 10px;
+}
+
+/* JSON content styling */
+#jsonContent {
+  max-height: 60vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
