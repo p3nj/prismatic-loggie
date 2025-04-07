@@ -4,6 +4,8 @@ const UI = (() => {
     function initTheme() {
         const themeToggle = document.getElementById('theme-toggle');
         const themeIcon = document.querySelector('.theme-icon');
+        const prismLightTheme = document.getElementById('prism-light');
+        const prismDarkTheme = document.getElementById('prism-dark');
         
         // Check for saved theme preference or use preferred color scheme
         const savedTheme = localStorage.getItem('theme');
@@ -13,6 +15,8 @@ const UI = (() => {
             document.documentElement.setAttribute('data-theme', 'dark');
             themeToggle.checked = true;
             themeIcon.className = 'theme-icon bi bi-sun';
+            prismLightTheme.disabled = true;
+            prismDarkTheme.disabled = false;
         }
         
         // Add event listener for theme toggle
@@ -21,10 +25,14 @@ const UI = (() => {
                 document.documentElement.setAttribute('data-theme', 'dark');
                 localStorage.setItem('theme', 'dark');
                 themeIcon.className = 'theme-icon bi bi-sun';
+                prismLightTheme.disabled = true;
+                prismDarkTheme.disabled = false;
             } else {
                 document.documentElement.setAttribute('data-theme', 'light');
                 localStorage.setItem('theme', 'light');
                 themeIcon.className = 'theme-icon bi bi-moon';
+                prismLightTheme.disabled = false;
+                prismDarkTheme.disabled = true;
             }
         });
     }
@@ -251,21 +259,51 @@ const UI = (() => {
         });
     }
 
+    // Helper function to highlight JSON using Prism.js
+    function highlightJSON(jsonString) {
+        // Format the JSON with proper indentation
+        const formattedJson = JSON.stringify(JSON.parse(jsonString), null, 2);
+        
+        // Create a pre element to properly maintain whitespace
+        const preElement = document.createElement('pre');
+        preElement.className = 'language-json';
+        preElement.style.margin = '0'; // Remove default margins
+        
+        // Create a code element for Prism highlighting
+        const codeElement = document.createElement('code');
+        codeElement.className = 'language-json';
+        codeElement.textContent = formattedJson;
+        
+        // Add the code element to the pre element
+        preElement.appendChild(codeElement);
+        
+        // Highlight the code
+        if (window.Prism) {
+            Prism.highlightElement(codeElement);
+        }
+        
+        return preElement;
+    }
+
     // Show JSON modal with improved formatting
     function showJsonModal(event) {
         const jsonStr = event.target.dataset.json;
         let formattedJson;
         let nestedJson = null;
+        let mainJsonElement;
+        let nestedJsonElement;
         
         try {
             // First attempt - parse the direct JSON string
             const jsonObj = JSON.parse(jsonStr);
             formattedJson = JSON.stringify(jsonObj, null, 2);
+            mainJsonElement = highlightJSON(jsonStr);
             
             // Look for potential nested JSON in string properties
             if (typeof jsonObj === 'object') {
                 // Check common properties that might contain JSON strings
-                const jsonProps = ['message', 'payload', 'response', 'data', 'result', 'error'];
+                const jsonProps = ['message', 'payload', 'response', 'data', 'result', 'error', 'headers', 'body', 'content'];
+                let nestedJsonObjects = []; // Store all found nested JSON objects
                 
                 for (const prop of jsonProps) {
                     if (jsonObj[prop] && typeof jsonObj[prop] === 'string') {
@@ -280,13 +318,23 @@ const UI = (() => {
                             if (match) {
                                 // Try to parse as JSON
                                 const extractedJson = JSON.parse(match[0]);
-                                nestedJson = JSON.stringify(extractedJson, null, 2);
-                                break; // Found nested JSON, no need to check other properties
+                                nestedJsonObjects.push({
+                                    property: prop,
+                                    json: match[0],
+                                    formattedJson: JSON.stringify(extractedJson, null, 2),
+                                    element: highlightJSON(match[0])
+                                });
                             }
                         } catch (e) {
                             // Not valid JSON in this property, continue checking
                         }
                     }
+                }
+                
+                // If we found any nested JSON objects, store them for later use
+                if (nestedJsonObjects.length > 0) {
+                    nestedJson = true;
+                    nestedJsonElement = nestedJsonObjects;
                 }
             }
         } catch (e) {
@@ -306,11 +354,20 @@ const UI = (() => {
                     // Parse and format
                     const jsonObj = JSON.parse(unescapedJson);
                     formattedJson = JSON.stringify(jsonObj, null, 2);
+                    mainJsonElement = highlightJSON(unescapedJson);
                 } else {
                     formattedJson = jsonStr;
+                    // For non-JSON content, just use a simple pre
+                    const preElement = document.createElement('pre');
+                    preElement.textContent = jsonStr;
+                    mainJsonElement = preElement;
                 }
             } catch (nestedError) {
                 formattedJson = jsonStr;
+                // For non-JSON content, just use a simple pre
+                const preElement = document.createElement('pre');
+                preElement.textContent = jsonStr;
+                mainJsonElement = preElement;
             }
         }
         
@@ -324,11 +381,11 @@ const UI = (() => {
                 <div class="modal-content">
                     <span class="close-modal">&times;</span>
                     <h3>JSON Data</h3>
-                    <pre id="jsonContent"></pre>
+                    <div id="jsonContent" class="code-container"></div>
                     <div id="nestedJsonContainer" style="display: none; margin-top: 20px;">
                         <h4>Nested JSON Data</h4>
-                        <button id="toggleNestedJson" class="btn btn-sm btn-info mb-2">Show Nested JSON</button>
-                        <pre id="nestedJsonContent" style="display: none;"></pre>
+                        <div id="nestedJsonTabs" class="mb-2"></div>
+                        <div id="nestedJsonContent" class="code-container"></div>
                     </div>
                 </div>
             `;
@@ -345,30 +402,42 @@ const UI = (() => {
                     modal.style.display = 'none';
                 }
             });
-            
-            // Add toggle functionality for nested JSON
-            document.getElementById('toggleNestedJson').addEventListener('click', (e) => {
-                const nestedContent = document.getElementById('nestedJsonContent');
-                if (nestedContent.style.display === 'none') {
-                    nestedContent.style.display = 'block';
-                    e.target.textContent = 'Hide Nested JSON';
-                } else {
-                    nestedContent.style.display = 'none';
-                    e.target.textContent = 'Show Nested JSON';
-                }
-            });
         }
         
         // Set content and display modal
-        document.getElementById('jsonContent').textContent = formattedJson;
+        const jsonContentDiv = document.getElementById('jsonContent');
+        jsonContentDiv.innerHTML = '';
+        jsonContentDiv.appendChild(mainJsonElement);
         
         // Handle nested JSON if available
         const nestedContainer = document.getElementById('nestedJsonContainer');
         const nestedContent = document.getElementById('nestedJsonContent');
+        const nestedJsonTabs = document.getElementById('nestedJsonTabs');
         
-        if (nestedJson) {
+        if (nestedJson && Array.isArray(nestedJsonElement) && nestedJsonElement.length > 0) {
             nestedContainer.style.display = 'block';
-            nestedContent.textContent = nestedJson;
+            
+            // Create tabs for each nested JSON property
+            nestedJsonTabs.innerHTML = '';
+            nestedJsonElement.forEach((item, index) => {
+                const tabButton = document.createElement('button');
+                tabButton.className = `btn btn-sm ${index === 0 ? 'btn-info' : 'btn-outline-info'}`;
+                tabButton.textContent = item.property;
+                tabButton.style.marginRight = '5px';
+                tabButton.dataset.index = index;
+                tabButton.addEventListener('click', switchNestedJsonTab);
+                nestedJsonTabs.appendChild(tabButton);
+            });
+            
+            // Show the first nested JSON by default
+            nestedContent.innerHTML = '';
+            nestedContent.appendChild(nestedJsonElement[0].element);
+        } else if (nestedJson && nestedJsonElement) {
+            // Handle legacy single nested JSON case
+            nestedContainer.style.display = 'block';
+            nestedJsonTabs.innerHTML = '';
+            nestedContent.innerHTML = '';
+            nestedContent.appendChild(nestedJsonElement);
         } else {
             // Check for potential nested JSON in the formatted string
             try {
@@ -382,10 +451,18 @@ const UI = (() => {
                     
                     try {
                         const payloadObj = JSON.parse(extractedPayload);
-                        nestedJson = JSON.stringify(payloadObj, null, 2);
                         
                         nestedContainer.style.display = 'block';
-                        nestedContent.textContent = nestedJson;
+                        nestedJsonTabs.innerHTML = '';
+                        
+                        const tabButton = document.createElement('button');
+                        tabButton.className = 'btn btn-sm btn-info';
+                        tabButton.textContent = 'payload';
+                        nestedJsonTabs.appendChild(tabButton);
+                        
+                        const nestedElement = highlightJSON(extractedPayload);
+                        nestedContent.innerHTML = '';
+                        nestedContent.appendChild(nestedElement);
                     } catch (e) {
                         nestedContainer.style.display = 'none';
                     }
@@ -398,6 +475,29 @@ const UI = (() => {
         }
         
         modal.style.display = 'block';
+        
+        // Add function to handle tab switching
+        function switchNestedJsonTab(event) {
+            // Update active tab styling
+            const tabs = nestedJsonTabs.querySelectorAll('button');
+            tabs.forEach(tab => tab.className = 'btn btn-sm btn-outline-info');
+            event.target.className = 'btn btn-sm btn-info';
+            
+            // Show selected nested JSON
+            const index = parseInt(event.target.dataset.index);
+            nestedContent.innerHTML = '';
+            nestedContent.appendChild(nestedJsonElement[index].element);
+            
+            // Make sure Prism re-highlights the new content
+            if (window.Prism) {
+                Prism.highlightElement(nestedContent.querySelector('code'));
+            }
+        }
+        
+        // Make sure Prism re-highlights any new elements
+        if (window.Prism) {
+            Prism.highlightAll();
+        }
     }
 
     // Return public methods

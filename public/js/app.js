@@ -12,6 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchResults();
         }
     });
+
+    document.getElementById('getTokenButton').addEventListener('click', () => {
+        const endpointSelect = document.getElementById('endpointSelect');
+        const apiEndpoint = endpointSelect.value;
+        window.open(`${apiEndpoint}/get_auth_token`, '_blank');
+    });
     
     // Main fetch function
     async function fetchResults() {
