@@ -567,39 +567,12 @@ const UI = (() => {
         });
     }
 
-    // Helper function to highlight JSON using Prism.js
-    function highlightJSON(jsonString) {
-        // Format the JSON with proper indentation
-        const formattedJson = JSON.stringify(JSON.parse(jsonString), null, 2);
-        
-        // Create a pre element to properly maintain whitespace
-        const preElement = document.createElement('pre');
-        preElement.className = 'language-json';
-        preElement.style.margin = '0'; // Remove default margins
-        
-        // Create a code element for Prism highlighting
-        const codeElement = document.createElement('code');
-        codeElement.className = 'language-json';
-        codeElement.textContent = formattedJson;
-        
-        // Add the code element to the pre element
-        preElement.appendChild(codeElement);
-        
-        // Highlight the code
-        if (window.Prism) {
-            Prism.highlightElement(codeElement);
-        }
-        
-        return preElement;
-    }
-
     // Show JSON modal with improved formatting
     function showJsonModal(event) {
         const jsonStr = event.target.dataset.json;
-        let formattedJson;
+        let jsonObj;
         let nestedJson = null;
-        let mainJsonElement;
-        let nestedJsonElement;
+        let nestedJsonObjects = [];
         
         // Get step details from the closest log card
         const logCard = event.target.closest('.log-card');
@@ -619,15 +592,12 @@ const UI = (() => {
         
         try {
             // First attempt - parse the direct JSON string
-            const jsonObj = JSON.parse(jsonStr);
-            formattedJson = JSON.stringify(jsonObj, null, 2);
-            mainJsonElement = highlightJSON(jsonStr);
+            jsonObj = JSON.parse(jsonStr);
             
             // Look for potential nested JSON in string properties
             if (typeof jsonObj === 'object') {
                 // Check common properties that might contain JSON strings
                 const jsonProps = ['message', 'payload', 'response', 'data', 'result', 'error', 'headers', 'body', 'content'];
-                let nestedJsonObjects = []; // Store all found nested JSON objects
                 
                 for (const prop of jsonProps) {
                     if (jsonObj[prop] && typeof jsonObj[prop] === 'string') {
@@ -644,9 +614,7 @@ const UI = (() => {
                                 const extractedJson = JSON.parse(match[0]);
                                 nestedJsonObjects.push({
                                     property: prop,
-                                    json: match[0],
-                                    formattedJson: JSON.stringify(extractedJson, null, 2),
-                                    element: highlightJSON(match[0])
+                                    json: extractedJson
                                 });
                             }
                         } catch (e) {
@@ -655,10 +623,9 @@ const UI = (() => {
                     }
                 }
                 
-                // If we found any nested JSON objects, store them for later use
+                // If we found any nested JSON objects
                 if (nestedJsonObjects.length > 0) {
                     nestedJson = true;
-                    nestedJsonElement = nestedJsonObjects;
                 }
             }
         } catch (e) {
@@ -676,25 +643,20 @@ const UI = (() => {
                         .replace(/\\\\/g, '\\');
                     
                     // Parse and format
-                    const jsonObj = JSON.parse(unescapedJson);
-                    formattedJson = JSON.stringify(jsonObj, null, 2);
-                    mainJsonElement = highlightJSON(unescapedJson);
+                    jsonObj = JSON.parse(unescapedJson);
                 } else {
-                    formattedJson = jsonStr;
-                    // For non-JSON content, just use a simple pre
-                    const preElement = document.createElement('pre');
-                    preElement.textContent = jsonStr;
-                    mainJsonElement = preElement;
+                    // For non-JSON content, just display as text
+                    jsonObj = { rawContent: jsonStr };
                 }
             } catch (nestedError) {
-                formattedJson = jsonStr;
-                // For non-JSON content, just use a simple pre
-                const preElement = document.createElement('pre');
-                preElement.textContent = jsonStr;
-                mainJsonElement = preElement;
+                jsonObj = { rawContent: jsonStr };
             }
         }
         
+        // Track editor instances to properly dispose them
+        let mainEditor = null;
+        let nestedEditor = null;
+
         // Create modal if it doesn't exist
         let modal = document.getElementById('jsonModal');
         if (!modal) {
@@ -702,38 +664,57 @@ const UI = (() => {
             modal.id = 'jsonModal';
             modal.className = 'modal';
             modal.innerHTML = `
-                <div class="modal-content">
+                <div class="modal-content modal-lg">
                     <span class="close-modal">&times;</span>
-                    <div class="step-details mb-3">
-                        <h3>JSON Data</h3>
-                        <div class="step-info border-top border-bottom py-2 my-2">
-                            <div id="modalStepName" class="fw-bold"></div>
-                            <div id="modalTimestamp" class="text-muted small"></div>
-                            <div id="modalLoopInfo" class="mt-1 badge-container"></div>
-                            <div id="modalLoopPath" class="small text-secondary fst-italic"></div>
+                    <div class="step-details mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">JSON Data - <span id="modalStepName" class="text-secondary"></span></h5>
+                            <span id="modalTimestamp" class="text-muted small"></span>
                         </div>
+                        <div id="modalLoopInfo" class="mt-1 badge-container d-inline-block"></div>
+                        <div id="modalLoopPath" class="small text-secondary fst-italic d-inline-block ms-2"></div>
                     </div>
-                    <div id="jsonContent" class="code-container"></div>
-                    <div id="nestedJsonContainer" style="display: none; margin-top: 20px;">
-                        <h4>Nested JSON Data</h4>
+                    <div id="jsonContainer" style="height: 420px;"></div>
+                    <div id="nestedJsonContainer" style="display: none; margin-top: 15px;">
+                        <h6 class="mb-1">Nested JSON Data</h6>
                         <div id="nestedJsonTabs" class="mb-2"></div>
-                        <div id="nestedJsonContent" class="code-container"></div>
+                        <div id="nestedJsonContent" style="height: 320px;"></div>
                     </div>
                 </div>
             `;
             document.body.appendChild(modal);
             
-            // Add close functionality
+            // Add close functionality with proper editor cleanup
             modal.querySelector('.close-modal').addEventListener('click', () => {
+                if (mainEditor) {
+                    mainEditor.dispose();
+                    mainEditor = null;
+                }
+                if (nestedEditor) {
+                    nestedEditor.dispose();
+                    nestedEditor = null;
+                }
                 modal.style.display = 'none';
             });
             
             // Close when clicking outside the modal
             window.addEventListener('click', (event) => {
                 if (event.target === modal) {
+                    if (mainEditor) {
+                        mainEditor.dispose();
+                        mainEditor = null;
+                    }
+                    if (nestedEditor) {
+                        nestedEditor.dispose();
+                        nestedEditor = null;
+                    }
                     modal.style.display = 'none';
                 }
             });
+        } else {
+            // Clear the editors if modal exists
+            document.getElementById('jsonContainer').innerHTML = '';
+            document.getElementById('nestedJsonContent').innerHTML = '';
         }
         
         // Update step details in the modal
@@ -755,100 +736,88 @@ const UI = (() => {
         modalLoopPath.textContent = loopPath;
         modalLoopPath.style.display = loopPath ? 'block' : 'none';
         
-        // Set content and display modal
-        const jsonContentDiv = document.getElementById('jsonContent');
-        jsonContentDiv.innerHTML = '';
-        jsonContentDiv.appendChild(mainJsonElement);
+        // Initialize Monaco Editor for main content
+        const jsonContainer = document.getElementById('jsonContainer');
+        mainEditor = monaco.editor.create(jsonContainer, {
+            value: JSON.stringify(jsonObj, null, 2),
+            language: 'json',
+            theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+            automaticLayout: true,
+            minimap: { enabled: true },
+            folding: true,
+            lineNumbers: 'on',
+            scrollBeyondLastLine: false
+        });
         
         // Handle nested JSON if available
         const nestedContainer = document.getElementById('nestedJsonContainer');
         const nestedContent = document.getElementById('nestedJsonContent');
         const nestedJsonTabs = document.getElementById('nestedJsonTabs');
         
-        if (nestedJson && Array.isArray(nestedJsonElement) && nestedJsonElement.length > 0) {
+        if (nestedJson && nestedJsonObjects.length > 0) {
             nestedContainer.style.display = 'block';
             
             // Create tabs for each nested JSON property
             nestedJsonTabs.innerHTML = '';
-            nestedJsonElement.forEach((item, index) => {
+            
+            nestedJsonObjects.forEach((item, index) => {
                 const tabButton = document.createElement('button');
                 tabButton.className = `btn btn-sm ${index === 0 ? 'btn-info' : 'btn-outline-info'}`;
                 tabButton.textContent = item.property;
                 tabButton.style.marginRight = '5px';
                 tabButton.dataset.index = index;
-                tabButton.addEventListener('click', switchNestedJsonTab);
+                
+                tabButton.addEventListener('click', (e) => {
+                    // Update active tab styling
+                    const tabs = nestedJsonTabs.querySelectorAll('button');
+                    tabs.forEach(tab => tab.className = 'btn btn-sm btn-outline-info');
+                    e.target.className = 'btn btn-sm btn-info';
+                    
+                    // Show selected nested JSON
+                    const idx = parseInt(e.target.dataset.index);
+                    
+                    // Dispose of existing nested editor if present
+                    if (nestedEditor) {
+                        nestedEditor.dispose();
+                    }
+                    
+                    // Clear the container before creating a new editor
+                    nestedContent.innerHTML = '';
+                    
+                    // Create a new nested editor
+                    nestedEditor = monaco.editor.create(nestedContent, {
+                        value: JSON.stringify(nestedJsonObjects[idx].json, null, 2),
+                        language: 'json',
+                        theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+                        automaticLayout: true,
+                        minimap: { enabled: true },
+                        folding: true,
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false
+                    });
+                });
+                
                 nestedJsonTabs.appendChild(tabButton);
             });
             
-            // Show the first nested JSON by default
-            nestedContent.innerHTML = '';
-            nestedContent.appendChild(nestedJsonElement[0].element);
-        } else if (nestedJson && nestedJsonElement) {
-            // Handle legacy single nested JSON case
-            nestedContainer.style.display = 'block';
-            nestedJsonTabs.innerHTML = '';
-            nestedContent.innerHTML = '';
-            nestedContent.appendChild(nestedJsonElement);
+            // Initialize the first nested JSON by default
+            nestedContent.innerHTML = ''; // Clear the container first
+            nestedEditor = monaco.editor.create(nestedContent, {
+                value: JSON.stringify(nestedJsonObjects[0].json, null, 2),
+                language: 'json',
+                theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+                automaticLayout: true,
+                minimap: { enabled: true },
+                folding: true,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false
+            });
+            
         } else {
-            // Check for potential nested JSON in the formatted string
-            try {
-                // Try to extract payload or other common nested JSON fields
-                const payloadMatch = formattedJson.match(/"payload":\s*"({[\s\S]*?})"/);
-                if (payloadMatch) {
-                    let extractedPayload = payloadMatch[1]
-                        .replace(/\\n/g, '\n')
-                        .replace(/\\"/g, '"')
-                        .replace(/\\\\/g, '\\');
-                    
-                    try {
-                        const payloadObj = JSON.parse(extractedPayload);
-                        
-                        nestedContainer.style.display = 'block';
-                        nestedJsonTabs.innerHTML = '';
-                        
-                        const tabButton = document.createElement('button');
-                        tabButton.className = 'btn btn-sm btn-info';
-                        tabButton.textContent = 'payload';
-                        nestedJsonTabs.appendChild(tabButton);
-                        
-                        const nestedElement = highlightJSON(extractedPayload);
-                        nestedContent.innerHTML = '';
-                        nestedContent.appendChild(nestedElement);
-                    } catch (e) {
-                        nestedContainer.style.display = 'none';
-                    }
-                } else {
-                    nestedContainer.style.display = 'none';
-                }
-            } catch (e) {
-                nestedContainer.style.display = 'none';
-            }
+            nestedContainer.style.display = 'none';
         }
         
         modal.style.display = 'block';
-        
-        // Add function to handle tab switching
-        function switchNestedJsonTab(event) {
-            // Update active tab styling
-            const tabs = nestedJsonTabs.querySelectorAll('button');
-            tabs.forEach(tab => tab.className = 'btn btn-sm btn-outline-info');
-            event.target.className = 'btn btn-sm btn-info';
-            
-            // Show selected nested JSON
-            const index = parseInt(event.target.dataset.index);
-            nestedContent.innerHTML = '';
-            nestedContent.appendChild(nestedJsonElement[index].element);
-            
-            // Make sure Prism re-highlights the new content
-            if (window.Prism) {
-                Prism.highlightElement(nestedContent.querySelector('code'));
-            }
-        }
-        
-        // Make sure Prism re-highlights any new elements
-        if (window.Prism) {
-            Prism.highlightAll();
-        }
     }
 
     // Return public methods

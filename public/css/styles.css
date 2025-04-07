@@ -509,3 +509,19 @@ pre[class*="language-"] {
 [data-theme="dark"] .execution-details strong {
     color: #adb5bd;
 }
+
+/* Add to your CSS file */
+.modal-lg {
+  width: 90%;
+  max-width: 1200px;
+}
+
+.jsoneditor {
+  border: 1px solid #ddd;
+}
+
+.jsoneditor-search {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+}
