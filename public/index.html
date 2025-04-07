@@ -10,6 +10,28 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
     <link href="css/styles.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            position: sticky;
+            top: 20px;
+            height: fit-content;
+        }
+        
+        .results-container {
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        
+        @media (max-width: 767.98px) {
+            .sidebar {
+                position: static;
+                margin-bottom: 20px;
+            }
+            .results-container {
+                max-height: none;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container-fluid py-5">
@@ -26,39 +48,43 @@
         </div>
         <div class="row mb-4">
             <div class="col-md-3 col-lg-2">
-                <div class="mb-3">
-                    <label class="form-label" for="endpointSelect">Endpoint</label>
-                    <select class="form-select" id="endpointSelect">
-                        <option value="https://app.prismatic.io">https://app.prismatic.io</option>
-                        <option value="https://app.ap-southeast-2.prismatic.io" selected>https://app.ap-southeast-2.prismatic.io</option>
-                        <option value="https://app.ca-central-1.prismatic.io">https://app.ca-central-1.prismatic.io</option>
-                        <option value="https://app.eu-west-1.prismatic.io">https://app.eu-west-1.prismatic.io</option>
-                        <option value="https://app.eu-west-2.prismatic.io">https://app.eu-west-2.prismatic.io</option>
-                        <option value="https://app.us-gov-west-1.prismatic.io">https://app.us-gov-west-1.prismatic.io</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label" for="apiToken">API Token</label>
-                    <div class="d-flex">
-                        <input type="text" id="apiToken" class="form-control me-2" placeholder="Enter API Token">
-                        <button class="btn btn-secondary" id="getTokenButton">Get Token</button>
+                <div class="sidebar">
+                    <div class="mb-3">
+                        <label class="form-label" for="endpointSelect">Endpoint</label>
+                        <select class="form-select" id="endpointSelect">
+                            <option value="https://app.prismatic.io">https://app.prismatic.io</option>
+                            <option value="https://app.ap-southeast-2.prismatic.io" selected>https://app.ap-southeast-2.prismatic.io</option>
+                            <option value="https://app.ca-central-1.prismatic.io">https://app.ca-central-1.prismatic.io</option>
+                            <option value="https://app.eu-west-1.prismatic.io">https://app.eu-west-1.prismatic.io</option>
+                            <option value="https://app.eu-west-2.prismatic.io">https://app.eu-west-2.prismatic.io</option>
+                            <option value="https://app.us-gov-west-1.prismatic.io">https://app.us-gov-west-1.prismatic.io</option>
+                        </select>
                     </div>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label" for="executionId">Execution ID</label>
-                    <div class="d-flex">
-                        <input type="text" 
-                               id="executionId" 
-                               class="form-control me-2" 
-                               placeholder="Enter Execution ID"
-                               value="SW5zdGFuY2VFeGVjdXRpb25SZXN1bHQ6MTAwNmEwNWItMzJhZi00Y2MwLWI0YjctNWEyYTFiYTk4NDQ3">
-                        <button class="btn btn-primary" id="loadButton">Load</button>
+                    <div class="mb-3">
+                        <label class="form-label" for="apiToken">API Token</label>
+                        <div class="d-flex">
+                            <input type="text" id="apiToken" class="form-control me-2" placeholder="Enter API Token">
+                            <button class="btn btn-secondary" id="getTokenButton">Get Token</button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="executionId">Execution ID</label>
+                        <div class="d-flex">
+                            <input type="text" 
+                                id="executionId" 
+                                class="form-control me-2" 
+                                placeholder="Enter Execution ID"
+                                value="SW5zdGFuY2VFeGVjdXRpb25SZXN1bHQ6MTAwNmEwNWItMzJhZi00Y2MwLWI0YjctNWEyYTFiYTk4NDQ3">
+                            <button class="btn btn-primary" id="loadButton">Load</button>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="col-md-9 col-lg-10">
-                <div id="error" class="alert alert-danger d-none"></div>
-                <div id="results" class="row"></div>
+                <div class="results-container">
+                    <div id="error" class="alert alert-danger d-none"></div>
+                    <div id="results" class="row"></div>
+                </div>
             </div>
         </div>
     </div>

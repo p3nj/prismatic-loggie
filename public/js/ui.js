@@ -95,9 +95,13 @@ const UI = (() => {
         UI.detectAndSetupJsonViewers(result.logs.edges);
     }
 
-    // Get execution ID from input field
+    // Get execution ID from input field and save it
     function getExecutionId() {
-        return document.getElementById('executionId').value.trim();
+        const id = document.getElementById('executionId').value.trim();
+        if (id) {
+            localStorage.setItem('lastExecutionId', id);
+        }
+        return id;
     }
 
     // Detect and setup JSON viewers
