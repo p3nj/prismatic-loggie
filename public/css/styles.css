@@ -191,8 +191,32 @@ pre {
 
 /* JSON content styling */
 #jsonContent {
-  max-height: 60vh;
+  max-height: 80vh;
   overflow-y: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* JSON Modal additional styling */
+#jsonModal .modal-content {
+  max-width: 100%;
+}
+
+#nestedJsonContainer {
+  border-top: 1px solid var(--border-color);
+  padding-top: 15px;
+  margin-top: 15px;
+}
+
+#jsonContent, #nestedJsonContent {
+  background-color: var(--card-background);
+  border-radius: 4px;
+  padding: 15px;
+  overflow: auto;
+  max-height: 40vh;
+  font-family: monospace;
+}
+
+#toggleNestedJson:focus {
+  box-shadow: none;
 }
