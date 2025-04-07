@@ -365,3 +365,55 @@ pre[class*="language-"] {
     width: 100%;
   }
 }
+
+/* Step Navigation Styles */
+.step-nav-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.step-nav-tree .step-link,
+.step-nav-tree .loop-link {
+    color: var(--text-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.step-nav-tree .step-link:hover,
+.step-nav-tree .loop-link:hover {
+    text-decoration: underline;
+}
+
+.step-nav-tree .toggle-step {
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    padding: 0;
+    margin-right: 5px;
+}
+
+.step-nav-tree .loop-list {
+    margin-left: 20px;
+}
+
+.step-nav-tree .loop-link {
+    color: var(--secondary-color);
+    font-size: 0.85rem;
+}
+
+/* Dark theme support for step navigation */
+[data-theme="dark"] .step-nav-container {
+    background-color: #2d2d2d !important;
+    border-color: #444 !important;
+}
+
+[data-theme="dark"] .step-nav-tree .step-link,
+[data-theme="dark"] .step-nav-tree .loop-link,
+[data-theme="dark"] .step-nav-tree .toggle-step {
+    color: #e1e1e1;
+}

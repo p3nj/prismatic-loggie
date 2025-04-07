@@ -62,10 +62,16 @@ const UI = (() => {
             return;
         }
 
-        const logsHtml = result.logs.edges.map(edge => {
+        // Build a dictionary of steps with their logs for navigation
+        const stepDict = buildStepDictionary(result.logs.edges);
+        
+        // Update the step navigation in the sidebar
+        updateStepNavigation(stepDict);
+
+        const logsHtml = result.logs.edges.map((edge, index) => {
             const log = edge.node;
             return `
-                <div class="col-12 mb-3">
+                <div class="col-12 mb-3" id="log-${index}" data-step-name="${log.stepName || 'Unnamed Step'}">
                     <div class="log-card">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
@@ -93,6 +99,172 @@ const UI = (() => {
 
         // Detect and setup JSON viewers
         UI.detectAndSetupJsonViewers(result.logs.edges);
+    }
+
+    // Build a hierarchical dictionary of steps for navigation
+    function buildStepDictionary(logEdges) {
+        const stepDict = {};
+        
+        logEdges.forEach((edge, index) => {
+            const log = edge.node;
+            const stepName = log.stepName || 'Unnamed Step';
+            
+            if (!stepDict[stepName]) {
+                stepDict[stepName] = {
+                    indices: [],
+                    loops: {}
+                };
+            }
+            
+            stepDict[stepName].indices.push(index);
+            
+            // Track loop relationships if present
+            if (log.loopStepName) {
+                const loopKey = `${log.loopStepName}_${log.loopStepIndex}`;
+                
+                if (!stepDict[stepName].loops[loopKey]) {
+                    stepDict[stepName].loops[loopKey] = {
+                        name: log.loopStepName,
+                        index: log.loopStepIndex,
+                        indices: []
+                    };
+                }
+                
+                stepDict[stepName].loops[loopKey].indices.push(index);
+            }
+        });
+        
+        return stepDict;
+    }
+
+    // Update the step navigation in the sidebar
+    function updateStepNavigation(stepDict) {
+        // Create or update the step navigation container
+        let stepNav = document.getElementById('step-navigation');
+        if (!stepNav) {
+            const sidebar = document.querySelector('.sidebar');
+            
+            stepNav = document.createElement('div');
+            stepNav.id = 'step-navigation';
+            stepNav.className = 'mt-4';
+            
+            const heading = document.createElement('h5');
+            heading.textContent = 'Step Navigation';
+            stepNav.appendChild(heading);
+            
+            sidebar.appendChild(stepNav);
+        } else {
+            // Clear existing navigation
+            stepNav.innerHTML = '<h5>Step Navigation</h5>';
+        }
+        
+        // Create a collapsible tree component
+        const navContainer = document.createElement('div');
+        navContainer.className = 'step-nav-container mt-2 border rounded p-2 bg-light';
+        navContainer.style.maxHeight = '100%';
+        navContainer.style.overflowY = 'auto';
+        
+        // Build tree structure
+        const navTree = document.createElement('ul');
+        navTree.className = 'step-nav-tree list-unstyled';
+        
+        // Process each step and add to the tree
+        for (const stepName in stepDict) {
+            const stepData = stepDict[stepName];
+            
+            const stepItem = document.createElement('li');
+            stepItem.className = 'step-item mb-1';
+            
+            // Main step link/header
+            const stepHeader = document.createElement('div');
+            stepHeader.className = 'd-flex align-items-center';
+            
+            // Expand/collapse button for steps with loops
+            if (Object.keys(stepData.loops).length > 0) {
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn btn-sm toggle-step me-1 p-0';
+                toggleBtn.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+                toggleBtn.style.width = '20px';
+                toggleBtn.style.height = '20px';
+                toggleBtn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const icon = this.querySelector('i');
+                    const sublist = this.parentNode.nextElementSibling;
+                    if (icon.classList.contains('bi-caret-right-fill')) {
+                        icon.classList.replace('bi-caret-right-fill', 'bi-caret-down-fill');
+                        sublist.style.display = 'block';
+                    } else {
+                        icon.classList.replace('bi-caret-down-fill', 'bi-caret-right-fill');
+                        sublist.style.display = 'none';
+                    }
+                };
+                stepHeader.appendChild(toggleBtn);
+            } else {
+                // Add spacer for consistent indentation
+                const spacer = document.createElement('span');
+                spacer.style.width = '20px';
+                spacer.style.display = 'inline-block';
+                stepHeader.appendChild(spacer);
+            }
+            
+            // Step link
+            const stepLink = document.createElement('a');
+            stepLink.href = '#';
+            stepLink.className = 'step-link';
+            stepLink.textContent = `${stepName} (${stepData.indices.length})`;
+            stepLink.onclick = function(e) {
+                e.preventDefault();
+                // Jump to the first occurrence of this step
+                if (stepData.indices.length > 0) {
+                    document.getElementById(`log-${stepData.indices[0]}`).scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            };
+            stepHeader.appendChild(stepLink);
+            stepItem.appendChild(stepHeader);
+            
+            // Add loop items if present
+            if (Object.keys(stepData.loops).length > 0) {
+                const loopList = document.createElement('ul');
+                loopList.className = 'loop-list list-unstyled ms-4 mt-1';
+                loopList.style.display = 'none'; // Initially collapsed
+                
+                for (const loopKey in stepData.loops) {
+                    const loopData = stepData.loops[loopKey];
+                    
+                    const loopItem = document.createElement('li');
+                    loopItem.className = 'loop-item mb-1';
+                    
+                    const loopLink = document.createElement('a');
+                    loopLink.href = '#';
+                    loopLink.className = 'loop-link';
+                    loopLink.textContent = `${loopData.name} #${loopData.index} (${loopData.indices.length})`;
+                    loopLink.onclick = function(e) {
+                        e.preventDefault();
+                        // Jump to the first occurrence of this loop iteration
+                        if (loopData.indices.length > 0) {
+                            document.getElementById(`log-${loopData.indices[0]}`).scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'
+                            });
+                        }
+                    };
+                    
+                    loopItem.appendChild(loopLink);
+                    loopList.appendChild(loopItem);
+                }
+                
+                stepItem.appendChild(loopList);
+            }
+            
+            navTree.appendChild(stepItem);
+        }
+        
+        navContainer.appendChild(navTree);
+        stepNav.appendChild(navContainer);
     }
 
     // Get execution ID from input field and save it
