@@ -597,7 +597,7 @@ const UI = (() => {
             // Look for potential nested JSON in string properties
             if (typeof jsonObj === 'object') {
                 // Check common properties that might contain JSON strings
-                const jsonProps = ['message', 'payload', 'response', 'data', 'result', 'error', 'headers', 'body', 'content'];
+                const jsonProps = ['message', 'payload', 'response', 'stack', 'data', 'result', 'error', 'headers', 'body', 'content'];
                 
                 for (const prop of jsonProps) {
                     if (jsonObj[prop] && typeof jsonObj[prop] === 'string') {
@@ -666,19 +666,21 @@ const UI = (() => {
             modal.innerHTML = `
                 <div class="modal-content modal-lg">
                     <span class="close-modal">&times;</span>
-                    <div class="step-details mb-2">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">JSON Data - <span id="modalStepName" class="text-secondary"></span></h5>
-                            <span id="modalTimestamp" class="text-muted small"></span>
+                    <div class="json-modal-container d-flex flex-column" style="height: 80vh">
+                        <div class="step-details mb-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">JSON Data - <span id="modalStepName" class="text-secondary"></span></h5>
+                                <span id="modalTimestamp" class="text-muted small"></span>
+                            </div>
+                            <div id="modalLoopInfo" class="mt-1 badge-container d-inline-block"></div>
+                            <div id="modalLoopPath" class="small text-secondary fst-italic d-inline-block ms-2"></div>
                         </div>
-                        <div id="modalLoopInfo" class="mt-1 badge-container d-inline-block"></div>
-                        <div id="modalLoopPath" class="small text-secondary fst-italic d-inline-block ms-2"></div>
-                    </div>
-                    <div id="jsonContainer" style="height: 420px;"></div>
-                    <div id="nestedJsonContainer" style="display: none; margin-top: 15px;">
-                        <h6 class="mb-1">Nested JSON Data</h6>
-                        <div id="nestedJsonTabs" class="mb-2"></div>
-                        <div id="nestedJsonContent" style="height: 320px;"></div>
+                        <div id="jsonContainer" class="flex-grow-1"></div>
+                        <div id="nestedJsonContainer" class="nested-json-section" style="display: none; margin-top: 15px;">
+                            <h6 class="mb-1">Nested JSON Data</h6>
+                            <div id="nestedJsonTabs" class="mb-2"></div>
+                            <div id="nestedJsonContent"></div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -736,8 +738,25 @@ const UI = (() => {
         modalLoopPath.textContent = loopPath;
         modalLoopPath.style.display = loopPath ? 'block' : 'none';
         
-        // Initialize Monaco Editor for main content
+        // Get container references
         const jsonContainer = document.getElementById('jsonContainer');
+        const nestedContainer = document.getElementById('nestedJsonContainer');
+        const nestedContent = document.getElementById('nestedJsonContent');
+        const nestedJsonTabs = document.getElementById('nestedJsonTabs');
+        
+        // Adjust container heights based on whether nested JSON is present
+        if (nestedJson && nestedJsonObjects.length > 0) {
+            nestedContainer.style.display = 'block';
+            // When nested JSON is present, main container takes 60%, nested takes 40%
+            jsonContainer.style.height = '55%';
+            nestedContent.style.height = '35vh';
+        } else {
+            nestedContainer.style.display = 'none';
+            // When no nested JSON, main container takes full height
+            jsonContainer.style.height = '70vh';
+        }
+        
+        // Initialize Monaco Editor for main content
         mainEditor = monaco.editor.create(jsonContainer, {
             value: JSON.stringify(jsonObj, null, 2),
             language: 'json',
@@ -750,13 +769,7 @@ const UI = (() => {
         });
         
         // Handle nested JSON if available
-        const nestedContainer = document.getElementById('nestedJsonContainer');
-        const nestedContent = document.getElementById('nestedJsonContent');
-        const nestedJsonTabs = document.getElementById('nestedJsonTabs');
-        
         if (nestedJson && nestedJsonObjects.length > 0) {
-            nestedContainer.style.display = 'block';
-            
             // Create tabs for each nested JSON property
             nestedJsonTabs.innerHTML = '';
             
@@ -812,9 +825,6 @@ const UI = (() => {
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false
             });
-            
-        } else {
-            nestedContainer.style.display = 'none';
         }
         
         modal.style.display = 'block';
