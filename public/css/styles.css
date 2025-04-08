@@ -510,7 +510,6 @@ pre[class*="language-"] {
     color: #adb5bd;
 }
 
-/* Add to your CSS file */
 .modal-lg {
   width: 90%;
   max-width: 1200px;
@@ -525,8 +524,6 @@ pre[class*="language-"] {
   right: 2px;
   top: 2px;
 }
-
-/* Add these to your styles.css file */
 
 .json-modal-container {
   display: flex;
@@ -543,14 +540,13 @@ pre[class*="language-"] {
 }
 
 #jsonContainer, #nestedJsonContent {
-  overflow: hidden; /* Monaco editor handles scrolling internally */
+  overflow: hidden; 
 }
 
 #nestedJsonContainer.nested-json-section {
   flex-shrink: 0;
 }
 
-/* Ensure the modal doesn't grow too large */
 .modal-content.modal-lg {
   max-height: 90vh;
 }
