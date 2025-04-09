@@ -91,11 +91,13 @@ input:checked + .slider:before {
 }
 
 /* Card styling */
-.card {
+.card, .log-card {
   background-color: var(--card-background);
   border: 1px solid var(--border-color);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  border-radius: 4px;
+  padding: 1rem;
   margin-bottom: 1rem;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .card-header {
@@ -108,11 +110,18 @@ input:checked + .slider:before {
   background-color: var(--background-color);
   color: var(--text-color);
   border-color: var(--border-color);
+  border-radius: 0.375rem;
 }
 
 .form-control:focus {
   background-color: var(--background-color);
   color: var(--text-color);
+}
+
+#loadButton, #getTokenButton {
+  border-radius: 0.375rem;
+  font-weight: bold;
+  white-space: nowrap;
 }
 
 /* Status indicators */
@@ -131,8 +140,8 @@ pre {
   border-radius: 4px;
   padding: 1rem;
   overflow: auto;
-  white-space: pre-wrap;       /* Enable text wrapping */
-  word-wrap: break-word;       /* Break long words to prevent overflow */
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 /* Log card styling */
@@ -166,9 +175,9 @@ pre {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   width: 80%;
-  max-width: 800px;
-  max-height: 80vh;
-  overflow-y: auto;
+  max-width: 1200px;
+  max-height: 85vh;
+  overflow: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
@@ -215,7 +224,7 @@ pre {
   border-radius: 4px;
   padding: 15px;
   overflow: auto;
-  max-height: 40vh;
+  max-height: 100vh;
   font-family: monospace;
 }
 
@@ -330,11 +339,6 @@ pre[class*="language-"] {
   border-radius: 0.375rem;
 }
 
-#loadButton {
-  border-radius: 0.375rem;
-  font-weight: bold;
-}
-
 .container {
   max-width: 800px;
   margin: auto;
@@ -344,10 +348,6 @@ pre[class*="language-"] {
 .form-label {
   font-weight: 500;
   margin-bottom: 0.5rem;
-}
-
-#loadButton, #getTokenButton {
-  white-space: nowrap;
 }
 
 /* Improve responsiveness on smaller screens */
@@ -534,9 +534,11 @@ pre[class*="language-"] {
 
 .modal-content.modal-lg {
   height: 85vh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  padding-bottom: 10px;
+  padding: 20px;
+  overflow: hidden;
 }
 
 #jsonContainer, #nestedJsonContent {
@@ -547,6 +549,105 @@ pre[class*="language-"] {
   flex-shrink: 0;
 }
 
-.modal-content.modal-lg {
-  max-height: 90vh;
+.resizable-container {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  height: calc(100% - 60px); /* Account for header space */
+  min-height: 300px;
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-container {
+  width: 100%;
+  overflow: hidden;
+}
+
+.main-editor {
+  height: 60%;
+  min-height: 100px;
+  transition: height 0.2s;
+}
+
+.nested-json-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 40%; /* Default height, dynamically updated */
+  min-height: 100px;
+  overflow: hidden;
+}
+
+.nested-editor {
+  flex-grow: 1;
+  height: 100%; /* Ensure it fills the nested wrapper */
+  overflow: hidden;
+}
+
+/* Force Monaco editor to respect its container dimensions */
+.monaco-editor {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.monaco-editor .overflow-guard {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.resize-handle {
+    height: 6px;
+    background-color: #e9ecef;
+    cursor: row-resize;
+    width: 100%;
+    border-top: 1px solid #ced4da;
+    border-bottom: 1px solid #ced4da;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+}
+
+.resize-handle::after {
+    content: "≡";
+    color: #6c757d;
+    font-size: 12px;
+}
+
+.resize-handle:hover {
+    background-color: #dee2e6;
+}
+
+.nested-json-tabs-container {
+    padding: 5px 5px 0;
+    border-bottom: 1px solid #dee2e6;
+    background-color: #f8f9fa;
+    height: 40px;
+    overflow-x: auto;
+    white-space: nowrap;
+    display: flex;
+}
+
+.nested-json-tabs {
+    display: flex;
+    gap: 5px;
+    padding: 0 5px;
+}
+
+[data-theme="dark"] .resize-handle {
+    background-color: #343a40;
+    border-color: #495057;
+}
+
+[data-theme="dark"] .nested-json-tabs-container {
+    background-color: #343a40;
+    border-color: #495057;
+}
+
+[data-theme="dark"] .resize-handle:hover {
+    background-color: #495057;
+}
+
+[data-theme="dark"] .resize-handle::after {
+    color: #adb5bd;
 }

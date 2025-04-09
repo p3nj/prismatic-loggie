@@ -605,23 +605,13 @@ const UI = (() => {
                 for (const prop of jsonProps) {
                     if (jsonObj[prop] && typeof jsonObj[prop] === 'string') {
                         try {
-                            // Try to extract and parse JSON from this property
-                            const propContent = jsonObj[prop];
-                            
-                            // Look for patterns like JSON within the string
-                            const jsonPattern = /\{[\s\S]*\}/;
-                            const match = propContent.match(jsonPattern);
-                            
-                            if (match) {
-                                // Try to parse as JSON
-                                const extractedJson = JSON.parse(match[0]);
-                                nestedJsonObjects.push({
-                                    property: prop,
-                                    json: extractedJson
-                                });
-                            }
+                            const parsedProp = JSON.parse(jsonObj[prop]);
+                            nestedJsonObjects.push({
+                                property: prop,
+                                json: parsedProp
+                            });
                         } catch (e) {
-                            // Not valid JSON in this property, continue checking
+                            // Not a valid JSON string, ignore
                         }
                     }
                 }
@@ -669,26 +659,28 @@ const UI = (() => {
             modal.innerHTML = `
                 <div class="modal-content modal-lg">
                     <span class="close-modal">&times;</span>
-                    <div class="json-modal-container d-flex flex-column" style="height: 80vh">
-                        <div class="step-details mb-2">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0">JSON Data - <span id="modalStepName" class="text-secondary"></span></h5>
-                                <span id="modalTimestamp" class="text-muted small"></span>
-                            </div>
-                            <div id="modalLoopInfo" class="mt-1 badge-container d-inline-block"></div>
-                            <div id="modalLoopPath" class="small text-secondary fst-italic d-inline-block ms-2"></div>
+                    <div class="step-details mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">JSON Data - <span id="modalStepName" class="text-secondary"></span></h5>
+                            <span id="modalTimestamp" class="text-muted small"></span>
                         </div>
-                        <div id="jsonContainer" class="flex-grow-1"></div>
-                        <div id="nestedJsonContainer" class="nested-json-section" style="display: none; margin-top: 15px;">
-                            <h6 class="mb-1">Nested JSON Data</h6>
-                            <div id="nestedJsonTabs" class="mb-2"></div>
-                            <div id="nestedJsonContent"></div>
+                        <div id="modalLoopInfo" class="mt-1 badge-container d-inline-block"></div>
+                        <div id="modalLoopPath" class="small text-secondary fst-italic d-inline-block ms-2"></div>
+                    </div>
+                    <div class="resizable-container">
+                        <div id="jsonContainer" class="editor-container main-editor"></div>
+                        <div id="resizeHandle" class="resize-handle d-none"></div>
+                        <div id="nestedJsonWrapper" class="nested-json-wrapper">
+                            <div class="nested-json-tabs-container">
+                                <div id="nestedJsonTabs" class="nested-json-tabs"></div>
+                            </div>
+                            <div id="nestedJsonContent" class="editor-container nested-editor"></div>
                         </div>
                     </div>
                 </div>
             `;
             document.body.appendChild(modal);
-            
+
             // Add close functionality with proper editor cleanup
             modal.querySelector('.close-modal').addEventListener('click', () => {
                 if (mainEditor) {
@@ -716,6 +708,80 @@ const UI = (() => {
                     modal.style.display = 'none';
                 }
             });
+            
+            // Setup the resize handle functionality
+            const resizeHandle = modal.querySelector('#resizeHandle');
+            let isDragging = false;
+            let startY, startHeightMain, startHeightNested;
+            
+            resizeHandle.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startY = e.clientY;
+                const mainEditor = modal.querySelector('#jsonContainer');
+                const nestedWrapper = modal.querySelector('#nestedJsonWrapper');
+                startHeightMain = mainEditor.offsetHeight;
+                startHeightNested = nestedWrapper.offsetHeight;
+                
+                document.addEventListener('mousemove', resize);
+                document.addEventListener('mouseup', stopResize);
+                
+                e.preventDefault();
+            });
+            
+            function resize(e) {
+                if (!isDragging) return;
+
+                const mainEditorContainer = modal.querySelector('#jsonContainer');
+                const nestedWrapper = modal.querySelector('#nestedJsonWrapper');
+                const container = modal.querySelector('.resizable-container');
+                const deltaY = e.clientY - startY;
+
+                // Calculate total available height
+                const containerHeight = container.offsetHeight;
+
+                // Calculate new heights based on the drag
+                let newMainHeight = startHeightMain + deltaY;
+                let newNestedHeight = startHeightNested - deltaY;
+
+                // Enforce minimum heights (percentage-based)
+                const minPercent = 15;
+                const minMainHeight = (containerHeight * minPercent) / 100;
+                const minNestedHeight = (containerHeight * minPercent) / 100;
+
+                if (newMainHeight < minMainHeight) {
+                    newMainHeight = minMainHeight;
+                    newNestedHeight = containerHeight - minMainHeight - 6; // Adjust for resize handle
+                }
+                if (newNestedHeight < minNestedHeight) {
+                    newNestedHeight = minNestedHeight;
+                    newMainHeight = containerHeight - minNestedHeight - 6; // Adjust for resize handle
+                }
+
+                // Calculate total available height minus the resize handle
+                const totalHeight = containerHeight - 6; // 6px for the resize handle
+
+                // Calculate and apply percentages
+                const mainPercent = (newMainHeight / totalHeight) * 100;
+                const nestedPercent = (newNestedHeight / totalHeight) * 100;
+
+                mainEditorContainer.style.height = `${mainPercent}%`;
+                nestedWrapper.style.height = `${nestedPercent}%`;
+
+                // Force layout updates for both editors
+                if (mainEditor) {
+                    mainEditor.layout();
+                }
+
+                if (nestedEditor) {
+                    nestedEditor.layout();
+                }
+            }
+            
+            function stopResize() {
+                isDragging = false;
+                document.removeEventListener('mousemove', resize);
+                document.removeEventListener('mouseup', stopResize);
+            }
         } else {
             // Clear the editors if modal exists
             document.getElementById('jsonContainer').innerHTML = '';
@@ -743,20 +809,23 @@ const UI = (() => {
         
         // Get container references
         const jsonContainer = document.getElementById('jsonContainer');
-        const nestedContainer = document.getElementById('nestedJsonContainer');
+        const nestedWrapper = document.getElementById('nestedJsonWrapper');
         const nestedContent = document.getElementById('nestedJsonContent');
         const nestedJsonTabs = document.getElementById('nestedJsonTabs');
+        const resizeHandle = document.getElementById('resizeHandle');
         
         // Adjust container heights based on whether nested JSON is present
         if (nestedJson && nestedJsonObjects.length > 0) {
-            nestedContainer.style.display = 'block';
-            // When nested JSON is present, main container takes 60%, nested takes 40%
-            jsonContainer.style.height = '55%';
-            nestedContent.style.height = '35vh';
+            nestedWrapper.style.display = 'flex';
+            resizeHandle.classList.remove('d-none');
+            
+            // Set initial sizing - main takes 60%, nested 40%
+            jsonContainer.style.height = '100%';
+            nestedWrapper.style.height = '100%';
         } else {
-            nestedContainer.style.display = 'none';
-            // When no nested JSON, main container takes full height
-            jsonContainer.style.height = '70vh';
+            nestedWrapper.style.display = 'none';
+            resizeHandle.classList.add('d-none');
+            jsonContainer.style.height = '100%';
         }
         
         // Initialize Monaco Editor for main content
@@ -780,7 +849,6 @@ const UI = (() => {
                 const tabButton = document.createElement('button');
                 tabButton.className = `btn btn-sm ${index === 0 ? 'btn-info' : 'btn-outline-info'}`;
                 tabButton.textContent = item.property;
-                tabButton.style.marginRight = '5px';
                 tabButton.dataset.index = index;
                 
                 tabButton.addEventListener('click', (e) => {
@@ -791,16 +859,10 @@ const UI = (() => {
                     
                     // Show selected nested JSON
                     const idx = parseInt(e.target.dataset.index);
-                    
-                    // Dispose of existing nested editor if present
                     if (nestedEditor) {
                         nestedEditor.dispose();
                     }
                     
-                    // Clear the container before creating a new editor
-                    nestedContent.innerHTML = '';
-                    
-                    // Create a new nested editor
                     nestedEditor = monaco.editor.create(nestedContent, {
                         value: JSON.stringify(nestedJsonObjects[idx].json, null, 2),
                         language: 'json',
@@ -831,6 +893,12 @@ const UI = (() => {
         }
         
         modal.style.display = 'block';
+        
+        // Notify Monaco editor of layout change
+        setTimeout(() => {
+            if (mainEditor) mainEditor.layout();
+            if (nestedEditor) nestedEditor.layout();
+        }, 100);
     }
 
     // Return public methods
