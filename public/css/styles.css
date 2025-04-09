@@ -552,21 +552,22 @@ pre[class*="language-"] {
 .resizable-container {
   display: flex;
   flex-direction: column;
-  flex-grow: 1;
-  height: calc(100% - 60px); /* Account for header space */
+  height: calc(100% - 60px); /* Account for header */
   min-height: 300px;
   position: relative;
   overflow: hidden;
+  will-change: transform; /* Optimize for animations */
 }
 
 .editor-container {
   width: 100%;
   overflow: hidden;
+  will-change: height; /* Hint to browser about what will change */
 }
 
 .main-editor {
   height: 60%;
-  min-height: 100px;
+  min-height: 60px;
   transition: height 0.2s;
 }
 
@@ -574,80 +575,77 @@ pre[class*="language-"] {
   display: flex;
   flex-direction: column;
   height: 40%; /* Default height, dynamically updated */
-  min-height: 100px;
+  min-height: 60px;
   overflow: hidden;
 }
 
 .nested-editor {
   flex-grow: 1;
   height: 100%; /* Ensure it fills the nested wrapper */
+  min-height: 20px;
   overflow: hidden;
 }
 
-/* Force Monaco editor to respect its container dimensions */
-.monaco-editor {
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.monaco-editor .overflow-guard {
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.resize-handle {
-    height: 6px;
-    background-color: #e9ecef;
-    cursor: row-resize;
-    width: 100%;
-    border-top: 1px solid #ced4da;
-    border-bottom: 1px solid #ced4da;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    user-select: none;
-}
-
-.resize-handle::after {
-    content: "≡";
-    color: #6c757d;
-    font-size: 12px;
-}
-
-.resize-handle:hover {
-    background-color: #dee2e6;
-}
-
 .nested-json-tabs-container {
-    padding: 5px 5px 0;
-    border-bottom: 1px solid #dee2e6;
-    background-color: #f8f9fa;
-    height: 40px;
-    overflow-x: auto;
-    white-space: nowrap;
-    display: flex;
+  flex-shrink: 0; /* Prevent tab container from shrinking */
+  padding: 5px 5px 0;
+  border-bottom: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  height: 40px;
+  overflow-x: auto;
+  white-space: nowrap;
+  display: flex;
 }
 
 .nested-json-tabs {
-    display: flex;
-    gap: 5px;
-    padding: 0 5px;
+  display: flex;
+  gap: 5px;
+  padding: 0 5px;
+}
+
+.resize-handle {
+  flex-shrink: 0; /* Prevent handle from shrinking */
+  height: 6px;
+  background-color: #e9ecef;
+  cursor: ns-resize !important;
+  width: 100%;
+  border-top: 1px solid #ced4da;
+  border-bottom: 1px solid #ced4da;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  user-select: none;
+}
+
+.resize-handle::after {
+  content: "≡";
+  color: #6c757d;
+  font-size: 12px;
+}
+
+.resize-handle:hover {
+  background-color: #dee2e6;
+}
+
+/* Prevent content selection during resize for better performance */
+.resizing * {
+  user-select: none !important;
 }
 
 [data-theme="dark"] .resize-handle {
-    background-color: #343a40;
-    border-color: #495057;
+  background-color: #343a40;
+  border-color: #495057;
 }
 
 [data-theme="dark"] .nested-json-tabs-container {
-    background-color: #343a40;
-    border-color: #495057;
+  background-color: #343a40;
+  border-color: #495057;
 }
 
 [data-theme="dark"] .resize-handle:hover {
-    background-color: #495057;
+  background-color: #495057;
 }
 
 [data-theme="dark"] .resize-handle::after {
-    color: #adb5bd;
+  color: #adb5bd;
 }
