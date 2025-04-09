@@ -710,78 +710,7 @@ const UI = (() => {
             });
             
             // Setup the resize handle functionality
-            const resizeHandle = modal.querySelector('#resizeHandle');
-            let isDragging = false;
-            let startY, startHeightMain, startHeightNested;
-            
-            resizeHandle.addEventListener('mousedown', (e) => {
-                isDragging = true;
-                startY = e.clientY;
-                const mainEditor = modal.querySelector('#jsonContainer');
-                const nestedWrapper = modal.querySelector('#nestedJsonWrapper');
-                startHeightMain = mainEditor.offsetHeight;
-                startHeightNested = nestedWrapper.offsetHeight;
-                
-                document.addEventListener('mousemove', resize);
-                document.addEventListener('mouseup', stopResize);
-                
-                e.preventDefault();
-            });
-            
-            function resize(e) {
-                if (!isDragging) return;
-
-                const mainEditorContainer = modal.querySelector('#jsonContainer');
-                const nestedWrapper = modal.querySelector('#nestedJsonWrapper');
-                const container = modal.querySelector('.resizable-container');
-                const deltaY = e.clientY - startY;
-
-                // Calculate total available height
-                const containerHeight = container.offsetHeight;
-
-                // Calculate new heights based on the drag
-                let newMainHeight = startHeightMain + deltaY;
-                let newNestedHeight = startHeightNested - deltaY;
-
-                // Enforce minimum heights (percentage-based)
-                const minPercent = 15;
-                const minMainHeight = (containerHeight * minPercent) / 100;
-                const minNestedHeight = (containerHeight * minPercent) / 100;
-
-                if (newMainHeight < minMainHeight) {
-                    newMainHeight = minMainHeight;
-                    newNestedHeight = containerHeight - minMainHeight - 6; // Adjust for resize handle
-                }
-                if (newNestedHeight < minNestedHeight) {
-                    newNestedHeight = minNestedHeight;
-                    newMainHeight = containerHeight - minNestedHeight - 6; // Adjust for resize handle
-                }
-
-                // Calculate total available height minus the resize handle
-                const totalHeight = containerHeight - 6; // 6px for the resize handle
-
-                // Calculate and apply percentages
-                const mainPercent = (newMainHeight / totalHeight) * 100;
-                const nestedPercent = (newNestedHeight / totalHeight) * 100;
-
-                mainEditorContainer.style.height = `${mainPercent}%`;
-                nestedWrapper.style.height = `${nestedPercent}%`;
-
-                // Force layout updates for both editors
-                if (mainEditor) {
-                    mainEditor.layout();
-                }
-
-                if (nestedEditor) {
-                    nestedEditor.layout();
-                }
-            }
-            
-            function stopResize() {
-                isDragging = false;
-                document.removeEventListener('mousemove', resize);
-                document.removeEventListener('mouseup', stopResize);
-            }
+            setupResizeHandle(modal);
         } else {
             // Clear the editors if modal exists
             document.getElementById('jsonContainer').innerHTML = '';
@@ -897,8 +826,74 @@ const UI = (() => {
         // Notify Monaco editor of layout change
         setTimeout(() => {
             if (mainEditor) mainEditor.layout();
-            if (nestedEditor) nestedEditor.layout();
+            if (nestedEditor) mainEditor.layout();
         }, 100);
+    }
+
+    function setupResizeHandle(modal) {
+        const resizeHandle = modal.querySelector('#resizeHandle');
+        const mainEditorContainer = modal.querySelector('#jsonContainer');
+        const nestedWrapper = modal.querySelector('#nestedJsonWrapper');
+        const container = modal.querySelector('.resizable-container');
+
+        let isDragging = false;
+        let startY, startHeightMain, startHeightNested;
+        let animationFrameId = null;
+
+        resizeHandle.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startY = e.clientY;
+            startHeightMain = mainEditorContainer.offsetHeight;
+            startHeightNested = nestedWrapper.offsetHeight;
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', stopResize);
+
+            e.preventDefault();
+        });
+
+        function onMouseMove(e) {
+            if (!isDragging) return;
+
+            // Use requestAnimationFrame to throttle updates
+            if (!animationFrameId) {
+                animationFrameId = requestAnimationFrame(() => {
+                    const deltaY = e.clientY - startY;
+                    const containerHeight = container.offsetHeight;
+
+                    // Calculate new heights
+                    let newMainHeight = startHeightMain + deltaY;
+                    let newNestedHeight = startHeightNested - deltaY;
+
+                    // Enforce minimum heights
+                    const minHeight = 100; // Minimum height in pixels
+                    if (newMainHeight < minHeight) {
+                        newMainHeight = minHeight;
+                        newNestedHeight = containerHeight - minHeight - 6; // Adjust for resize handle
+                    }
+                    if (newNestedHeight < minHeight) {
+                        newNestedHeight = minHeight;
+                        newMainHeight = containerHeight - minHeight - 6; // Adjust for resize handle
+                    }
+
+                    // Apply new heights
+                    mainEditorContainer.style.height = `${newMainHeight}px`;
+                    nestedWrapper.style.height = `${newNestedHeight}px`;
+
+                    // Notify Monaco editors to update their layout
+                    if (mainEditor) mainEditor.layout();
+                    if (nestedEditor) nestedEditor.layout();
+
+                    animationFrameId = null; // Reset animation frame ID
+                });
+            }
+        }
+
+        function stopResize() {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', stopResize);
+        }
     }
 
     // Return public methods
