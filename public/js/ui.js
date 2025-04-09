@@ -119,6 +119,30 @@ const UI = (() => {
         detailsPanel.id = 'execution-details';
         detailsPanel.className = 'execution-details mb-4';
         
+        // Get endpoint for generating the execution link
+        const endpointSelect = document.getElementById('endpointSelect');
+        const endpoint = endpointSelect ? endpointSelect.value : 'https://app.prismatic.io';
+        
+        // Generate execution link if we have the required data
+        let executionLinkHtml = '';
+        if (result.instance?.id && result.id) {
+            const executionUrl = `${endpoint}/instances/${result.instance.id}/executions/?executionId=${result.id}`;
+            executionLinkHtml = `
+                <div class="mb-2 mt-3 border-top pt-2">
+                    <strong>View in Prismatic:</strong>
+                    <div class="d-flex align-items-center mt-1">
+                        <a href="${executionUrl}" class="btn btn-sm btn-outline-primary" target="_blank">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open Execution
+                        </a>
+                        <button class="btn btn-sm btn-outline-secondary ms-2 copy-link-btn" 
+                                data-link="${executionUrl}" title="Copy link to clipboard">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
         detailsPanel.innerHTML = `
             <h5 class="border-bottom pb-2 mb-2">Execution Details</h5>
             <div class="mb-2">
@@ -137,6 +161,7 @@ const UI = (() => {
                 <strong>Started:</strong>
                 <div>${result.startedAt ? new Date(result.startedAt).toLocaleString() : 'Unknown'}</div>
             </div>
+            ${executionLinkHtml}
         `;
         
         // Insert execution details at the beginning of sidebar, after input fields
@@ -145,6 +170,26 @@ const UI = (() => {
             lastInputGroup.insertAdjacentElement('afterend', detailsPanel);
         } else {
             sidebar.prepend(detailsPanel);
+        }
+
+        // Add event listener for copy link button
+        const copyButton = detailsPanel.querySelector('.copy-link-btn');
+        if (copyButton) {
+            copyButton.addEventListener('click', function() {
+                const link = this.getAttribute('data-link');
+                navigator.clipboard.writeText(link).then(() => {
+                    // Visual feedback for successful copy
+                    const originalIcon = this.innerHTML;
+                    this.innerHTML = '<i class="bi bi-check2"></i>';
+                    this.classList.replace('btn-outline-secondary', 'btn-outline-success');
+                    
+                    // Reset after short delay
+                    setTimeout(() => {
+                        this.innerHTML = originalIcon;
+                        this.classList.replace('btn-outline-success', 'btn-outline-secondary');
+                    }, 1500);
+                });
+            });
         }
     }
 
@@ -162,53 +207,6 @@ const UI = (() => {
             default:
                 return 'bg-secondary';
         }
-    }
-
-    // Initialize sticky header behavior
-    function initStickyHeader() {
-        const header = document.querySelector('.sticky-header');
-        const headerContainer = document.querySelector('.sticky-header-container');
-        const spacer = document.querySelector('.header-spacer');
-        const resultsContainer = document.querySelector('.results-container');
-        
-        if (!header || !headerContainer || !spacer || !resultsContainer) return;
-        
-        // Store the original position of the header
-        const headerRect = headerContainer.getBoundingClientRect();
-        const originalTop = headerRect.top + window.scrollY;
-        const headerHeight = headerRect.height;
-        
-        // Set the spacer height to match the header height
-        spacer.style.height = headerHeight + 'px';
-        
-        // Function to handle scroll events
-        function handleScroll() {
-            const resultsContainerScroll = resultsContainer.scrollTop;
-            
-            if (resultsContainerScroll > 10) { // Small threshold to trigger fixed positioning
-                // Fixed position when scrolled
-                header.classList.add('fixed-header');
-                spacer.style.display = 'block';
-                
-                // Calculate the width dynamically based on the results container
-                const containerWidth = resultsContainer.clientWidth;
-                header.style.width = containerWidth + 'px';
-            } else {
-                // Normal position when at the top
-                header.classList.remove('fixed-header');
-                spacer.style.display = 'none';
-                header.style.width = '100%';
-            }
-        }
-        
-        // Add scroll event listener to the results container instead of window
-        resultsContainer.addEventListener('scroll', handleScroll);
-        
-        // Add resize event listener to adjust width if window is resized
-        window.addEventListener('resize', handleScroll);
-        
-        // Initial call to set the correct state
-        handleScroll();
     }
 
     // Add a welcome message function

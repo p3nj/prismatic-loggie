@@ -64,7 +64,9 @@ const API = (() => {
         query QueryExecutionResult($id: ID!) {
             executionResult(id: $id) {
                 id
+                startedAt
                 instance {
+                    id
                     name
                 }
                 flow {
