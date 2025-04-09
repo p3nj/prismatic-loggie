@@ -595,24 +595,45 @@ const UI = (() => {
             // First attempt - parse the direct JSON string
             jsonObj = JSON.parse(jsonStr);
             
-            // Look for potential nested JSON in string properties
-            if (typeof jsonObj === 'object') {
-                // Check common properties that might contain JSON strings
-                const jsonProps = ['message', 'payload', 'response', 'stack', 'data', 'result', 'error', 'headers', 'body', 'content'];
-                
-                for (const prop of jsonProps) {
-                    if (jsonObj[prop] && typeof jsonObj[prop] === 'string') {
-                        try {
-                            const parsedProp = JSON.parse(jsonObj[prop]);
-                            nestedJsonObjects.push({
-                                property: prop,
-                                json: parsedProp
-                            });
-                        } catch (e) {
-                            // Not a valid JSON string, ignore
+            // Recursively scan for nested JSON in all string properties
+            if (typeof jsonObj === 'object' && jsonObj !== null) {
+                // Function to recursively scan object for JSON strings
+                function scanForNestedJson(obj, path = []) {
+                    if (typeof obj !== 'object' || obj === null) return;
+                    
+                    // Scan all properties
+                    Object.keys(obj).forEach(key => {
+                        const value = obj[key];
+                        const currentPath = [...path, key];
+                        
+                        // If it's a string, try to parse as JSON
+                        if (typeof value === 'string') {
+                            try {
+                                const parsedValue = JSON.parse(value);
+                                if (typeof parsedValue === 'object' && parsedValue !== null) {
+                                    // Found valid JSON - add to nested objects
+                                    nestedJsonObjects.push({
+                                        property: key,
+                                        path: currentPath,
+                                        pathString: currentPath.join('.'),
+                                        json: parsedValue
+                                    });
+                                    
+                                    // Continue scanning the parsed JSON object
+                                    scanForNestedJson(parsedValue, [...currentPath, '(parsed)']);
+                                }
+                            } catch (e) {
+                                // Not valid JSON, ignore
+                            }
+                        } else if (typeof value === 'object' && value !== null) {
+                            // If it's an object, scan its properties
+                            scanForNestedJson(value, currentPath);
                         }
-                    }
+                    });
                 }
+                
+                // Start recursive scan
+                scanForNestedJson(jsonObj);
                 
                 // If we found any nested JSON objects
                 if (nestedJsonObjects.length > 0) {
@@ -779,57 +800,475 @@ const UI = (() => {
             // Create tabs for each nested JSON property
             nestedJsonTabs.innerHTML = '';
             
-            nestedJsonObjects.forEach((item, index) => {
-                const tabButton = document.createElement('button');
-                tabButton.className = `btn btn-sm ${index === 0 ? 'btn-info' : 'btn-outline-info'}`;
-                tabButton.textContent = item.property;
-                tabButton.dataset.index = index;
-                
-                tabButton.addEventListener('click', (e) => {
-                    // Update active tab styling
-                    const tabs = nestedJsonTabs.querySelectorAll('button');
-                    tabs.forEach(tab => tab.className = 'btn btn-sm btn-outline-info');
-                    e.target.className = 'btn btn-sm btn-info';
-                    
-                    // Show selected nested JSON
-                    const idx = parseInt(e.target.dataset.index);
-                    if (nestedEditor) {
-                        nestedEditor.dispose();
-                    }
-                    
-                    nestedEditor = monaco.editor.create(nestedContent, {
-                        value: JSON.stringify(nestedJsonObjects[idx].json, null, 2),
-                        language: 'json',
-                        theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
-                        automaticLayout: true,
-                        minimap: { enabled: true },
-                        folding: true,
-                        lineNumbers: 'on',
-                        scrollBeyondLastLine: false
-                    });
-
-                    // Store the reference globally
-                    window.currentNestedEditor = nestedEditor;
-                });
-                
-                nestedJsonTabs.appendChild(tabButton);
+            // Group nested items by first level path for better organization
+            const groupedNestedJson = {};
+            nestedJsonObjects.forEach(item => {
+                const topLevel = item.path[0];
+                if (!groupedNestedJson[topLevel]) {
+                    groupedNestedJson[topLevel] = [];
+                }
+                groupedNestedJson[topLevel].push(item);
             });
             
-            // Initialize the first nested JSON by default
-            nestedContent.innerHTML = ''; // Clear the container first
-            nestedEditor = monaco.editor.create(nestedContent, {
-                value: JSON.stringify(nestedJsonObjects[0].json, null, 2),
-                language: 'json',
-                theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
-                automaticLayout: true,
-                minimap: { enabled: true },
-                folding: true,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false
+            // Create dropdown structure for nested tabs
+            const tabsContainer = document.createElement('div');
+            tabsContainer.className = 'nested-tabs-container d-flex flex-wrap gap-2';
+            
+            let firstTabButton = null;
+            
+            // Process each group
+            Object.keys(groupedNestedJson).forEach((group, groupIndex) => {
+                const groupItems = groupedNestedJson[group];
+                
+                if (groupItems.length === 1 && groupItems[0].path.length === 1) {
+                    // Simple case - just one item at this level
+                    const item = groupItems[0];
+                    const tabButton = document.createElement('button');
+                    tabButton.className = `btn btn-sm ${groupIndex === 0 ? 'btn-info' : 'btn-outline-info'}`;
+                    tabButton.textContent = item.property;
+                    tabButton.dataset.index = nestedJsonObjects.indexOf(item);
+                    tabButton.title = item.pathString;
+                    
+                    if (groupIndex === 0) firstTabButton = tabButton;
+                    
+                    tabButton.addEventListener('click', handleNestedJsonTabClick);
+                    tabsContainer.appendChild(tabButton);
+                } else {
+                    // Create dropdown for multiple items
+                    const dropdownContainer = document.createElement('div');
+                    dropdownContainer.className = 'dropdown d-inline-block';
+                    
+                    const dropdownButton = document.createElement('button');
+                    dropdownButton.className = 'btn btn-sm btn-outline-info dropdown-toggle';
+                    dropdownButton.textContent = group;
+                    dropdownButton.setAttribute('data-bs-toggle', 'dropdown');
+                    dropdownButton.setAttribute('aria-expanded', 'false');
+                    
+                    const dropdownMenu = document.createElement('div');
+                    dropdownMenu.className = 'dropdown-menu py-0';
+                    
+                    // Add dropdown items
+                    groupItems.forEach((item, itemIndex) => {
+                        const dropdownItem = document.createElement('button');
+                        dropdownItem.className = 'dropdown-item py-2';
+                        
+                        // Create display path that shows the hierarchy
+                        let displayPath = item.path.slice(1).join(' → ');
+                        if (displayPath) {
+                            dropdownItem.innerHTML = `<small class="text-muted me-1">${displayPath}</small>`;
+                        }
+                        
+                        // Add badge with property name
+                        const badge = document.createElement('span');
+                        badge.className = 'badge bg-info ms-1';
+                        badge.textContent = item.property;
+                        dropdownItem.appendChild(badge);
+                        
+                        dropdownItem.dataset.index = nestedJsonObjects.indexOf(item);
+                        dropdownItem.title = item.pathString;
+                        
+                        dropdownItem.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // Update active state on the dropdown button
+                            const allButtons = tabsContainer.querySelectorAll('button.btn-info:not(.dropdown-toggle)');
+                            allButtons.forEach(btn => btn.classList.replace('btn-info', 'btn-outline-info'));
+                            
+                            // Set dropdown button as active
+                            dropdownButton.classList.replace('btn-outline-info', 'btn-info');
+                            
+                            // Show this nested JSON content
+                            const idx = parseInt(this.dataset.index);
+                            updateNestedJsonViewer(idx);
+                        });
+                        
+                        // Make the first item in first group the default
+                        if (groupIndex === 0 && itemIndex === 0) {
+                            firstTabButton = dropdownItem;
+                        }
+                        
+                        dropdownMenu.appendChild(dropdownItem);
+                    });
+                    
+                    dropdownContainer.appendChild(dropdownButton);
+                    dropdownContainer.appendChild(dropdownMenu);
+                    tabsContainer.appendChild(dropdownContainer);
+                    
+                    // Create manual dropdown toggle functionality
+                    dropdownButton.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Toggle the dropdown menu visibility
+                        const isOpen = dropdownMenu.classList.contains('show');
+                        
+                        // Close all other dropdowns first
+                        const allOpenDropdowns = modal.querySelectorAll('.dropdown-menu.show');
+                        allOpenDropdowns.forEach(menu => {
+                            menu.classList.remove('show');
+                            menu.previousElementSibling.setAttribute('aria-expanded', 'false');
+                        });
+                        
+                        if (!isOpen) {
+                            // Position and show the dropdown
+                            dropdownMenu.classList.add('show');
+                            dropdownButton.setAttribute('aria-expanded', 'true');
+                            
+                            // Position the dropdown below the button
+                            const buttonRect = dropdownButton.getBoundingClientRect();
+                            dropdownMenu.style.top = `${buttonRect.bottom}px`;
+                            dropdownMenu.style.left = `${buttonRect.left}px`;
+                            dropdownMenu.style.minWidth = `${buttonRect.width}px`;
+                            
+                            // Add click handler to close dropdown when clicking outside
+                            setTimeout(() => {
+                                document.addEventListener('click', closeDropdown);
+                            }, 0);
+                        }
+                    });
+                    
+                    function closeDropdown(e) {
+                        if (!dropdownMenu.contains(e.target) && e.target !== dropdownButton) {
+                            dropdownMenu.classList.remove('show');
+                            dropdownButton.setAttribute('aria-expanded', 'false');
+                            document.removeEventListener('click', closeDropdown);
+                        }
+                    }
+                }
             });
+            
+            // Add the tabs container to the DOM
+            nestedJsonTabs.appendChild(tabsContainer);
 
-            // Store the reference globally
-            window.currentNestedEditor = nestedEditor;
+            // First, let's fix the dropdown UI and behavior
+            const fixDropdownDisplay = () => {
+                // Find all dropdowns in the modal
+                const dropdowns = modal.querySelectorAll('.dropdown');
+                
+                // Add a container for popups that's above everything else
+                let popupContainer = document.getElementById('modal-popup-container');
+                if (!popupContainer) {
+                    popupContainer = document.createElement('div');
+                    popupContainer.id = 'modal-popup-container';
+                    popupContainer.style.position = 'fixed';
+                    popupContainer.style.top = '0';
+                    popupContainer.style.left = '0';
+                    popupContainer.style.width = '100%';
+                    popupContainer.style.height = '100%';
+                    popupContainer.style.pointerEvents = 'none'; // Let clicks pass through
+                    popupContainer.style.zIndex = '10000'; // Very high z-index, increased for better stacking
+                    document.body.appendChild(popupContainer);
+                }
+                
+                // Track open menus to help with proper cleanup
+                const openMenus = new Set();
+                
+                dropdowns.forEach(dropdown => {
+                    const button = dropdown.querySelector('.dropdown-toggle');
+                    const originalMenu = dropdown.querySelector('.dropdown-menu');
+                    
+                    if (button && originalMenu) {
+                        // Create a copy of the menu that we'll place in the popup container
+                        const menu = originalMenu.cloneNode(true);
+                        originalMenu.style.display = 'none'; // Hide the original
+                        
+                        // Generate a unique ID for this menu for tracking
+                        const menuId = `dropdown-menu-${Math.random().toString(36).substring(2, 9)}`;
+                        menu.dataset.menuId = menuId;
+                        
+                        // Style the detached menu
+                        menu.style.position = 'absolute';
+                        menu.style.display = 'none';
+                        menu.style.backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#343a40' : '#fff';
+                        menu.style.border = '1px solid rgba(0,0,0,0.15)';
+                        menu.style.borderRadius = '0.25rem';
+                        menu.style.padding = '0.5rem 0';
+                        menu.style.minWidth = '10rem';
+                        menu.style.boxShadow = '0 0.5rem 1rem rgba(0,0,0,0.175)';
+                        menu.style.pointerEvents = 'auto'; // Enable interaction
+                        
+                        // Add the detached menu to the popup container
+                        popupContainer.appendChild(menu);
+                        
+                        // Clear any existing listeners to prevent duplicates
+                        const newButton = button.cloneNode(true);
+                        button.parentNode.replaceChild(newButton, button);
+                        
+                        // Store relation between button and menu
+                        newButton.dataset.controls = menuId;
+                        
+                        // Add proper toggle behavior
+                        newButton.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // Close all other open menus first
+                            const allOpenMenus = popupContainer.querySelectorAll('.dropdown-menu[style*="display: block"]');
+                            allOpenMenus.forEach(openMenu => {
+                                if (openMenu !== menu) {
+                                    openMenu.style.display = 'none';
+                                    openMenus.delete(openMenu.dataset.menuId);
+                                    
+                                    // Find and update the button state
+                                    const relatedButton = modal.querySelector(`[data-controls="${openMenu.dataset.menuId}"]`);
+                                    if (relatedButton) {
+                                        relatedButton.setAttribute('aria-expanded', 'false');
+                                    }
+                                }
+                            });
+                            
+                            // Toggle this dropdown
+                            if (menu.style.display === 'none' || menu.style.display === '') {
+                                // Get button position relative to viewport
+                                const buttonRect = newButton.getBoundingClientRect();
+                                const modalRect = modal.querySelector('.modal-content').getBoundingClientRect();
+                                
+                                // Position menu below the button
+                                menu.style.top = `${buttonRect.bottom + 5}px`;
+                                menu.style.left = `${buttonRect.left}px`;
+                                menu.style.display = 'block';
+                                newButton.setAttribute('aria-expanded', 'true');
+                                openMenus.add(menuId);
+                                
+                                // Ensure the menu is visible by checking if it goes off screen
+                                setTimeout(() => {
+                                    const menuRect = menu.getBoundingClientRect();
+                                    const viewportWidth = window.innerWidth;
+                                    
+                                    // If menu extends beyond right edge of viewport
+                                    if (menuRect.right > viewportWidth) {
+                                        // Adjust position to be within viewport
+                                        const newLeft = Math.max(10, viewportWidth - menuRect.width - 10);
+                                        menu.style.left = `${newLeft}px`;
+                                    }
+                                    
+                                    // If menu extends beyond the bottom of viewport
+                                    if (menuRect.bottom > window.innerHeight) {
+                                        // Position above the button if there's space
+                                        if (buttonRect.top > menuRect.height + 10) {
+                                            menu.style.top = `${buttonRect.top - menuRect.height - 5}px`;
+                                        }
+                                    }
+                                }, 0);
+                            } else {
+                                menu.style.display = 'none';
+                                newButton.setAttribute('aria-expanded', 'false');
+                                openMenus.delete(menuId);
+                            }
+                        });
+                        
+                        // Style and add click handlers to menu items
+                        const menuItems = menu.querySelectorAll('.dropdown-item');
+                        menuItems.forEach((item, index) => {
+                            // Apply styles to dropdown items
+                            item.style.display = 'block';
+                            item.style.width = '100%';
+                            item.style.padding = '0.25rem 1rem';
+                            item.style.clear = 'both';
+                            item.style.textAlign = 'inherit';
+                            item.style.whiteSpace = 'nowrap';
+                            item.style.backgroundColor = 'transparent';
+                            item.style.border = '0';
+                            item.style.cursor = 'pointer';
+                            
+                            // Get the corresponding item from the original menu to get the index
+                            const originalItem = originalMenu.querySelectorAll('.dropdown-item')[index];
+                            const dataIndex = originalItem ? originalItem.dataset.index : null;
+                            
+                            if (dataIndex !== null) {
+                                item.dataset.index = dataIndex;
+                            }
+                            
+                            // Add hover effect
+                            item.addEventListener('mouseover', function() {
+                                this.style.backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' 
+                                    ? 'rgba(255,255,255,0.1)' 
+                                    : 'rgba(0,0,0,0.05)';
+                            });
+                            
+                            item.addEventListener('mouseout', function() {
+                                this.style.backgroundColor = 'transparent';
+                            });
+                            
+                            item.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                // Close the dropdown menu
+                                menu.style.display = 'none';
+                                newButton.setAttribute('aria-expanded', 'false');
+                                openMenus.delete(menuId);
+                                
+                                // Update active state on buttons
+                                const allButtons = tabsContainer.querySelectorAll('button.btn-info:not(.dropdown-toggle)');
+                                allButtons.forEach(btn => btn.classList.replace('btn-info', 'btn-outline-info'));
+                                
+                                // Set dropdown button as active
+                                newButton.classList.replace('btn-outline-info', 'btn-info');
+                                
+                                // Show selected nested JSON content
+                                const idx = parseInt(this.dataset.index);
+                                updateNestedJsonViewer(idx);
+                            });
+                        });
+                    }
+                });
+                
+                // Global click handler to close dropdowns when clicking outside
+                const outsideClickHandler = function(e) {
+                    // Only process if modal is visible
+                    if (modal.style.display !== 'block') return;
+                    
+                    // Get all open menus
+                    const dropdownMenus = popupContainer.querySelectorAll('.dropdown-menu[style*="display: block"]');
+                    if (!dropdownMenus.length) return;
+                    
+                    // Find if the click was on a dropdown toggle button
+                    let clickedOnToggle = false;
+                    const toggleButtons = modal.querySelectorAll('.dropdown-toggle');
+                    toggleButtons.forEach(button => {
+                        if (button.contains(e.target)) {
+                            clickedOnToggle = true;
+                        }
+                    });
+                    
+                    // If not clicking on a menu or a toggle button, close all menus
+                    if (!clickedOnToggle) {
+                        let clickedInsideMenu = false;
+                        dropdownMenus.forEach(menu => {
+                            if (menu.contains(e.target)) {
+                                clickedInsideMenu = true;
+                            }
+                        });
+                        
+                        if (!clickedInsideMenu) {
+                            dropdownMenus.forEach(menu => {
+                                menu.style.display = 'none';
+                                
+                                // Find and update the button state
+                                const toggleButtons = modal.querySelectorAll('.dropdown-toggle[aria-expanded="true"]');
+                                toggleButtons.forEach(button => {
+                                    button.setAttribute('aria-expanded', 'false');
+                                });
+                            });
+                        }
+                    }
+                };
+                
+                // Add the global click handler
+                document.addEventListener('mousedown', outsideClickHandler);
+                
+                // Clean up when modal closes
+                modal.querySelector('.close-modal').addEventListener('click', function() {
+                    // Remove all menus from popup container
+                    while (popupContainer.firstChild) {
+                        popupContainer.removeChild(popupContainer.firstChild);
+                    }
+                    
+                    // Remove the global click handler
+                    document.removeEventListener('mousedown', outsideClickHandler);
+                });
+            };
+
+            // Apply the dropdown fixes
+            fixDropdownDisplay();
+
+            // Function to handle regular tab button clicks
+            function handleNestedJsonTabClick(e) {
+                // Update active tab styling
+                const allButtons = tabsContainer.querySelectorAll('.btn-info');
+                allButtons.forEach(btn => {
+                    if (btn.classList.contains('dropdown-toggle') || !btn.classList.contains('dropdown-item')) {
+                        btn.classList.replace('btn-info', 'btn-outline-info');
+                    }
+                });
+                
+                // Set this button as active
+                e.target.classList.replace('btn-outline-info', 'btn-info');
+                
+                // Show selected nested JSON
+                const idx = parseInt(e.target.dataset.index);
+                updateNestedJsonViewer(idx);
+            }
+
+            // Function to update the nested JSON viewer
+            function updateNestedJsonViewer(index) {
+                if (nestedEditor) {
+                    nestedEditor.dispose();
+                }
+                
+                // Get path info for display
+                const item = nestedJsonObjects[index];
+                const pathDisplay = document.createElement('div');
+                pathDisplay.className = 'path-display small text-muted mb-2 border-bottom pb-1';
+                
+                // Show breadcrumb-style path
+                if (item.path.length > 1) {
+                    const pathHTML = item.path.map((segment, i) => {
+                        if (i === item.path.length - 1) {
+                            return `<strong>${segment}</strong>`;
+                        }
+                        return `<span>${segment}</span>`;
+                    }).join(' → ');
+                    pathDisplay.innerHTML = `<i class="bi bi-diagram-3 me-1"></i> ${pathHTML}`;
+                } else {
+                    pathDisplay.innerHTML = `<i class="bi bi-braces me-1"></i> ${item.property}`;
+                }
+                
+                // Create wrapper to hold path display and editor
+                const contentWrapper = document.createElement('div');
+                contentWrapper.className = 'd-flex flex-column h-100';
+                contentWrapper.appendChild(pathDisplay);
+                
+                const editorContainer = document.createElement('div');
+                editorContainer.className = 'flex-grow-1';
+                contentWrapper.appendChild(editorContainer);
+                
+                // Clear and add the new content
+                nestedContent.innerHTML = '';
+                nestedContent.appendChild(contentWrapper);
+                
+                // Create editor in the container
+                nestedEditor = monaco.editor.create(editorContainer, {
+                    value: JSON.stringify(item.json, null, 2),
+                    language: 'json',
+                    theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+                    automaticLayout: true,
+                    minimap: { enabled: true },
+                    folding: true,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false
+                });
+                
+                // Store the reference globally
+                window.currentNestedEditor = nestedEditor;
+            }
+
+            // Initialize with the first tab
+            if (firstTabButton) {
+                // If it's a dropdown item, we need to handle it specially
+                if (firstTabButton.classList.contains('dropdown-item')) {
+                    // Get the index and trigger the nested viewer directly
+                    const idx = parseInt(firstTabButton.dataset.index);
+                    updateNestedJsonViewer(idx);
+                    
+                    // Set the parent dropdown button as active
+                    const parentDropdown = firstTabButton.closest('.dropdown');
+                    if (parentDropdown) {
+                        const dropdownToggle = parentDropdown.querySelector('.dropdown-toggle');
+                        if (dropdownToggle) {
+                            // Make this dropdown button active
+                            const allButtons = tabsContainer.querySelectorAll('button.btn-info');
+                            allButtons.forEach(btn => btn.classList.replace('btn-info', 'btn-outline-info'));
+                            dropdownToggle.classList.replace('btn-outline-info', 'btn-info');
+                        }
+                    }
+                } else {
+                    // Regular button, just click it
+                    firstTabButton.click();
+                }
+            }
         }
         
         modal.style.display = 'block';
@@ -837,7 +1276,7 @@ const UI = (() => {
         // Notify Monaco editor of layout change
         setTimeout(() => {
             if (mainEditor) mainEditor.layout();
-            if (nestedEditor) nestedEditor.layout();
+            if (nestedEditor) mainEditor.layout();
         }, 100);
     }
 
