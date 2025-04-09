@@ -58,17 +58,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    UI.showWelcome();
     // Add a "click to load" message in the results area
-    const resultsDiv = document.getElementById('results');
-    resultsDiv.innerHTML = `
-        <div class="col-12 text-center p-5">
-            <div class="log-card">
-                <h4>Welcome to Prismatic Loggie</h4>
-                <p>Enter an Execution ID and click "Load" to view logs</p>
-                <button class="btn btn-primary" onclick="document.getElementById('loadButton').click()">
-                    Load Execution Results
-                </button>
-            </div>
-        </div>
-    `;
+    //const resultsDiv = document.getElementById('results');
+    //resultsDiv.innerHTML = `
+    //    <div class="col-12 text-center p-5">
+    //        <div class="log-card">
+    //            <h4>Welcome to Prismatic Loggie</h4>
+    //            <p>Enter an Execution ID and click "Load" to view logs</p>
+    //        </div>
+    //    </div>
+    //`;
 });

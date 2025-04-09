@@ -215,8 +215,8 @@ const UI = (() => {
     function showWelcome() {
         const resultsDiv = document.getElementById('results');
         resultsDiv.innerHTML = `
-            <div class="col-12">
-                <div class="p-4 mb-4 bg-light rounded-3">
+            <div class="col-12 text-left p-5">
+                <div class="log-card">
                     <h2>Welcome to Prismatic Loggie</h2>
                     <p class="lead">Enter an Execution ID and click "Load" to view execution logs.</p>
                     <hr>
@@ -227,6 +227,9 @@ const UI = (() => {
                         <li>Loop iterations organized in a tree structure</li>
                         <li>Dark/light theme support</li>
                     </ul>
+                    <button class="btn btn-primary" onclick="document.getElementById('loadButton').click()">
+                        Load Execution Results
+                    </button>
                 </div>
             </div>
         `;
