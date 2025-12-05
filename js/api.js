@@ -119,9 +119,9 @@ const API = (() => {
         }
     `;
 
-    // GraphQL query for executions by instance with datetime and status filtering
+    // GraphQL query for executions by instance with datetime, status, and flow filtering
     const executionsByInstanceQuery = `
-        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus) {
+        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus, $flowName: String) {
             executionResults(
                 instance: $instanceId,
                 first: $first,
@@ -129,6 +129,7 @@ const API = (() => {
                 startedAt_Gte: $startedAtGte,
                 startedAt_Lte: $startedAtLte,
                 status: $status,
+                flow_Name: $flowName,
                 orderBy: {field: STARTED_AT, direction: DESC}
             ) {
                 totalCount
@@ -248,7 +249,7 @@ const API = (() => {
 
     // Fetch executions for a specific instance
     async function fetchExecutionsByInstance(instanceId, options = {}) {
-        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null } = options;
+        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null, flowName = null } = options;
         console.log(`Fetching executions for instance: ${instanceId}`);
 
         const variables = {
@@ -267,6 +268,10 @@ const API = (() => {
         // Add status filter if provided
         if (status) {
             variables.status = status;
+        }
+        // Add flow name filter if provided
+        if (flowName) {
+            variables.flowName = flowName;
         }
 
         const data = await graphqlRequest(executionsByInstanceQuery, variables);
