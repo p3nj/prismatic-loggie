@@ -5,10 +5,11 @@ const InstancesPage = (() => {
     let executionsData = null;
     let selectedInstance = null;
     let searchTimeout = null;
+    let allFlowNames = new Set(); // Track all unique flow names
     let currentFilters = {
         dateFrom: null,
         dateTo: null,
-        instanceId: null,
+        flowName: null,
         status: null
     };
 
@@ -84,7 +85,7 @@ const InstancesPage = (() => {
         const hash = window.location.hash;
         const params = {};
 
-        // Parse hash parameters (e.g., #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx)
+        // Parse hash parameters (e.g., #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx&flow=xxx)
         if (hash.includes('?')) {
             const queryString = hash.split('?')[1];
             const urlParams = new URLSearchParams(queryString);
@@ -104,6 +105,9 @@ const InstancesPage = (() => {
             if (urlParams.has('status')) {
                 params.status = urlParams.get('status');
             }
+            if (urlParams.has('flow')) {
+                params.flow = decodeURIComponent(urlParams.get('flow'));
+            }
         }
 
         return params;
@@ -113,14 +117,9 @@ const InstancesPage = (() => {
     function updateUrl() {
         const params = new URLSearchParams();
 
-        if (currentFilters.instanceId) {
-            params.set('instanceId', currentFilters.instanceId);
-            // Find instance name for URL
-            const instanceName = selectedInstance?.name ||
-                document.getElementById('filterInstance')?.selectedOptions[0]?.text;
-            if (instanceName && instanceName !== 'All Instances') {
-                params.set('instanceName', instanceName);
-            }
+        if (selectedInstance) {
+            params.set('instanceId', selectedInstance.id);
+            params.set('instanceName', selectedInstance.name);
         }
 
         if (currentFilters.dateFrom) {
@@ -131,6 +130,9 @@ const InstancesPage = (() => {
         }
         if (currentFilters.status) {
             params.set('status', currentFilters.status);
+        }
+        if (currentFilters.flowName) {
+            params.set('flow', currentFilters.flowName);
         }
 
         const newHash = `#instances?${params.toString()}`;
@@ -211,26 +213,13 @@ const InstancesPage = (() => {
 
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
-        const instanceSelect = document.getElementById('filterInstance');
+        const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
 
         currentFilters.dateFrom = fromInput.value ? new Date(fromInput.value).toISOString() : null;
         currentFilters.dateTo = toInput.value ? new Date(toInput.value).toISOString() : null;
-        currentFilters.instanceId = instanceSelect.value || null;
+        currentFilters.flowName = flowSelect.value || null;
         currentFilters.status = statusSelect.value || null;
-
-        // Update selected instance based on dropdown
-        if (currentFilters.instanceId) {
-            const selectedOption = instanceSelect.selectedOptions[0];
-            selectedInstance = {
-                id: currentFilters.instanceId,
-                name: selectedOption.text
-            };
-            document.getElementById('selectedInstanceName').textContent = selectedInstance.name;
-        } else {
-            selectedInstance = null;
-            document.getElementById('selectedInstanceName').textContent = 'All Instances';
-        }
 
         // Update URL
         updateUrl();
@@ -239,14 +228,16 @@ const InstancesPage = (() => {
         updateFilterStatus();
 
         // Reload executions with filter
-        loadExecutions(currentFilters.instanceId, true);
+        if (selectedInstance) {
+            loadExecutions(selectedInstance.id, true);
+        }
     }
 
     // Clear all filters
     function clearFilters() {
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
-        const instanceSelect = document.getElementById('filterInstance');
+        const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
         const errorDiv = document.getElementById('dateValidationError');
 
@@ -258,7 +249,7 @@ const InstancesPage = (() => {
         const toDate = new Date();
         toInput.value = formatDateForInput(toDate);
 
-        instanceSelect.value = '';
+        flowSelect.value = '';
         statusSelect.value = '';
 
         // Clear validation errors
@@ -270,12 +261,9 @@ const InstancesPage = (() => {
         currentFilters = {
             dateFrom: null,
             dateTo: null,
-            instanceId: null,
+            flowName: null,
             status: null
         };
-
-        selectedInstance = null;
-        document.getElementById('selectedInstanceName').textContent = 'All Instances';
 
         // Update URL
         updateUrl();
@@ -284,14 +272,16 @@ const InstancesPage = (() => {
         updateFilterStatus();
 
         // Reload executions without filter
-        loadExecutions(null, true);
+        if (selectedInstance) {
+            loadExecutions(selectedInstance.id, true);
+        }
     }
 
     // Update filter status badge
     function updateFilterStatus() {
         const filterStatus = document.getElementById('filterStatusBadge');
         const hasActiveFilters = currentFilters.dateFrom || currentFilters.dateTo ||
-                                  currentFilters.instanceId || currentFilters.status;
+                                  currentFilters.flowName || currentFilters.status;
         if (hasActiveFilters) {
             filterStatus.classList.remove('d-none');
         } else {
@@ -303,7 +293,7 @@ const InstancesPage = (() => {
     function setFilterInputs(filters) {
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
-        const instanceSelect = document.getElementById('filterInstance');
+        const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
 
         if (filters.from && fromInput) {
@@ -318,9 +308,9 @@ const InstancesPage = (() => {
             currentFilters.dateTo = filters.to;
         }
 
-        if (filters.instanceId && instanceSelect) {
-            instanceSelect.value = filters.instanceId;
-            currentFilters.instanceId = filters.instanceId;
+        if (filters.flow && flowSelect) {
+            // We'll set this after loading executions when we have the flow list
+            currentFilters.flowName = filters.flow;
         }
 
         if (filters.status && statusSelect) {
@@ -349,57 +339,61 @@ const InstancesPage = (() => {
         if (shareBtn) shareBtn.classList.remove('d-none');
     }
 
-    // Populate instance dropdown with loaded instances
-    function populateInstanceDropdown() {
-        const instanceSelect = document.getElementById('filterInstance');
-        if (!instanceSelect || !instancesData) return;
+    // Populate flow dropdown from executions data
+    function populateFlowDropdown() {
+        const flowSelect = document.getElementById('filterFlow');
+        if (!flowSelect) return;
 
-        // Clear existing options (keep "All Instances")
-        instanceSelect.innerHTML = '<option value="">All Instances</option>';
+        // Get current selection before repopulating
+        const currentSelection = currentFilters.flowName || flowSelect.value;
 
-        // Add instances from the loaded data
-        instancesData.edges.forEach(edge => {
-            const instance = edge.node;
+        // Clear and repopulate
+        flowSelect.innerHTML = '<option value="">All Flows</option>';
+
+        // Sort flow names alphabetically
+        const sortedFlows = Array.from(allFlowNames).sort((a, b) => a.localeCompare(b));
+
+        sortedFlows.forEach(flowName => {
             const option = document.createElement('option');
-            option.value = instance.id;
-            option.textContent = instance.name;
-            instanceSelect.appendChild(option);
+            option.value = flowName;
+            option.textContent = flowName;
+            flowSelect.appendChild(option);
+        });
+
+        // Restore selection if it exists
+        if (currentSelection && allFlowNames.has(currentSelection)) {
+            flowSelect.value = currentSelection;
+        }
+    }
+
+    // Extract flow names from executions and add to the set
+    function extractFlowNames(edges) {
+        edges.forEach(edge => {
+            const flowName = edge.node.flow?.name;
+            if (flowName) {
+                allFlowNames.add(flowName);
+            }
         });
     }
 
-    // Load all instances for dropdown (paginated fetch)
-    async function loadAllInstancesForDropdown() {
-        const instanceSelect = document.getElementById('filterInstance');
-        if (!instanceSelect) return;
-
+    // Load all available flows for the dropdown (without flow filter)
+    async function loadFlowsForDropdown(instanceId) {
         try {
-            let allInstances = [];
-            let hasMore = true;
-            let cursor = null;
-
-            // Fetch all instances (up to 500 to be reasonable)
-            while (hasMore && allInstances.length < 500) {
-                const options = { first: 100 };
-                if (cursor) options.after = cursor;
-
-                const data = await API.fetchInstances(options);
-                allInstances = [...allInstances, ...data.edges];
-                hasMore = data.pageInfo.hasNextPage;
-                cursor = data.pageInfo.endCursor;
+            // Fetch executions without flow filter to get all available flows
+            const options = { first: 100 };
+            if (currentFilters.dateFrom) {
+                options.startedAtGte = currentFilters.dateFrom;
             }
+            if (currentFilters.dateTo) {
+                options.startedAtLte = currentFilters.dateTo;
+            }
+            // Don't add status filter here to get all flows
 
-            // Clear and populate dropdown
-            instanceSelect.innerHTML = '<option value="">All Instances</option>';
-            allInstances.forEach(edge => {
-                const instance = edge.node;
-                const option = document.createElement('option');
-                option.value = instance.id;
-                option.textContent = instance.name;
-                instanceSelect.appendChild(option);
-            });
-
+            const data = await API.fetchExecutionsByInstance(instanceId, options);
+            extractFlowNames(data.edges);
+            populateFlowDropdown();
         } catch (error) {
-            console.error('Error loading instances for dropdown:', error);
+            console.error('Error loading flows for dropdown:', error);
         }
     }
 
@@ -451,9 +445,6 @@ const InstancesPage = (() => {
                 listContainer.innerHTML = '<div class="p-3 text-center text-muted">No instances found</div>';
             }
 
-            // Populate dropdown with instances
-            populateInstanceDropdown();
-
         } catch (error) {
             console.error('Error loading instances:', error);
             listContainer.innerHTML = `<div class="p-3 text-center text-danger"><i class="bi bi-exclamation-circle me-1"></i>${error.message}</div>`;
@@ -488,7 +479,7 @@ const InstancesPage = (() => {
                 ${instance.lastExecutedAt ? `<small class="text-muted"><i class="bi bi-clock me-1"></i>Last: ${formatDate(instance.lastExecutedAt)}</small>` : ''}
             `;
 
-            item.addEventListener('click', () => selectInstanceFromList(instance));
+            item.addEventListener('click', () => selectInstance(instance));
             listContainer.appendChild(item);
         });
     }
@@ -500,11 +491,14 @@ const InstancesPage = (() => {
         loadInstances(false, searchTerm);
     }
 
-    // Select an instance from the list (click handler)
-    function selectInstanceFromList(instance) {
+    // Select an instance
+    async function selectInstance(instance, skipUrlUpdate = false) {
         selectedInstance = instance;
 
-        // Update visual selection in the list
+        // Reset flow names when selecting a new instance
+        allFlowNames = new Set();
+
+        // Update visual selection
         document.querySelectorAll('.instance-item').forEach(item => {
             item.classList.remove('active', 'bg-primary', 'text-white');
         });
@@ -513,26 +507,22 @@ const InstancesPage = (() => {
             selectedItem.classList.add('active', 'bg-primary', 'text-white');
         }
 
-        // Update the dropdown to match
-        const instanceSelect = document.getElementById('filterInstance');
-        if (instanceSelect) {
-            instanceSelect.value = instance.id;
-        }
-
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
-
-        // Update filter state
-        currentFilters.instanceId = instance.id;
 
         // Show filter bar
         showFilterBar();
 
-        // Set default date values if not already set
+        // Set default date values
         setDefaultDateValues();
 
-        // Update URL
-        updateUrl();
+        // Update URL if not skipping
+        if (!skipUrlUpdate) {
+            updateUrl();
+        }
+
+        // Load flows for dropdown first (without flow filter)
+        await loadFlowsForDropdown(instance.id);
 
         // Load executions for this instance
         loadExecutions(instance.id, true);
@@ -547,7 +537,9 @@ const InstancesPage = (() => {
         };
 
         selectedInstance = instance;
-        currentFilters.instanceId = instanceId;
+
+        // Reset flow names
+        allFlowNames = new Set();
 
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
@@ -558,22 +550,19 @@ const InstancesPage = (() => {
         // Set default date values
         setDefaultDateValues();
 
-        // Set filters if provided from URL
-        if (filters.from || filters.to || filters.status) {
+        // Set filters if provided
+        if (filters.from || filters.to || filters.status || filters.flow) {
             setFilterInputs(filters);
         }
 
-        // Update dropdown selection
-        const instanceSelect = document.getElementById('filterInstance');
-        if (instanceSelect) {
-            instanceSelect.value = instanceId;
-        }
+        // Load flows for dropdown first (without flow filter)
+        await loadFlowsForDropdown(instanceId);
 
         // Load executions for this instance
         await loadExecutions(instanceId, true);
     }
 
-    // Load executions for an instance (or all instances if instanceId is null)
+    // Load executions for an instance
     async function loadExecutions(instanceId, reset = false) {
         const contentDiv = document.getElementById('executionsContent');
         const loadMoreDiv = document.getElementById('executionsLoadMore');
@@ -584,39 +573,45 @@ const InstancesPage = (() => {
         }
 
         try {
-            const options = { first: 20 };
+            const options = { first: 50 }; // Fetch more to get flow names
             if (executionsData && executionsData.pageInfo.endCursor && !reset) {
                 options.after = executionsData.pageInfo.endCursor;
             }
 
-            // Add date filters
+            // Add date filters (server-side)
             if (currentFilters.dateFrom) {
                 options.startedAtGte = currentFilters.dateFrom;
             }
             if (currentFilters.dateTo) {
                 options.startedAtLte = currentFilters.dateTo;
             }
-            // Add status filter
+            // Add status filter (server-side)
             if (currentFilters.status) {
                 options.status = currentFilters.status;
             }
-
-            let data;
-            if (instanceId) {
-                data = await API.fetchExecutionsByInstance(instanceId, options);
-            } else {
-                // Fetch all executions
-                data = await API.fetchExecutions(options);
+            // Add flow name filter (server-side)
+            if (currentFilters.flowName) {
+                options.flowName = currentFilters.flowName;
             }
+
+            const data = await API.fetchExecutionsByInstance(instanceId, options);
 
             if (reset) {
                 executionsData = data;
+                // Reset flow names on fresh load only if not filtering by flow
+                if (!currentFilters.flowName) {
+                    allFlowNames = new Set();
+                }
             } else {
                 executionsData.edges = [...executionsData.edges, ...data.edges];
                 executionsData.pageInfo = data.pageInfo;
             }
 
-            renderExecutions(reset, !instanceId);
+            // Extract flow names from the data (for dropdown population)
+            extractFlowNames(data.edges);
+            populateFlowDropdown();
+
+            renderExecutions(reset);
 
             // Show/hide load more button
             if (executionsData.pageInfo.hasNextPage) {
@@ -632,16 +627,16 @@ const InstancesPage = (() => {
     }
 
     // Render executions table
-    function renderExecutions(reset = false, showInstanceColumn = false) {
+    function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
 
         if (executionsData.edges.length === 0) {
             const filterActive = currentFilters.dateFrom || currentFilters.dateTo ||
-                                  currentFilters.instanceId || currentFilters.status;
+                                  currentFilters.flowName || currentFilters.status;
             contentDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 mb-3 d-block"></i>
-                    ${filterActive ? 'No executions found matching the filter criteria' : 'No executions found'}
+                    ${filterActive ? 'No executions found matching the filter criteria' : 'No executions found for this instance'}
                 </div>
             `;
             return;
@@ -653,7 +648,6 @@ const InstancesPage = (() => {
                     <thead>
                         <tr>
                             <th>Status</th>
-                            ${showInstanceColumn ? '<th>Instance</th>' : ''}
                             <th>Flow</th>
                             <th>Started</th>
                             <th>Duration</th>
@@ -671,7 +665,6 @@ const InstancesPage = (() => {
             html += `
                 <tr>
                     <td>${statusBadge}</td>
-                    ${showInstanceColumn ? `<td><small>${exec.instance?.name || 'Unknown'}</small></td>` : ''}
                     <td>${exec.flow?.name || 'Unknown'}</td>
                     <td><small>${formatDate(exec.startedAt)}</small></td>
                     <td><small>${duration}</small></td>
@@ -688,7 +681,11 @@ const InstancesPage = (() => {
                     </tbody>
                 </table>
             </div>
-            <div class="text-muted small">Total: ${executionsData.totalCount} executions</div>
+            <div class="text-muted small">
+                Showing: ${executionsData.edges.length} executions
+                ${currentFilters.flowName ? ` (filtered by flow: ${currentFilters.flowName})` : ''}
+                ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
+            </div>
         `;
 
         contentDiv.innerHTML = html;
@@ -704,7 +701,9 @@ const InstancesPage = (() => {
 
     // Load more executions (pagination)
     function loadMoreExecutions() {
-        loadExecutions(currentFilters.instanceId, false);
+        if (selectedInstance) {
+            loadExecutions(selectedInstance.id, false);
+        }
     }
 
     // Show authentication required message
@@ -758,53 +757,43 @@ const InstancesPage = (() => {
         init();
 
         // Reset filters on new route
-        currentFilters = { dateFrom: null, dateTo: null, instanceId: null, status: null };
+        currentFilters = { dateFrom: null, dateTo: null, flowName: null, status: null };
+        allFlowNames = new Set();
 
         // Parse URL parameters
         const urlParams = parseUrlParams();
 
         // Load instances if authenticated
         if (API.isAuthenticated()) {
-            // Show filter bar immediately
-            showFilterBar();
-
-            // Set default date values
-            setDefaultDateValues();
-
-            loadInstances(true).then(async () => {
-                // Load all instances for dropdown
-                await loadAllInstancesForDropdown();
-
-                // Check if we have filters from URL params
-                if (urlParams.instanceId || urlParams.from || urlParams.to || urlParams.status) {
-                    // Set filters from URL
-                    setFilterInputs({
-                        instanceId: urlParams.instanceId,
-                        from: urlParams.from,
-                        to: urlParams.to,
-                        status: urlParams.status
-                    });
-
-                    if (urlParams.instanceId) {
-                        // Try to find the instance in the loaded list
-                        const instanceItem = document.querySelector(`[data-instance-id="${urlParams.instanceId}"]`);
-                        if (instanceItem) {
-                            instanceItem.classList.add('active', 'bg-primary', 'text-white');
+            loadInstances(true).then(() => {
+                // Check if we have an instance to select from URL params
+                if (urlParams.instanceId) {
+                    // Try to find the instance in the loaded list
+                    const instanceItem = document.querySelector(`[data-instance-id="${urlParams.instanceId}"]`);
+                    if (instanceItem) {
+                        // Get the full instance data and select it
+                        const instance = instancesData?.edges?.find(e => e.node.id === urlParams.instanceId)?.node;
+                        if (instance) {
+                            // Set filters before selecting
+                            if (urlParams.from || urlParams.to || urlParams.status || urlParams.flow) {
+                                setFilterInputs({
+                                    from: urlParams.from,
+                                    to: urlParams.to,
+                                    status: urlParams.status,
+                                    flow: urlParams.flow
+                                });
+                            }
+                            selectInstance(instance, true);
                         }
-
-                        selectedInstance = {
-                            id: urlParams.instanceId,
-                            name: urlParams.instanceName || 'Loading...'
-                        };
-                        document.getElementById('selectedInstanceName').textContent = selectedInstance.name;
+                    } else {
+                        // Instance not in current list, select by ID directly
+                        selectInstanceById(urlParams.instanceId, urlParams.instanceName, {
+                            from: urlParams.from,
+                            to: urlParams.to,
+                            status: urlParams.status,
+                            flow: urlParams.flow
+                        });
                     }
-
-                    // Load executions with URL filters
-                    loadExecutions(urlParams.instanceId || null, true);
-                } else {
-                    // Default: show all executions with default date range
-                    document.getElementById('selectedInstanceName').textContent = 'All Instances';
-                    loadExecutions(null, true);
                 }
             });
         } else {
