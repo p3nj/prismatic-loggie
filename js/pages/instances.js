@@ -376,22 +376,19 @@ const InstancesPage = (() => {
         });
     }
 
-    // Load all available flows for the dropdown (without flow filter)
+    // Load all available flows for the dropdown from instance flowConfigs
     async function loadFlowsForDropdown(instanceId) {
         try {
-            // Fetch executions without flow filter to get all available flows
-            const options = { first: 100 };
-            if (currentFilters.dateFrom) {
-                options.startedAtGte = currentFilters.dateFrom;
+            const instanceData = await API.fetchInstanceFlows(instanceId);
+            if (instanceData && instanceData.flowConfigs && instanceData.flowConfigs.nodes) {
+                allFlowNames = new Set();
+                instanceData.flowConfigs.nodes.forEach(config => {
+                    if (config.flow && config.flow.name) {
+                        allFlowNames.add(config.flow.name);
+                    }
+                });
+                populateFlowDropdown();
             }
-            if (currentFilters.dateTo) {
-                options.startedAtLte = currentFilters.dateTo;
-            }
-            // Don't add status filter here to get all flows
-
-            const data = await API.fetchExecutionsByInstance(instanceId, options);
-            extractFlowNames(data.edges);
-            populateFlowDropdown();
         } catch (error) {
             console.error('Error loading flows for dropdown:', error);
         }
@@ -589,27 +586,16 @@ const InstancesPage = (() => {
             if (currentFilters.status) {
                 options.status = currentFilters.status;
             }
-            // Add flow name filter (server-side)
-            if (currentFilters.flowName) {
-                options.flowName = currentFilters.flowName;
-            }
+            // Note: Flow filtering is done client-side since API doesn't support it
 
             const data = await API.fetchExecutionsByInstance(instanceId, options);
 
             if (reset) {
                 executionsData = data;
-                // Reset flow names on fresh load only if not filtering by flow
-                if (!currentFilters.flowName) {
-                    allFlowNames = new Set();
-                }
             } else {
                 executionsData.edges = [...executionsData.edges, ...data.edges];
                 executionsData.pageInfo = data.pageInfo;
             }
-
-            // Extract flow names from the data (for dropdown population)
-            extractFlowNames(data.edges);
-            populateFlowDropdown();
 
             renderExecutions(reset);
 
@@ -626,11 +612,19 @@ const InstancesPage = (() => {
         }
     }
 
-    // Render executions table
+    // Render executions table (with client-side flow filtering)
     function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
 
-        if (executionsData.edges.length === 0) {
+        // Apply client-side flow filter
+        let filteredEdges = executionsData.edges;
+        if (currentFilters.flowName) {
+            filteredEdges = executionsData.edges.filter(edge =>
+                edge.node.flow?.name === currentFilters.flowName
+            );
+        }
+
+        if (filteredEdges.length === 0) {
             const filterActive = currentFilters.dateFrom || currentFilters.dateTo ||
                                   currentFilters.flowName || currentFilters.status;
             contentDiv.innerHTML = `
@@ -657,7 +651,7 @@ const InstancesPage = (() => {
                     <tbody>
         `;
 
-        executionsData.edges.forEach(edge => {
+        filteredEdges.forEach(edge => {
             const exec = edge.node;
             const statusBadge = getStatusBadge(exec.status);
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
@@ -682,7 +676,7 @@ const InstancesPage = (() => {
                 </table>
             </div>
             <div class="text-muted small">
-                Showing: ${executionsData.edges.length} executions
+                Showing: ${filteredEdges.length} executions
                 ${currentFilters.flowName ? ` (filtered by flow: ${currentFilters.flowName})` : ''}
                 ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
             </div>
