@@ -40,24 +40,43 @@ const UI = (() => {
     // Show error message
     function showError(message) {
         const errorDiv = document.getElementById('error');
-        errorDiv.classList.remove('d-none');
-        errorDiv.textContent = `Error: ${message}`;
-        document.getElementById('results').innerHTML = '';
+        const resultsDiv = document.getElementById('results');
+        if (errorDiv) {
+            errorDiv.classList.remove('d-none');
+            errorDiv.textContent = `Error: ${message}`;
+        }
+        if (resultsDiv) {
+            resultsDiv.innerHTML = '';
+        }
     }
 
     // Show loading indicator
     function showLoading() {
         const resultsDiv = document.getElementById('results');
-        resultsDiv.innerHTML = '<div class="col-12 text-center">Loading...</div>';
-        document.getElementById('error').classList.add('d-none');
+        const errorDiv = document.getElementById('error');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = '<div class="col-12 text-center"><div class="spinner-border" role="status"></div><div class="mt-2">Loading execution logs...</div></div>';
+        }
+        if (errorDiv) {
+            errorDiv.classList.add('d-none');
+        }
     }
 
     // Display execution results
     function displayResults(result) {
         const resultsDiv = document.getElementById('results');
+        const errorDiv = document.getElementById('error');
+
+        if (!resultsDiv) return;
+
+        // Hide error message
+        if (errorDiv) {
+            errorDiv.classList.add('d-none');
+        }
+
         resultsDiv.innerHTML = '';
 
-        if (!result.logs.edges.length) {
+        if (!result || !result.logs || !result.logs.edges.length) {
             resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
             return;
         }
@@ -106,22 +125,22 @@ const UI = (() => {
 
     // Add execution details to the sidebar
     function addExecutionDetailsToSidebar(result) {
-        const sidebar = document.querySelector('.sidebar');
-        
+        const sidebar = document.querySelector('#page-execution .sidebar');
+        if (!sidebar) return;
+
         // Remove existing execution details if any
         let existingDetails = document.getElementById('execution-details');
         if (existingDetails) {
             existingDetails.remove();
         }
-        
+
         // Create execution details panel
         const detailsPanel = document.createElement('div');
         detailsPanel.id = 'execution-details';
         detailsPanel.className = 'execution-details mb-4';
-        
-        // Get endpoint for generating the execution link
-        const endpointSelect = document.getElementById('endpointSelect');
-        const endpoint = endpointSelect ? endpointSelect.value : 'https://app.prismatic.io';
+
+        // Get endpoint from API module
+        const endpoint = API.getEndpoint();
         
         // Generate execution link if we have the required data
         let executionLinkHtml = '';
@@ -209,13 +228,17 @@ const UI = (() => {
         }
     }
 
-    // Add a welcome message function
+    // Add a welcome message function (deprecated - handled by ExecutionPage)
     function showWelcome() {
+        // This function is now handled by ExecutionPage.showWelcome
+        // Kept for backward compatibility
         const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+
         resultsDiv.innerHTML = `
             <div class="col-12 text-left p-5">
                 <div class="log-card">
-                    <h2>Welcome to Prismatic Loggie</h2>
+                    <h2>Execution Log Viewer</h2>
                     <p class="lead">Enter an Execution ID and click "Load" to view execution logs.</p>
                     <hr>
                     <p>This tool helps you analyze and navigate through Prismatic execution logs with features like:</p>
@@ -225,9 +248,11 @@ const UI = (() => {
                         <li>Loop iterations organized in a tree structure</li>
                         <li>Dark/light theme support</li>
                     </ul>
-                    <button class="btn btn-primary" onclick="document.getElementById('loadButton').click()">
-                        Load Execution Results
-                    </button>
+                    <p class="text-muted">
+                        <i class="bi bi-lightbulb me-1"></i>
+                        Tip: You can also browse executions by instance from the
+                        <a href="#instances" class="text-decoration-none">Instances</a> page.
+                    </p>
                 </div>
             </div>
         `;
@@ -274,7 +299,8 @@ const UI = (() => {
         // Create or update the step navigation container
         let stepNav = document.getElementById('step-navigation');
         if (!stepNav) {
-            const sidebar = document.querySelector('.sidebar');
+            const sidebar = document.querySelector('#page-execution .sidebar');
+            if (!sidebar) return;
             
             stepNav = document.createElement('div');
             stepNav.id = 'step-navigation';
@@ -402,7 +428,8 @@ const UI = (() => {
 
     // Get execution ID from input field and save it
     function getExecutionId() {
-        const id = document.getElementById('executionId').value.trim();
+        const input = document.getElementById('executionId');
+        const id = input ? input.value.trim() : '';
         if (id) {
             localStorage.setItem('lastExecutionId', id);
         }

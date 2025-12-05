@@ -2,71 +2,39 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     UI.initTheme();
-    
-    // Load saved endpoint and token configuration
-    API.loadSavedConfig();
-    
-    // Initialize event listeners
-    document.getElementById('loadButton').addEventListener('click', fetchResults);
 
-    // Handle Enter key on input field
-    document.getElementById('executionId').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            fetchResults();
+    // Update auth status in navbar
+    AuthPage.updateAuthStatus();
+
+    // Register routes
+    Router.register('auth', AuthPage.onRoute);
+    Router.register('instances', InstancesPage.onRoute);
+    Router.register('execution', ExecutionPage.onRoute);
+
+    // Add before navigate callback to check authentication for protected routes
+    Router.beforeNavigate((path, params) => {
+        // Auth page is always accessible
+        if (path === 'auth') return true;
+
+        // For other pages, warn if not authenticated but still allow navigation
+        if (!API.isAuthenticated()) {
+            console.log('User not authenticated, but allowing navigation to:', path);
         }
+
+        return true;
     });
 
-    // Handle endpoint change to load corresponding cached token
-    document.getElementById('endpointSelect').addEventListener('change', () => {
-        API.updateConfig();
+    // Initialize router
+    Router.init();
+
+    // Handle navbar collapse on mobile after clicking a link
+    const navbarToggler = document.querySelector('.navbar-toggler');
+    const navbarCollapse = document.querySelector('.navbar-collapse');
+    document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+            if (navbarCollapse.classList.contains('show')) {
+                navbarToggler.click();
+            }
+        });
     });
-
-    document.getElementById('getTokenButton').addEventListener('click', () => {
-        const endpointSelect = document.getElementById('endpointSelect');
-        const apiEndpoint = endpointSelect.value;
-        window.open(`${apiEndpoint}/get_auth_token`, '_blank');
-    });
-    
-    // Main fetch function
-    async function fetchResults() {
-        const executionId = UI.getExecutionId();
-        
-        if (!executionId) {
-            UI.showError('Please enter an Execution ID');
-            return;
-        }
-
-        UI.showLoading();
-
-        try {
-            const result = await API.fetchExecutionResults(executionId);
-            UI.displayResults(result);
-        } catch (error) {
-            UI.showError(error.message);
-        }
-    }
-
-    // Cache the execution ID if provided
-    const executionId = UI.getExecutionId();
-    if (executionId) {
-        localStorage.setItem('lastExecutionId', executionId);
-    } else {
-        // Load the last used execution ID if available
-        const lastExecutionId = localStorage.getItem('lastExecutionId');
-        if (lastExecutionId) {
-            document.getElementById('executionId').value = lastExecutionId;
-        }
-    }
-
-    UI.showWelcome();
-    // Add a "click to load" message in the results area
-    //const resultsDiv = document.getElementById('results');
-    //resultsDiv.innerHTML = `
-    //    <div class="col-12 text-center p-5">
-    //        <div class="log-card">
-    //            <h4>Welcome to Prismatic Loggie</h4>
-    //            <p>Enter an Execution ID and click "Load" to view logs</p>
-    //        </div>
-    //    </div>
-    //`;
 });
