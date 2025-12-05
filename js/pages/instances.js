@@ -12,6 +12,8 @@ const InstancesPage = (() => {
         flowName: null,
         status: null
     };
+    let isAutoLoading = false; // Flag to prevent multiple auto-load triggers
+    const MIN_VISIBLE_RESULTS = 10; // Minimum results to show before stopping auto-load
 
     // Initialize the instances page
     function init() {
@@ -216,6 +218,9 @@ const InstancesPage = (() => {
         const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
 
+        // Reset auto-loading state when applying new filters
+        isAutoLoading = false;
+
         currentFilters.dateFrom = fromInput.value ? new Date(fromInput.value).toISOString() : null;
         currentFilters.dateTo = toInput.value ? new Date(toInput.value).toISOString() : null;
         currentFilters.flowName = flowSelect.value || null;
@@ -257,6 +262,9 @@ const InstancesPage = (() => {
         fromInput.classList.remove('is-invalid');
         toInput.classList.remove('is-invalid');
         document.getElementById('applyFilterBtn').disabled = false;
+
+        // Reset auto-loading state
+        isAutoLoading = false;
 
         currentFilters = {
             dateFrom: null,
@@ -492,8 +500,9 @@ const InstancesPage = (() => {
     async function selectInstance(instance, skipUrlUpdate = false) {
         selectedInstance = instance;
 
-        // Reset flow names when selecting a new instance
+        // Reset flow names and auto-loading state when selecting a new instance
         allFlowNames = new Set();
+        isAutoLoading = false;
 
         // Update visual selection
         document.querySelectorAll('.instance-item').forEach(item => {
@@ -535,8 +544,9 @@ const InstancesPage = (() => {
 
         selectedInstance = instance;
 
-        // Reset flow names
+        // Reset flow names and auto-loading state
         allFlowNames = new Set();
+        isAutoLoading = false;
 
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
@@ -615,6 +625,7 @@ const InstancesPage = (() => {
     // Render executions table (with client-side flow filtering)
     function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
+        const loadMoreDiv = document.getElementById('executionsLoadMore');
 
         // Apply client-side flow filter
         let filteredEdges = executionsData.edges;
@@ -624,13 +635,71 @@ const InstancesPage = (() => {
             );
         }
 
-        if (filteredEdges.length === 0) {
+        const hasMorePages = executionsData.pageInfo.hasNextPage;
+        const needsMoreResults = currentFilters.flowName &&
+                                  filteredEdges.length < MIN_VISIBLE_RESULTS &&
+                                  hasMorePages;
+
+        // If we're auto-loading and still need more, show loading state
+        if (isAutoLoading && needsMoreResults) {
+            // Keep showing current results with loading indicator
+            renderExecutionsTable(filteredEdges, contentDiv, true);
+            return;
+        }
+
+        if (filteredEdges.length === 0 && !hasMorePages) {
             const filterActive = currentFilters.dateFrom || currentFilters.dateTo ||
                                   currentFilters.flowName || currentFilters.status;
             contentDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 mb-3 d-block"></i>
                     ${filterActive ? 'No executions found matching the filter criteria' : 'No executions found for this instance'}
+                </div>
+            `;
+            return;
+        }
+
+        // Render the table
+        renderExecutionsTable(filteredEdges, contentDiv, false);
+
+        // Auto-load more if flow filter is active and we don't have enough visible results
+        if (needsMoreResults && !isAutoLoading) {
+            isAutoLoading = true;
+            // Show loading indicator in load more area
+            loadMoreDiv.classList.remove('d-none');
+            loadMoreDiv.innerHTML = `
+                <div class="text-center py-2">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span class="text-muted">Loading more results (${filteredEdges.length}/${MIN_VISIBLE_RESULTS} minimum)...</span>
+                </div>
+            `;
+            // Trigger load more after a small delay to allow UI update
+            setTimeout(() => {
+                loadMoreExecutions();
+            }, 100);
+        } else {
+            isAutoLoading = false;
+            // Restore normal load more button
+            loadMoreDiv.innerHTML = `
+                <button id="loadMoreExecutionsBtn" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-down-circle me-1"></i>Load More Executions
+                </button>
+            `;
+            // Re-attach event listener
+            const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
+            if (loadMoreBtn) {
+                loadMoreBtn.addEventListener('click', loadMoreExecutions);
+            }
+        }
+    }
+
+    // Helper function to render the executions table
+    function renderExecutionsTable(filteredEdges, contentDiv, showLoading) {
+        if (filteredEdges.length === 0 && showLoading) {
+            contentDiv.innerHTML = `
+                <div class="text-center py-4">
+                    <div class="spinner-border" role="status"></div>
+                    <div class="mt-2">Searching for matching executions...</div>
                 </div>
             `;
             return;
@@ -678,7 +747,8 @@ const InstancesPage = (() => {
             <div class="text-muted small">
                 Showing: ${filteredEdges.length} executions
                 ${currentFilters.flowName ? ` (filtered by flow: ${currentFilters.flowName})` : ''}
-                ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
+                ${executionsData.totalCount ? ` | Total in date range: ${executionsData.totalCount}` : ''}
+                ${showLoading ? ' <span class="spinner-border spinner-border-sm ms-2"></span>' : ''}
             </div>
         `;
 
@@ -750,9 +820,10 @@ const InstancesPage = (() => {
     function onRoute(params) {
         init();
 
-        // Reset filters on new route
+        // Reset filters and auto-loading state on new route
         currentFilters = { dateFrom: null, dateTo: null, flowName: null, status: null };
         allFlowNames = new Set();
+        isAutoLoading = false;
 
         // Parse URL parameters
         const urlParams = parseUrlParams();
