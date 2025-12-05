@@ -7,7 +7,9 @@ const InstancesPage = (() => {
     let searchTimeout = null;
     let currentFilters = {
         dateFrom: null,
-        dateTo: null
+        dateTo: null,
+        instanceId: null,
+        status: null
     };
 
     // Initialize the instances page
@@ -52,18 +54,28 @@ const InstancesPage = (() => {
         // Filter buttons
         const applyFilterBtn = document.getElementById('applyFilterBtn');
         if (applyFilterBtn) {
-            applyFilterBtn.addEventListener('click', applyDateFilter);
+            applyFilterBtn.addEventListener('click', applyFilters);
         }
 
         const clearFilterBtn = document.getElementById('clearFilterBtn');
         if (clearFilterBtn) {
-            clearFilterBtn.addEventListener('click', clearDateFilter);
+            clearFilterBtn.addEventListener('click', clearFilters);
         }
 
         // Share button
         const shareFilterBtn = document.getElementById('shareFilterBtn');
         if (shareFilterBtn) {
             shareFilterBtn.addEventListener('click', copyShareableLink);
+        }
+
+        // Date input validation listeners
+        const fromInput = document.getElementById('filterDateFrom');
+        const toInput = document.getElementById('filterDateTo');
+        if (fromInput) {
+            fromInput.addEventListener('change', validateDateRange);
+        }
+        if (toInput) {
+            toInput.addEventListener('change', validateDateRange);
         }
     }
 
@@ -72,7 +84,7 @@ const InstancesPage = (() => {
         const hash = window.location.hash;
         const params = {};
 
-        // Parse hash parameters (e.g., #instances?instanceId=xxx&from=xxx&to=xxx)
+        // Parse hash parameters (e.g., #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx)
         if (hash.includes('?')) {
             const queryString = hash.split('?')[1];
             const urlParams = new URLSearchParams(queryString);
@@ -89,6 +101,9 @@ const InstancesPage = (() => {
             if (urlParams.has('to')) {
                 params.to = urlParams.get('to');
             }
+            if (urlParams.has('status')) {
+                params.status = urlParams.get('status');
+            }
         }
 
         return params;
@@ -96,17 +111,26 @@ const InstancesPage = (() => {
 
     // Update URL with current state
     function updateUrl() {
-        if (!selectedInstance) return;
-
         const params = new URLSearchParams();
-        params.set('instanceId', selectedInstance.id);
-        params.set('instanceName', selectedInstance.name);
+
+        if (currentFilters.instanceId) {
+            params.set('instanceId', currentFilters.instanceId);
+            // Find instance name for URL
+            const instanceName = selectedInstance?.name ||
+                document.getElementById('filterInstance')?.selectedOptions[0]?.text;
+            if (instanceName && instanceName !== 'All Instances') {
+                params.set('instanceName', instanceName);
+            }
+        }
 
         if (currentFilters.dateFrom) {
             params.set('from', currentFilters.dateFrom);
         }
         if (currentFilters.dateTo) {
             params.set('to', currentFilters.dateTo);
+        }
+        if (currentFilters.status) {
+            params.set('status', currentFilters.status);
         }
 
         const newHash = `#instances?${params.toString()}`;
@@ -132,35 +156,126 @@ const InstancesPage = (() => {
         });
     }
 
-    // Apply date filter
-    function applyDateFilter() {
+    // Validate date range (from cannot be after to)
+    function validateDateRange() {
+        const fromInput = document.getElementById('filterDateFrom');
+        const toInput = document.getElementById('filterDateTo');
+        const errorDiv = document.getElementById('dateValidationError');
+        const applyBtn = document.getElementById('applyFilterBtn');
+
+        if (fromInput.value && toInput.value) {
+            const fromDate = new Date(fromInput.value);
+            const toDate = new Date(toInput.value);
+
+            if (fromDate > toDate) {
+                errorDiv.classList.remove('d-none');
+                applyBtn.disabled = true;
+                fromInput.classList.add('is-invalid');
+                toInput.classList.add('is-invalid');
+                return false;
+            }
+        }
+
+        errorDiv.classList.add('d-none');
+        applyBtn.disabled = false;
+        fromInput.classList.remove('is-invalid');
+        toInput.classList.remove('is-invalid');
+        return true;
+    }
+
+    // Set default date values (current datetime for "to", 7 days ago for "from")
+    function setDefaultDateValues() {
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
 
+        if (fromInput && !fromInput.value) {
+            // Default "from" to 7 days ago
+            const fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() - 7);
+            fromInput.value = formatDateForInput(fromDate);
+        }
+
+        if (toInput && !toInput.value) {
+            // Default "to" to current datetime
+            const toDate = new Date();
+            toInput.value = formatDateForInput(toDate);
+        }
+    }
+
+    // Apply all filters
+    function applyFilters() {
+        // Validate date range first
+        if (!validateDateRange()) {
+            return;
+        }
+
+        const fromInput = document.getElementById('filterDateFrom');
+        const toInput = document.getElementById('filterDateTo');
+        const instanceSelect = document.getElementById('filterInstance');
+        const statusSelect = document.getElementById('filterStatusSelect');
+
         currentFilters.dateFrom = fromInput.value ? new Date(fromInput.value).toISOString() : null;
         currentFilters.dateTo = toInput.value ? new Date(toInput.value).toISOString() : null;
+        currentFilters.instanceId = instanceSelect.value || null;
+        currentFilters.status = statusSelect.value || null;
+
+        // Update selected instance based on dropdown
+        if (currentFilters.instanceId) {
+            const selectedOption = instanceSelect.selectedOptions[0];
+            selectedInstance = {
+                id: currentFilters.instanceId,
+                name: selectedOption.text
+            };
+            document.getElementById('selectedInstanceName').textContent = selectedInstance.name;
+        } else {
+            selectedInstance = null;
+            document.getElementById('selectedInstanceName').textContent = 'All Instances';
+        }
 
         // Update URL
         updateUrl();
 
-        // Update filter status
+        // Update filter status badge
         updateFilterStatus();
 
         // Reload executions with filter
-        if (selectedInstance) {
-            loadExecutions(selectedInstance.id, true);
-        }
+        loadExecutions(currentFilters.instanceId, true);
     }
 
-    // Clear date filter
-    function clearDateFilter() {
+    // Clear all filters
+    function clearFilters() {
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
+        const instanceSelect = document.getElementById('filterInstance');
+        const statusSelect = document.getElementById('filterStatusSelect');
+        const errorDiv = document.getElementById('dateValidationError');
 
-        fromInput.value = '';
-        toInput.value = '';
-        currentFilters.dateFrom = null;
-        currentFilters.dateTo = null;
+        // Reset to default date values
+        const fromDate = new Date();
+        fromDate.setDate(fromDate.getDate() - 7);
+        fromInput.value = formatDateForInput(fromDate);
+
+        const toDate = new Date();
+        toInput.value = formatDateForInput(toDate);
+
+        instanceSelect.value = '';
+        statusSelect.value = '';
+
+        // Clear validation errors
+        errorDiv.classList.add('d-none');
+        fromInput.classList.remove('is-invalid');
+        toInput.classList.remove('is-invalid');
+        document.getElementById('applyFilterBtn').disabled = false;
+
+        currentFilters = {
+            dateFrom: null,
+            dateTo: null,
+            instanceId: null,
+            status: null
+        };
+
+        selectedInstance = null;
+        document.getElementById('selectedInstanceName').textContent = 'All Instances';
 
         // Update URL
         updateUrl();
@@ -169,15 +284,15 @@ const InstancesPage = (() => {
         updateFilterStatus();
 
         // Reload executions without filter
-        if (selectedInstance) {
-            loadExecutions(selectedInstance.id, true);
-        }
+        loadExecutions(null, true);
     }
 
     // Update filter status badge
     function updateFilterStatus() {
-        const filterStatus = document.getElementById('filterStatus');
-        if (currentFilters.dateFrom || currentFilters.dateTo) {
+        const filterStatus = document.getElementById('filterStatusBadge');
+        const hasActiveFilters = currentFilters.dateFrom || currentFilters.dateTo ||
+                                  currentFilters.instanceId || currentFilters.status;
+        if (hasActiveFilters) {
             filterStatus.classList.remove('d-none');
         } else {
             filterStatus.classList.add('d-none');
@@ -185,21 +300,32 @@ const InstancesPage = (() => {
     }
 
     // Set filter inputs from values
-    function setFilterInputs(from, to) {
+    function setFilterInputs(filters) {
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
+        const instanceSelect = document.getElementById('filterInstance');
+        const statusSelect = document.getElementById('filterStatusSelect');
 
-        if (from && fromInput) {
-            // Convert ISO string to datetime-local format
-            const fromDate = new Date(from);
+        if (filters.from && fromInput) {
+            const fromDate = new Date(filters.from);
             fromInput.value = formatDateForInput(fromDate);
-            currentFilters.dateFrom = from;
+            currentFilters.dateFrom = filters.from;
         }
 
-        if (to && toInput) {
-            const toDate = new Date(to);
+        if (filters.to && toInput) {
+            const toDate = new Date(filters.to);
             toInput.value = formatDateForInput(toDate);
-            currentFilters.dateTo = to;
+            currentFilters.dateTo = filters.to;
+        }
+
+        if (filters.instanceId && instanceSelect) {
+            instanceSelect.value = filters.instanceId;
+            currentFilters.instanceId = filters.instanceId;
+        }
+
+        if (filters.status && statusSelect) {
+            statusSelect.value = filters.status;
+            currentFilters.status = filters.status;
         }
 
         updateFilterStatus();
@@ -221,6 +347,60 @@ const InstancesPage = (() => {
         const shareBtn = document.getElementById('shareFilterBtn');
         if (filterBar) filterBar.classList.remove('d-none');
         if (shareBtn) shareBtn.classList.remove('d-none');
+    }
+
+    // Populate instance dropdown with loaded instances
+    function populateInstanceDropdown() {
+        const instanceSelect = document.getElementById('filterInstance');
+        if (!instanceSelect || !instancesData) return;
+
+        // Clear existing options (keep "All Instances")
+        instanceSelect.innerHTML = '<option value="">All Instances</option>';
+
+        // Add instances from the loaded data
+        instancesData.edges.forEach(edge => {
+            const instance = edge.node;
+            const option = document.createElement('option');
+            option.value = instance.id;
+            option.textContent = instance.name;
+            instanceSelect.appendChild(option);
+        });
+    }
+
+    // Load all instances for dropdown (paginated fetch)
+    async function loadAllInstancesForDropdown() {
+        const instanceSelect = document.getElementById('filterInstance');
+        if (!instanceSelect) return;
+
+        try {
+            let allInstances = [];
+            let hasMore = true;
+            let cursor = null;
+
+            // Fetch all instances (up to 500 to be reasonable)
+            while (hasMore && allInstances.length < 500) {
+                const options = { first: 100 };
+                if (cursor) options.after = cursor;
+
+                const data = await API.fetchInstances(options);
+                allInstances = [...allInstances, ...data.edges];
+                hasMore = data.pageInfo.hasNextPage;
+                cursor = data.pageInfo.endCursor;
+            }
+
+            // Clear and populate dropdown
+            instanceSelect.innerHTML = '<option value="">All Instances</option>';
+            allInstances.forEach(edge => {
+                const instance = edge.node;
+                const option = document.createElement('option');
+                option.value = instance.id;
+                option.textContent = instance.name;
+                instanceSelect.appendChild(option);
+            });
+
+        } catch (error) {
+            console.error('Error loading instances for dropdown:', error);
+        }
     }
 
     // Load instances from API
@@ -271,6 +451,9 @@ const InstancesPage = (() => {
                 listContainer.innerHTML = '<div class="p-3 text-center text-muted">No instances found</div>';
             }
 
+            // Populate dropdown with instances
+            populateInstanceDropdown();
+
         } catch (error) {
             console.error('Error loading instances:', error);
             listContainer.innerHTML = `<div class="p-3 text-center text-danger"><i class="bi bi-exclamation-circle me-1"></i>${error.message}</div>`;
@@ -305,7 +488,7 @@ const InstancesPage = (() => {
                 ${instance.lastExecutedAt ? `<small class="text-muted"><i class="bi bi-clock me-1"></i>Last: ${formatDate(instance.lastExecutedAt)}</small>` : ''}
             `;
 
-            item.addEventListener('click', () => selectInstance(instance));
+            item.addEventListener('click', () => selectInstanceFromList(instance));
             listContainer.appendChild(item);
         });
     }
@@ -317,11 +500,11 @@ const InstancesPage = (() => {
         loadInstances(false, searchTerm);
     }
 
-    // Select an instance
-    function selectInstance(instance, skipUrlUpdate = false) {
+    // Select an instance from the list (click handler)
+    function selectInstanceFromList(instance) {
         selectedInstance = instance;
 
-        // Update visual selection
+        // Update visual selection in the list
         document.querySelectorAll('.instance-item').forEach(item => {
             item.classList.remove('active', 'bg-primary', 'text-white');
         });
@@ -330,16 +513,26 @@ const InstancesPage = (() => {
             selectedItem.classList.add('active', 'bg-primary', 'text-white');
         }
 
+        // Update the dropdown to match
+        const instanceSelect = document.getElementById('filterInstance');
+        if (instanceSelect) {
+            instanceSelect.value = instance.id;
+        }
+
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
+
+        // Update filter state
+        currentFilters.instanceId = instance.id;
 
         // Show filter bar
         showFilterBar();
 
-        // Update URL if not skipping
-        if (!skipUrlUpdate) {
-            updateUrl();
-        }
+        // Set default date values if not already set
+        setDefaultDateValues();
+
+        // Update URL
+        updateUrl();
 
         // Load executions for this instance
         loadExecutions(instance.id, true);
@@ -354,6 +547,7 @@ const InstancesPage = (() => {
         };
 
         selectedInstance = instance;
+        currentFilters.instanceId = instanceId;
 
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
@@ -361,16 +555,25 @@ const InstancesPage = (() => {
         // Show filter bar
         showFilterBar();
 
-        // Set filters if provided
-        if (filters.from || filters.to) {
-            setFilterInputs(filters.from, filters.to);
+        // Set default date values
+        setDefaultDateValues();
+
+        // Set filters if provided from URL
+        if (filters.from || filters.to || filters.status) {
+            setFilterInputs(filters);
+        }
+
+        // Update dropdown selection
+        const instanceSelect = document.getElementById('filterInstance');
+        if (instanceSelect) {
+            instanceSelect.value = instanceId;
         }
 
         // Load executions for this instance
         await loadExecutions(instanceId, true);
     }
 
-    // Load executions for an instance
+    // Load executions for an instance (or all instances if instanceId is null)
     async function loadExecutions(instanceId, reset = false) {
         const contentDiv = document.getElementById('executionsContent');
         const loadMoreDiv = document.getElementById('executionsLoadMore');
@@ -393,8 +596,18 @@ const InstancesPage = (() => {
             if (currentFilters.dateTo) {
                 options.startedAtLte = currentFilters.dateTo;
             }
+            // Add status filter
+            if (currentFilters.status) {
+                options.status = currentFilters.status;
+            }
 
-            const data = await API.fetchExecutionsByInstance(instanceId, options);
+            let data;
+            if (instanceId) {
+                data = await API.fetchExecutionsByInstance(instanceId, options);
+            } else {
+                // Fetch all executions
+                data = await API.fetchExecutions(options);
+            }
 
             if (reset) {
                 executionsData = data;
@@ -403,7 +616,7 @@ const InstancesPage = (() => {
                 executionsData.pageInfo = data.pageInfo;
             }
 
-            renderExecutions(reset);
+            renderExecutions(reset, !instanceId);
 
             // Show/hide load more button
             if (executionsData.pageInfo.hasNextPage) {
@@ -419,15 +632,16 @@ const InstancesPage = (() => {
     }
 
     // Render executions table
-    function renderExecutions(reset = false) {
+    function renderExecutions(reset = false, showInstanceColumn = false) {
         const contentDiv = document.getElementById('executionsContent');
 
         if (executionsData.edges.length === 0) {
-            const filterActive = currentFilters.dateFrom || currentFilters.dateTo;
+            const filterActive = currentFilters.dateFrom || currentFilters.dateTo ||
+                                  currentFilters.instanceId || currentFilters.status;
             contentDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 mb-3 d-block"></i>
-                    ${filterActive ? 'No executions found matching the filter criteria' : 'No executions found for this instance'}
+                    ${filterActive ? 'No executions found matching the filter criteria' : 'No executions found'}
                 </div>
             `;
             return;
@@ -439,6 +653,7 @@ const InstancesPage = (() => {
                     <thead>
                         <tr>
                             <th>Status</th>
+                            ${showInstanceColumn ? '<th>Instance</th>' : ''}
                             <th>Flow</th>
                             <th>Started</th>
                             <th>Duration</th>
@@ -456,6 +671,7 @@ const InstancesPage = (() => {
             html += `
                 <tr>
                     <td>${statusBadge}</td>
+                    ${showInstanceColumn ? `<td><small>${exec.instance?.name || 'Unknown'}</small></td>` : ''}
                     <td>${exec.flow?.name || 'Unknown'}</td>
                     <td><small>${formatDate(exec.startedAt)}</small></td>
                     <td><small>${duration}</small></td>
@@ -488,9 +704,7 @@ const InstancesPage = (() => {
 
     // Load more executions (pagination)
     function loadMoreExecutions() {
-        if (selectedInstance) {
-            loadExecutions(selectedInstance.id, false);
-        }
+        loadExecutions(currentFilters.instanceId, false);
     }
 
     // Show authentication required message
@@ -544,35 +758,53 @@ const InstancesPage = (() => {
         init();
 
         // Reset filters on new route
-        currentFilters = { dateFrom: null, dateTo: null };
+        currentFilters = { dateFrom: null, dateTo: null, instanceId: null, status: null };
 
         // Parse URL parameters
         const urlParams = parseUrlParams();
 
         // Load instances if authenticated
         if (API.isAuthenticated()) {
-            loadInstances(true).then(() => {
-                // Check if we have an instance to select from URL params
-                if (urlParams.instanceId) {
-                    // Try to find the instance in the loaded list
-                    const instanceItem = document.querySelector(`[data-instance-id="${urlParams.instanceId}"]`);
-                    if (instanceItem) {
-                        // Get the full instance data and select it
-                        const instance = instancesData?.edges?.find(e => e.node.id === urlParams.instanceId)?.node;
-                        if (instance) {
-                            // Set filters before selecting
-                            if (urlParams.from || urlParams.to) {
-                                setFilterInputs(urlParams.from, urlParams.to);
-                            }
-                            selectInstance(instance, true);
+            // Show filter bar immediately
+            showFilterBar();
+
+            // Set default date values
+            setDefaultDateValues();
+
+            loadInstances(true).then(async () => {
+                // Load all instances for dropdown
+                await loadAllInstancesForDropdown();
+
+                // Check if we have filters from URL params
+                if (urlParams.instanceId || urlParams.from || urlParams.to || urlParams.status) {
+                    // Set filters from URL
+                    setFilterInputs({
+                        instanceId: urlParams.instanceId,
+                        from: urlParams.from,
+                        to: urlParams.to,
+                        status: urlParams.status
+                    });
+
+                    if (urlParams.instanceId) {
+                        // Try to find the instance in the loaded list
+                        const instanceItem = document.querySelector(`[data-instance-id="${urlParams.instanceId}"]`);
+                        if (instanceItem) {
+                            instanceItem.classList.add('active', 'bg-primary', 'text-white');
                         }
-                    } else {
-                        // Instance not in current list, select by ID directly
-                        selectInstanceById(urlParams.instanceId, urlParams.instanceName, {
-                            from: urlParams.from,
-                            to: urlParams.to
-                        });
+
+                        selectedInstance = {
+                            id: urlParams.instanceId,
+                            name: urlParams.instanceName || 'Loading...'
+                        };
+                        document.getElementById('selectedInstanceName').textContent = selectedInstance.name;
                     }
+
+                    // Load executions with URL filters
+                    loadExecutions(urlParams.instanceId || null, true);
+                } else {
+                    // Default: show all executions with default date range
+                    document.getElementById('selectedInstanceName').textContent = 'All Instances';
+                    loadExecutions(null, true);
                 }
             });
         } else {
