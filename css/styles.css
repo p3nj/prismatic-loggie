@@ -649,3 +649,260 @@ pre[class*="language-"] {
 [data-theme="dark"] .resize-handle::after {
   color: #adb5bd;
 }
+
+/* ============================================
+   Navbar Styles
+   ============================================ */
+
+.navbar {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+  font-weight: bold;
+  font-size: 1.25rem;
+}
+
+.navbar .nav-link {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.navbar .nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.navbar .nav-link.active {
+  background-color: rgba(255, 255, 255, 0.2);
+  font-weight: 500;
+}
+
+.navbar .theme-switch-wrapper {
+  padding: 0.25rem 0;
+}
+
+/* Auth status indicator */
+#authNavLink.text-success {
+  color: #90EE90 !important;
+}
+
+#authNavLink.text-warning {
+  color: #FFD700 !important;
+}
+
+/* ============================================
+   Main Content & Page Container Styles
+   ============================================ */
+
+.main-content {
+  min-height: calc(100vh - 56px);
+}
+
+.page-container {
+  animation: fadeIn 0.3s ease;
+}
+
+.page-container.active {
+  display: block !important;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ============================================
+   Auth Page Styles
+   ============================================ */
+
+#page-auth .card {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+#page-auth .card-header {
+  padding: 1.25rem;
+}
+
+#page-auth .form-label {
+  margin-bottom: 0.5rem;
+}
+
+[data-theme="dark"] #page-auth .card {
+  background-color: var(--card-background);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] #page-auth .card-header {
+  background-color: #1a3a5c;
+}
+
+[data-theme="dark"] #page-auth .card-footer {
+  background-color: #2a2a2a !important;
+  border-color: var(--border-color);
+}
+
+/* ============================================
+   Instances Page Styles
+   ============================================ */
+
+.sticky-sidebar {
+  position: sticky;
+  top: 76px; /* navbar height + padding */
+  max-height: calc(100vh - 100px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.sticky-sidebar .card-body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.instances-list {
+  overflow-y: auto;
+  max-height: calc(100vh - 250px);
+  flex: 1;
+}
+
+.instance-item {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.instance-item:hover {
+  background-color: rgba(13, 110, 253, 0.1);
+}
+
+.instance-item.active {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+}
+
+.instance-item.active .text-muted {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.instance-item.active .text-success,
+.instance-item.active .text-warning {
+  color: white !important;
+}
+
+.min-width-0 {
+  min-width: 0;
+}
+
+/* Dark theme for instances */
+[data-theme="dark"] .instance-item:hover {
+  background-color: rgba(61, 139, 253, 0.2);
+}
+
+[data-theme="dark"] .sticky-sidebar .card-header {
+  background-color: #2a2a2a;
+  border-color: var(--border-color);
+}
+
+/* ============================================
+   Executions Table Styles
+   ============================================ */
+
+#executionsContent .table {
+  margin-bottom: 0;
+}
+
+#executionsContent .table th {
+  border-top: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+#executionsContent .table td {
+  vertical-align: middle;
+}
+
+[data-theme="dark"] #executionsContent .table {
+  color: var(--text-color);
+}
+
+[data-theme="dark"] #executionsContent .table th,
+[data-theme="dark"] #executionsContent .table td {
+  border-color: var(--border-color);
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+
+@media (max-width: 991.98px) {
+  .sticky-sidebar {
+    position: static;
+    max-height: none;
+    margin-bottom: 1.5rem;
+  }
+
+  .instances-list {
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .navbar-brand {
+    font-size: 1rem;
+  }
+
+  .navbar .theme-switch-wrapper span {
+    display: none;
+  }
+
+  #page-instances .col-lg-4 {
+    margin-bottom: 1rem;
+  }
+
+  #executionsContent .table {
+    font-size: 0.875rem;
+  }
+
+  .view-execution-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+}
+
+/* ============================================
+   Dark Theme Adjustments for New Components
+   ============================================ */
+
+[data-theme="dark"] .card {
+  background-color: var(--card-background);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .card-header {
+  background-color: #343a40;
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .border-bottom {
+  border-color: var(--border-color) !important;
+}
+
+[data-theme="dark"] .table-hover tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .btn-outline-primary {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+[data-theme="dark"] .btn-outline-primary:hover {
+  background-color: var(--primary-color);
+  color: white;
+}
