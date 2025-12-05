@@ -161,9 +161,26 @@
                                     <i class="bi bi-share me-1"></i>Share
                                 </button>
                             </div>
-                            <!-- Date Filter Bar -->
+                            <!-- Filter Bar -->
                             <div id="executionsFilterBar" class="card-body border-bottom py-2 d-none">
                                 <div class="row g-2 align-items-end">
+                                    <div class="col-auto">
+                                        <label class="form-label small mb-1" for="filterInstance">Instance</label>
+                                        <select class="form-select form-select-sm" id="filterInstance" style="min-width: 200px;">
+                                            <option value="">All Instances</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-auto">
+                                        <label class="form-label small mb-1" for="filterStatus">Status</label>
+                                        <select class="form-select form-select-sm" id="filterStatusSelect" style="min-width: 130px;">
+                                            <option value="">All Statuses</option>
+                                            <option value="SUCCEEDED">Succeeded</option>
+                                            <option value="FAILED">Failed</option>
+                                            <option value="RUNNING">Running</option>
+                                            <option value="PENDING">Pending</option>
+                                            <option value="CANCELED">Canceled</option>
+                                        </select>
+                                    </div>
                                     <div class="col-auto">
                                         <label class="form-label small mb-1" for="filterDateFrom">From</label>
                                         <input type="datetime-local" class="form-control form-control-sm" id="filterDateFrom">
@@ -183,8 +200,11 @@
                                         </button>
                                     </div>
                                     <div class="col-auto ms-auto">
-                                        <span id="filterStatus" class="badge bg-info d-none">Filtered</span>
+                                        <span id="filterStatusBadge" class="badge bg-info d-none">Filtered</span>
                                     </div>
+                                </div>
+                                <div id="dateValidationError" class="text-danger small mt-1 d-none">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>"From" date cannot be after "To" date
                                 </div>
                             </div>
                             <div class="card-body">

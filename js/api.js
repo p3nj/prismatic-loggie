@@ -119,15 +119,16 @@ const API = (() => {
         }
     `;
 
-    // GraphQL query for executions by instance with datetime filtering
+    // GraphQL query for executions by instance with datetime and status filtering
     const executionsByInstanceQuery = `
-        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime) {
+        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus) {
             executionResults(
                 instance: $instanceId,
                 first: $first,
                 after: $after,
                 startedAt_Gte: $startedAtGte,
                 startedAt_Lte: $startedAtLte,
+                status: $status,
                 orderBy: {field: STARTED_AT, direction: DESC}
             ) {
                 totalCount
@@ -144,6 +145,44 @@ const API = (() => {
                         endedAt
                         status
                         flow {
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for all executions (without instance filter) with datetime and status filtering
+    const executionsQuery = `
+        query GetExecutions($first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus, $instanceId: ID) {
+            executionResults(
+                instance: $instanceId,
+                first: $first,
+                after: $after,
+                startedAt_Gte: $startedAtGte,
+                startedAt_Lte: $startedAtLte,
+                status: $status,
+                orderBy: {field: STARTED_AT, direction: DESC}
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    hasPreviousPage
+                    startCursor
+                    endCursor
+                }
+                edges {
+                    node {
+                        id
+                        startedAt
+                        endedAt
+                        status
+                        flow {
+                            name
+                        }
+                        instance {
+                            id
                             name
                         }
                     }
@@ -209,7 +248,7 @@ const API = (() => {
 
     // Fetch executions for a specific instance
     async function fetchExecutionsByInstance(instanceId, options = {}) {
-        const { first = 20, after = null, startedAtGte = null, startedAtLte = null } = options;
+        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null } = options;
         console.log(`Fetching executions for instance: ${instanceId}`);
 
         const variables = {
@@ -225,8 +264,39 @@ const API = (() => {
         if (startedAtLte) {
             variables.startedAtLte = startedAtLte;
         }
+        // Add status filter if provided
+        if (status) {
+            variables.status = status;
+        }
 
         const data = await graphqlRequest(executionsByInstanceQuery, variables);
+        return data.executionResults;
+    }
+
+    // Fetch executions with optional instance filter (for "All Instances" mode)
+    async function fetchExecutions(options = {}) {
+        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null, instanceId = null } = options;
+        console.log('Fetching executions');
+
+        const variables = { first, after };
+
+        // Add instance filter if provided
+        if (instanceId) {
+            variables.instanceId = instanceId;
+        }
+        // Add datetime filters if provided
+        if (startedAtGte) {
+            variables.startedAtGte = startedAtGte;
+        }
+        if (startedAtLte) {
+            variables.startedAtLte = startedAtLte;
+        }
+        // Add status filter if provided
+        if (status) {
+            variables.status = status;
+        }
+
+        const data = await graphqlRequest(executionsQuery, variables);
         return data.executionResults;
     }
 
@@ -285,6 +355,7 @@ const API = (() => {
         fetchExecutionResults,
         fetchInstances,
         fetchExecutionsByInstance,
+        fetchExecutions,
         // Legacy methods for backward compatibility
         loadSavedConfig,
         updateConfig
