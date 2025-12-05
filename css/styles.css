@@ -906,3 +906,64 @@ pre[class*="language-"] {
   background-color: var(--primary-color);
   color: white;
 }
+
+/* ============================================
+   Filter Bar Styles
+   ============================================ */
+
+#executionsFilterBar {
+  background-color: #f8f9fa;
+}
+
+#executionsFilterBar .form-control-sm {
+  min-width: 180px;
+}
+
+#executionsFilterBar .form-label {
+  font-weight: 500;
+  color: var(--text-color);
+  opacity: 0.8;
+}
+
+[data-theme="dark"] #executionsFilterBar {
+  background-color: #2a2a2a;
+}
+
+[data-theme="dark"] #executionsFilterBar .form-control {
+  background-color: #343a40;
+  border-color: #495057;
+  color: var(--text-color);
+}
+
+[data-theme="dark"] #executionsFilterBar .form-control:focus {
+  background-color: #3d4349;
+  border-color: var(--primary-color);
+}
+
+/* Share button feedback */
+#shareFilterBtn.btn-success {
+  background-color: #198754;
+  border-color: #198754;
+  color: white;
+}
+
+/* Responsive filter bar */
+@media (max-width: 767.98px) {
+  #executionsFilterBar .row {
+    flex-direction: column;
+  }
+
+  #executionsFilterBar .col-auto {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+
+  #executionsFilterBar .form-control-sm {
+    width: 100%;
+    min-width: unset;
+  }
+
+  #executionsFilterBar .ms-auto {
+    margin-left: 0 !important;
+  }
+}
