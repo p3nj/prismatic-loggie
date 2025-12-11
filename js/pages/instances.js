@@ -662,8 +662,8 @@ const InstancesPage = (() => {
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
 
             // Build Prismatic URLs
-            const instanceUrl = `${prismaticEndpoint}/instances/${instanceId}/`;
-            const executionUrl = `${prismaticEndpoint}/instances/${instanceId}/executions/?executionId=${exec.id}`;
+            const instanceUrl = `${prismaticEndpoint}/instances/${encodeURIComponent(instanceId)}/`;
+            const executionUrl = `${prismaticEndpoint}/instances/${encodeURIComponent(instanceId)}/executions/?executionId=${encodeURIComponent(exec.id)}`;
 
             html += `
                 <tr>
