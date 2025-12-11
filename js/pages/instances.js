@@ -636,6 +636,10 @@ const InstancesPage = (() => {
             return;
         }
 
+        // Get the Prismatic endpoint for external links
+        const prismaticEndpoint = API.getEndpoint();
+        const instanceId = selectedInstance?.id || '';
+
         let html = `
             <div class="table-responsive">
                 <table class="table table-hover">
@@ -646,6 +650,7 @@ const InstancesPage = (() => {
                             <th>Started</th>
                             <th>Duration</th>
                             <th>Actions</th>
+                            <th class="text-center" title="Open in Prismatic">Prismatic</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -655,6 +660,10 @@ const InstancesPage = (() => {
             const exec = edge.node;
             const statusBadge = getStatusBadge(exec.status);
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
+
+            // Build Prismatic URLs
+            const instanceUrl = `${prismaticEndpoint}/instances/${instanceId}/`;
+            const executionUrl = `${prismaticEndpoint}/instances/${instanceId}/executions/?executionId=${exec.id}`;
 
             html += `
                 <tr>
@@ -666,6 +675,14 @@ const InstancesPage = (() => {
                         <button class="btn btn-sm btn-outline-primary view-execution-btn" data-execution-id="${exec.id}" title="View Logs">
                             <i class="bi bi-journal-text"></i> View
                         </button>
+                    </td>
+                    <td class="text-center">
+                        <a href="${instanceUrl}" target="_blank" class="btn btn-sm btn-outline-secondary me-1" title="Open Instance in Prismatic">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                        <a href="${executionUrl}" target="_blank" class="btn btn-sm btn-outline-info" title="Open Execution in Prismatic">
+                            <i class="bi bi-play-btn"></i>
+                        </a>
                     </td>
                 </tr>
             `;
