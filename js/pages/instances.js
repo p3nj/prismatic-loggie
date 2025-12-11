@@ -681,7 +681,7 @@ const InstancesPage = (() => {
                             <i class="bi bi-box-arrow-up-right"></i>
                         </a>
                         <a href="${executionUrl}" target="_blank" class="btn btn-sm btn-outline-info" title="Open Execution in Prismatic">
-                            <i class="bi bi-play-btn"></i>
+                            <i class="bi bi-play-circle"></i>
                         </a>
                     </td>
                 </tr>
