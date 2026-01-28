@@ -1,6 +1,7 @@
 // Authentication Page Handler
 const AuthPage = (() => {
     let initialized = false;
+    let validationCache = { endpoint: null, token: null, result: null };
 
     // Initialize the auth page
     function init() {
@@ -64,7 +65,9 @@ const AuthPage = (() => {
                 if (tokenInput) {
                     tokenInput.value = API.getToken();
                 }
-                updateAuthStatus();
+                // Clear cache and re-validate for new endpoint
+                validationCache = { endpoint: null, token: null, result: null };
+                updateAuthStatus(true);
             });
         }
 
@@ -100,10 +103,10 @@ const AuthPage = (() => {
     }
 
     // Save authentication
-    function saveAuth() {
+    async function saveAuth() {
         const endpointSelect = document.getElementById('authEndpointSelect');
         const tokenInput = document.getElementById('authApiToken');
-        const messageDiv = document.getElementById('authMessage');
+        const saveBtn = document.getElementById('saveAuthButton');
 
         if (!tokenInput || !endpointSelect) return;
 
@@ -119,16 +122,49 @@ const AuthPage = (() => {
         API.setEndpoint(endpoint);
         API.setToken(token);
 
-        // Update auth status
-        updateAuthStatus();
+        // Show validating state
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Validating...';
+        }
 
-        // Show success message
-        showMessage('Token saved successfully! You can now access your instances.', 'success');
+        // Clear cache and validate the new token
+        validationCache = { endpoint: null, token: null, result: null };
+        const result = await API.validateToken();
 
-        // Redirect to instances page after a short delay
-        setTimeout(() => {
-            Router.navigate('instances');
-        }, 1500);
+        // Cache the result
+        validationCache = { endpoint, token, result };
+
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Connect';
+        }
+
+        if (result.valid) {
+            // Update auth status
+            await updateAuthStatus(true);
+
+            // Show success message with user info
+            const userName = result.user?.name || result.user?.email || '';
+            showMessage(`Connected successfully${userName ? ` as ${userName}` : ''}!`, 'success');
+
+            // Redirect to instances page after a short delay
+            setTimeout(() => {
+                Router.navigate('instances');
+            }, 1000);
+        } else {
+            // Update auth status to show expired
+            await updateAuthStatus(true);
+
+            // Show error message
+            if (result.reason === 'expired') {
+                showMessage('Token is invalid or expired. Please get a new token from Prismatic.', 'danger');
+            } else if (result.reason === 'network') {
+                showMessage('Network error. Please check your connection and try again.', 'danger');
+            } else {
+                showMessage('Failed to validate token. Please try again.', 'danger');
+            }
+        }
     }
 
     // Show message
@@ -146,21 +182,69 @@ const AuthPage = (() => {
         }, 5000);
     }
 
-    // Update auth status in navbar
-    function updateAuthStatus() {
+    // Update auth status in navbar (with actual token validation)
+    async function updateAuthStatus(forceValidate = false) {
         const statusText = document.getElementById('authStatusText');
         const authLink = document.getElementById('authNavLink');
 
-        if (statusText && authLink) {
-            if (API.isAuthenticated()) {
-                statusText.textContent = 'Connected';
+        if (!statusText || !authLink) return;
+
+        const currentEndpoint = API.getEndpoint();
+        const currentToken = API.getToken();
+
+        // No token - show setup state
+        if (!currentToken) {
+            setAuthStatusUI(statusText, authLink, 'no_token');
+            return;
+        }
+
+        // Check cache to avoid repeated API calls
+        if (!forceValidate &&
+            validationCache.endpoint === currentEndpoint &&
+            validationCache.token === currentToken &&
+            validationCache.result) {
+            setAuthStatusUI(statusText, authLink, validationCache.result.valid ? 'valid' : 'expired');
+            return;
+        }
+
+        // Show validating state
+        setAuthStatusUI(statusText, authLink, 'validating');
+
+        // Actually validate the token
+        const result = await API.validateToken();
+
+        // Cache the result
+        validationCache = { endpoint: currentEndpoint, token: currentToken, result };
+
+        if (result.valid) {
+            setAuthStatusUI(statusText, authLink, 'valid', result.user?.name || result.user?.email);
+        } else {
+            setAuthStatusUI(statusText, authLink, 'expired');
+        }
+    }
+
+    // Set the UI state for auth status
+    function setAuthStatusUI(statusText, authLink, state, userName = null) {
+        authLink.classList.remove('text-success', 'text-warning', 'text-danger', 'text-muted');
+
+        switch (state) {
+            case 'valid':
+                statusText.textContent = userName ? `Connected (${userName})` : 'Connected';
                 authLink.classList.add('text-success');
-                authLink.classList.remove('text-warning');
-            } else {
+                break;
+            case 'expired':
+                statusText.textContent = 'Token Expired';
+                authLink.classList.add('text-danger');
+                break;
+            case 'validating':
+                statusText.textContent = 'Checking...';
+                authLink.classList.add('text-muted');
+                break;
+            case 'no_token':
+            default:
                 statusText.textContent = 'Setup Token';
                 authLink.classList.add('text-warning');
-                authLink.classList.remove('text-success');
-            }
+                break;
         }
     }
 
@@ -170,10 +254,16 @@ const AuthPage = (() => {
         loadSavedAuth();
     }
 
+    // Clear validation cache (useful when token might have changed externally)
+    function clearValidationCache() {
+        validationCache = { endpoint: null, token: null, result: null };
+    }
+
     return {
         init,
         onRoute,
-        updateAuthStatus
+        updateAuthStatus,
+        clearValidationCache
     };
 })();
 
