@@ -203,23 +203,22 @@ const UI = (() => {
                 }
 
                 const btn = this;
-                const originalHtml = btn.innerHTML;
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refiring...';
 
                 try {
                     const newExecution = await API.replayExecution(executionId);
-                    btn.innerHTML = '<i class="bi bi-check me-1"></i>Done';
-                    btn.classList.replace('btn-outline-warning', 'btn-outline-success');
 
-                    // Navigate to new execution after short delay
-                    setTimeout(() => {
-                        Router.navigate('execution', { executionId: newExecution.id });
-                    }, 1000);
+                    // Replace button with "View Execution" link
+                    const viewBtn = document.createElement('button');
+                    viewBtn.className = 'btn btn-sm btn-success';
+                    viewBtn.innerHTML = '<i class="bi bi-arrow-right me-1"></i>View New Execution';
+                    viewBtn.onclick = () => Router.navigate('execution', { executionId: newExecution.id });
+                    btn.replaceWith(viewBtn);
                 } catch (error) {
                     btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    alert('Failed to refire execution: ' + error.message);
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Refire';
+                    alert('Failed to refire: ' + error.message);
                 }
             });
         }
