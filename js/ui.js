@@ -213,7 +213,10 @@ const UI = (() => {
                     const viewBtn = document.createElement('button');
                     viewBtn.className = 'btn btn-sm btn-success';
                     viewBtn.innerHTML = '<i class="bi bi-arrow-right me-1"></i>View New Execution';
-                    viewBtn.onclick = () => Router.navigate('execution', { executionId: newExecution.id });
+                    viewBtn.onclick = () => {
+                        ExecutionPage.setExecutionId(newExecution.id);
+                        ExecutionPage.fetchResults();
+                    };
                     btn.replaceWith(viewBtn);
                 } catch (error) {
                     btn.disabled = false;
