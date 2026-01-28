@@ -42,6 +42,43 @@ const API = (() => {
         return !!getToken();
     }
 
+    // Validate token by making a test API call
+    async function validateToken() {
+        const token = getToken();
+        if (!token) {
+            return { valid: false, reason: 'no_token' };
+        }
+
+        try {
+            const response = await fetch(getApiEndpoint(), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    query: `query { authenticatedUser { id email name } }`
+                })
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    return { valid: false, reason: 'expired' };
+                }
+                return { valid: false, reason: 'error', message: `HTTP ${response.status}` };
+            }
+
+            const data = await response.json();
+            if (data.errors) {
+                return { valid: false, reason: 'expired', message: data.errors[0].message };
+            }
+
+            return { valid: true, user: data.data.authenticatedUser };
+        } catch (error) {
+            return { valid: false, reason: 'network', message: error.message };
+        }
+    }
+
     // Get token URL for current endpoint
     function getTokenUrl() {
         return `${getEndpoint()}/get_auth_token`;
@@ -375,6 +412,7 @@ const API = (() => {
         getToken,
         setToken,
         isAuthenticated,
+        validateToken,
         getTokenUrl,
         getApiEndpoint,
         ENDPOINTS,
