@@ -247,6 +247,21 @@ const API = (() => {
         }
     `;
 
+    // GraphQL mutation for replaying an execution
+    const replayExecutionMutation = `
+        mutation ReplayExecution($executionId: ID!) {
+            replayExecution(input: {id: $executionId}) {
+                instanceExecutionResult {
+                    id
+                }
+                errors {
+                    field
+                    messages
+                }
+            }
+        }
+    `;
+
     // Generic GraphQL request helper
     async function graphqlRequest(query, variables = {}) {
         const token = getToken();
@@ -363,6 +378,21 @@ const API = (() => {
         return data.executionResults;
     }
 
+    // Replay an execution (refire with the same input data)
+    async function replayExecution(executionId) {
+        console.log(`Replaying execution: ${executionId}`);
+        const data = await graphqlRequest(replayExecutionMutation, { executionId });
+
+        if (data.replayExecution.errors && data.replayExecution.errors.length > 0) {
+            const errorMessages = data.replayExecution.errors
+                .map(e => e.messages.join(', '))
+                .join('; ');
+            throw new Error(`Failed to replay execution: ${errorMessages}`);
+        }
+
+        return data.replayExecution.instanceExecutionResult;
+    }
+
     // Legacy support - update config from DOM elements (for backward compatibility)
     function updateConfig() {
         const endpointSelect = document.getElementById('endpointSelect');
@@ -421,6 +451,7 @@ const API = (() => {
         fetchInstanceFlows,
         fetchExecutionsByInstance,
         fetchExecutions,
+        replayExecution,
         // Legacy methods for backward compatibility
         loadSavedConfig,
         updateConfig

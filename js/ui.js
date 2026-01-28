@@ -142,19 +142,21 @@ const UI = (() => {
         // Get endpoint from API module
         const endpoint = API.getEndpoint();
         
-        // Generate execution link if we have the required data
-        let executionLinkHtml = '';
+        // Generate action buttons if we have the required data
+        let actionsHtml = '';
         if (result.instance?.id && result.id) {
             const executionUrl = `${endpoint}/instances/${result.instance.id}/executions/?executionId=${result.id}`;
-            executionLinkHtml = `
+            actionsHtml = `
                 <div class="mb-2 mt-3 border-top pt-2">
-                    <strong>View in Prismatic:</strong>
-                    <div class="d-flex align-items-center mt-1">
+                    <strong>Actions:</strong>
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        <button class="btn btn-sm btn-outline-warning refire-btn" data-execution-id="${result.id}">
+                            <i class="bi bi-arrow-repeat me-1"></i>Refire
+                        </button>
                         <a href="${executionUrl}" class="btn btn-sm btn-outline-primary" target="_blank">
-                            <i class="bi bi-box-arrow-up-right me-1"></i>Open Execution
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open
                         </a>
-                        <button class="btn btn-sm btn-outline-secondary ms-2 copy-link-btn" 
-                                data-link="${executionUrl}" title="Copy link to clipboard">
+                        <button class="btn btn-sm btn-outline-secondary copy-link-btn" data-link="${executionUrl}">
                             <i class="bi bi-clipboard"></i>
                         </button>
                     </div>
@@ -180,7 +182,7 @@ const UI = (() => {
                 <strong>Started:</strong>
                 <div>${result.startedAt ? new Date(result.startedAt).toLocaleString() : 'Unknown'}</div>
             </div>
-            ${executionLinkHtml}
+            ${actionsHtml}
         `;
         
         // Insert execution details at the beginning of sidebar, after input fields
@@ -191,20 +193,47 @@ const UI = (() => {
             sidebar.prepend(detailsPanel);
         }
 
+        // Add event listener for refire button
+        const refireButton = detailsPanel.querySelector('.refire-btn');
+        if (refireButton) {
+            refireButton.addEventListener('click', async function() {
+                const executionId = this.getAttribute('data-execution-id');
+                if (!confirm('Are you sure you want to refire this execution?\n\nThis will replay the execution with the same input data.')) {
+                    return;
+                }
+
+                const btn = this;
+                const originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refiring...';
+
+                try {
+                    const newExecution = await API.replayExecution(executionId);
+                    btn.innerHTML = '<i class="bi bi-check me-1"></i>Done';
+                    btn.classList.replace('btn-outline-warning', 'btn-outline-success');
+
+                    // Navigate to new execution after short delay
+                    setTimeout(() => {
+                        Router.navigate('execution', { executionId: newExecution.id });
+                    }, 1000);
+                } catch (error) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    alert('Failed to refire execution: ' + error.message);
+                }
+            });
+        }
+
         // Add event listener for copy link button
         const copyButton = detailsPanel.querySelector('.copy-link-btn');
         if (copyButton) {
             copyButton.addEventListener('click', function() {
                 const link = this.getAttribute('data-link');
                 navigator.clipboard.writeText(link).then(() => {
-                    // Visual feedback for successful copy
-                    const originalIcon = this.innerHTML;
                     this.innerHTML = '<i class="bi bi-check2"></i>';
                     this.classList.replace('btn-outline-secondary', 'btn-outline-success');
-                    
-                    // Reset after short delay
                     setTimeout(() => {
-                        this.innerHTML = originalIcon;
+                        this.innerHTML = '<i class="bi bi-clipboard"></i>';
                         this.classList.replace('btn-outline-success', 'btn-outline-secondary');
                     }, 1500);
                 });
