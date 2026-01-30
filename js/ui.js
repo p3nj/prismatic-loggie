@@ -1,5 +1,24 @@
 // UI handling functionality
 const UI = (() => {
+    // State for pagination
+    let logsState = {
+        executionId: null,
+        pageInfo: null,
+        allLogEdges: [],
+        isLoading: false,
+        totalCount: 0
+    };
+
+    // Reset logs state
+    function resetLogsState() {
+        logsState = {
+            executionId: null,
+            pageInfo: null,
+            allLogEdges: [],
+            isLoading: false,
+            totalCount: 0
+        };
+    }
     // Initialize theme
     function initTheme() {
         const themeToggle = document.getElementById('theme-toggle');
@@ -62,8 +81,8 @@ const UI = (() => {
         }
     }
 
-    // Display execution results
-    function displayResults(result) {
+    // Display execution results (metadata only, logs are loaded separately)
+    function displayResults(result, logsData = null) {
         const resultsDiv = document.getElementById('results');
         const errorDiv = document.getElementById('error');
 
@@ -74,26 +93,70 @@ const UI = (() => {
             errorDiv.classList.add('d-none');
         }
 
-        resultsDiv.innerHTML = '';
+        // Add execution details to sidebar
+        addExecutionDetailsToSidebar(result);
 
-        if (!result || !result.logs || !result.logs.edges.length) {
+        // If we have logs data, initialize the logs state and display
+        if (logsData) {
+            initializeLogsDisplay(result.id, logsData);
+        } else {
+            resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
+        }
+    }
+
+    // Initialize logs display with first batch of logs
+    function initializeLogsDisplay(executionId, logsData) {
+        const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+
+        // Reset and set state
+        resetLogsState();
+        logsState.executionId = executionId;
+        logsState.pageInfo = logsData.pageInfo;
+        logsState.totalCount = logsData.totalCount;
+        logsState.allLogEdges = [...logsData.edges];
+
+        if (logsData.edges.length === 0) {
             resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
             return;
         }
 
-        // Build a dictionary of steps with their logs for navigation
-        const stepDict = buildStepDictionary(result.logs.edges);
-        
-        // Add execution details to sidebar
-        addExecutionDetailsToSidebar(result);
-        
-        // Update the step navigation in the sidebar
-        updateStepNavigation(stepDict);
+        // Create the logs container with infinite scroll
+        resultsDiv.innerHTML = `
+            <div id="logs-container"></div>
+            <div id="logs-loading" class="col-12 text-center py-3 d-none">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span class="ms-2">Loading more logs...</span>
+            </div>
+            <div id="logs-end" class="col-12 text-center py-2 d-none">
+                <span class="text-muted">All ${logsData.totalCount} logs loaded</span>
+            </div>
+        `;
 
-        const logsHtml = result.logs.edges.map((edge, index) => {
+        // Render the initial logs
+        renderLogEntries(logsData.edges, 0);
+
+        // Build step dictionary and update navigation
+        const stepDict = buildStepDictionary(logsState.allLogEdges);
+        updateStepNavigation(stepDict, logsState.pageInfo.hasNextPage, logsState.totalCount);
+
+        // Setup infinite scroll
+        setupInfiniteScroll();
+
+        // Detect and setup JSON viewers for rendered logs
+        detectAndSetupJsonViewers(logsData.edges);
+    }
+
+    // Render log entries starting from a specific index
+    function renderLogEntries(edges, startIndex) {
+        const logsContainer = document.getElementById('logs-container');
+        if (!logsContainer) return;
+
+        const logsHtml = edges.map((edge, index) => {
             const log = edge.node;
+            const globalIndex = startIndex + index;
             return `
-                <div class="col-12 mb-3" id="log-${index}" data-step-name="${log.stepName || 'Unnamed Step'}">
+                <div class="col-12 mb-3" id="log-${globalIndex}" data-step-name="${log.stepName || 'Unnamed Step'}">
                     <div class="log-card">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
@@ -117,10 +180,80 @@ const UI = (() => {
             `;
         }).join('');
 
-        resultsDiv.innerHTML = logsHtml;
+        logsContainer.insertAdjacentHTML('beforeend', logsHtml);
+    }
 
-        // Detect and setup JSON viewers
-        detectAndSetupJsonViewers(result.logs.edges);
+    // Setup infinite scroll for logs
+    function setupInfiniteScroll() {
+        const mainContent = document.querySelector('.main-content');
+        if (!mainContent) return;
+
+        // Remove existing scroll listener if any
+        mainContent.removeEventListener('scroll', handleScroll);
+
+        // Add new scroll listener
+        mainContent.addEventListener('scroll', handleScroll);
+    }
+
+    // Handle scroll event for infinite loading
+    function handleScroll(e) {
+        const mainContent = e.target;
+
+        // Check if we're near the bottom (within 200px)
+        const scrollPosition = mainContent.scrollTop + mainContent.clientHeight;
+        const scrollHeight = mainContent.scrollHeight;
+        const threshold = 200;
+
+        if (scrollPosition >= scrollHeight - threshold) {
+            loadMoreLogs();
+        }
+    }
+
+    // Load more logs
+    async function loadMoreLogs() {
+        // Check if we can load more
+        if (logsState.isLoading || !logsState.pageInfo?.hasNextPage || !logsState.executionId) {
+            return;
+        }
+
+        logsState.isLoading = true;
+        const loadingDiv = document.getElementById('logs-loading');
+        if (loadingDiv) loadingDiv.classList.remove('d-none');
+
+        try {
+            const logsData = await API.fetchLogs(logsState.executionId, {
+                first: 100,
+                after: logsState.pageInfo.endCursor
+            });
+
+            // Update state
+            const startIndex = logsState.allLogEdges.length;
+            logsState.allLogEdges = [...logsState.allLogEdges, ...logsData.edges];
+            logsState.pageInfo = logsData.pageInfo;
+
+            // Render new logs
+            renderLogEntries(logsData.edges, startIndex);
+
+            // Setup JSON viewers for new logs
+            detectAndSetupJsonViewers(logsData.edges);
+
+            // Update step navigation with new logs
+            const stepDict = buildStepDictionary(logsState.allLogEdges);
+            updateStepNavigation(stepDict, logsState.pageInfo.hasNextPage, logsState.totalCount);
+
+            // Show end message if no more pages
+            if (!logsState.pageInfo.hasNextPage) {
+                const endDiv = document.getElementById('logs-end');
+                if (endDiv) endDiv.classList.remove('d-none');
+            }
+        } catch (error) {
+            console.error('Failed to load more logs:', error);
+            showError('Failed to load more logs: ' + error.message);
+        } finally {
+            logsState.isLoading = false;
+            const loadingDiv = document.getElementById('logs-loading');
+            if (loadingDiv) loadingDiv.classList.add('d-none');
+        }
     }
 
     // Add execution details to the sidebar
@@ -326,27 +459,30 @@ const UI = (() => {
     }
 
     // Update the step navigation in the sidebar
-    function updateStepNavigation(stepDict) {
+    function updateStepNavigation(stepDict, hasMoreLogs = false, totalCount = 0) {
         // Create or update the step navigation container
         let stepNav = document.getElementById('step-navigation');
         if (!stepNav) {
             const sidebar = document.querySelector('#page-execution .sidebar');
             if (!sidebar) return;
-            
+
             stepNav = document.createElement('div');
             stepNav.id = 'step-navigation';
             stepNav.className = 'mt-4';
-            
-            const heading = document.createElement('h5');
-            heading.textContent = 'Step Navigation';
-            heading.className = 'border-bottom pb-2 mb-2';
-            stepNav.appendChild(heading);
-            
+
             sidebar.appendChild(stepNav);
-        } else {
-            // Clear existing navigation
-            stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2">Step Navigation</h5>';
         }
+
+        // Build header with log count info
+        const loadedCount = logsState.allLogEdges.length;
+        const countInfo = totalCount > 0
+            ? `<small class="text-muted d-block">${loadedCount} of ${totalCount} logs loaded${hasMoreLogs ? ' (scroll for more)' : ''}</small>`
+            : '';
+
+        stepNav.innerHTML = `
+            <h5 class="border-bottom pb-2 mb-2">Step Navigation</h5>
+            ${countInfo}
+        `;
         
         // Create a collapsible tree component
         const navContainer = document.createElement('div');
@@ -1447,6 +1583,8 @@ const UI = (() => {
         showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,
-        showJsonModal
+        showJsonModal,
+        loadMoreLogs,
+        resetLogsState
     };
 })();

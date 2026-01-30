@@ -84,7 +84,7 @@ const API = (() => {
         return `${getEndpoint()}/get_auth_token`;
     }
 
-    // GraphQL query for execution results
+    // GraphQL query for execution results (without logs - logs are fetched separately with pagination)
     const executionResultQuery = `
         query QueryExecutionResult($id: ID!) {
             executionResult(id: $id) {
@@ -97,24 +97,43 @@ const API = (() => {
                 flow {
                     name
                 }
-                logs(orderBy: {direction: DESC, field: TIMESTAMP}) {
-                    edges {
-                        node {
-                            id
-                            stepName
-                            message
-                            loopStepName
-                            loopStepIndex
-                            loopPath
-                            timestamp
-                            instanceName
-                            flowName
-                        }
-                    }
-                }
                 startedAt
+                endedAt
                 status
                 stepCount
+            }
+        }
+    `;
+
+    // GraphQL query for logs with pagination (fetched separately from execution)
+    const logsQuery = `
+        query GetLogs($executionResultId: ID!, $first: Int, $after: String) {
+            logs(
+                executionResult: $executionResultId,
+                first: $first,
+                after: $after,
+                sortBy: [{field: TIMESTAMP, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    hasPreviousPage
+                    startCursor
+                    endCursor
+                }
+                edges {
+                    node {
+                        id
+                        stepName
+                        message
+                        loopStepName
+                        loopStepIndex
+                        loopPath
+                        timestamp
+                        instanceName
+                        flowName
+                    }
+                }
             }
         }
     `;
@@ -297,11 +316,26 @@ const API = (() => {
         return data.data;
     }
 
-    // Fetch execution results from the API
+    // Fetch execution results from the API (metadata only, no logs)
     async function fetchExecutionResults(executionId) {
         console.log(`Fetching execution results for ID: ${executionId}`);
         const data = await graphqlRequest(executionResultQuery, { id: executionId });
         return data.executionResult;
+    }
+
+    // Fetch logs for an execution with pagination
+    async function fetchLogs(executionResultId, options = {}) {
+        const { first = 100, after = null } = options;
+        console.log(`Fetching logs for execution: ${executionResultId}, first: ${first}, after: ${after}`);
+
+        const variables = {
+            executionResultId,
+            first
+        };
+        if (after) variables.after = after;
+
+        const data = await graphqlRequest(logsQuery, variables);
+        return data.logs;
     }
 
     // Fetch instances list with pagination
@@ -447,6 +481,7 @@ const API = (() => {
         getApiEndpoint,
         ENDPOINTS,
         fetchExecutionResults,
+        fetchLogs,
         fetchInstances,
         fetchInstanceFlows,
         fetchExecutionsByInstance,

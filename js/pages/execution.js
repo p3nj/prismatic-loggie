@@ -47,8 +47,14 @@ const ExecutionPage = (() => {
         UI.showLoading();
 
         try {
-            const result = await API.fetchExecutionResults(executionId);
-            UI.displayResults(result);
+            // Fetch execution details and first page of logs in parallel
+            const [result, logsData] = await Promise.all([
+                API.fetchExecutionResults(executionId),
+                API.fetchLogs(executionId, { first: 100 })
+            ]);
+
+            // Display results with logs
+            UI.displayResults(result, logsData);
         } catch (error) {
             UI.showError(error.message);
         }
