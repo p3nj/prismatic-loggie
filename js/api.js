@@ -104,12 +104,12 @@ const API = (() => {
         }
     `;
 
-    // GraphQL query for execution logs with pagination (ASC order to fetch from beginning)
+    // GraphQL query for execution logs with pagination (DESC order to fetch most recent first)
     const executionLogsQuery = `
         query QueryExecutionLogs($id: ID!, $first: Int, $after: String) {
             executionResult(id: $id) {
                 id
-                logs(first: $first, after: $after, orderBy: {direction: ASC, field: TIMESTAMP}) {
+                logs(first: $first, after: $after, orderBy: {direction: DESC, field: TIMESTAMP}) {
                     totalCount
                     pageInfo {
                         hasNextPage

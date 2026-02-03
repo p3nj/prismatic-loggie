@@ -222,7 +222,8 @@ const UI = (() => {
         }
     }
 
-    // Render logs incrementally (append new logs)
+    // Render logs incrementally (prepend older logs at the bottom, since we're loading DESC)
+    // Logs come in from newest to oldest, so we append them at the end
     function renderLogsIncremental(logEdges, startIndex = 0) {
         const resultsDiv = document.getElementById('results');
         if (!resultsDiv) return;
@@ -264,6 +265,7 @@ const UI = (() => {
             fragment.appendChild(logDiv);
         });
 
+        // Append at the end (logs are coming in DESC order: newest first, then older)
         resultsDiv.appendChild(fragment);
 
         // Setup JSON viewers only for the new logs
