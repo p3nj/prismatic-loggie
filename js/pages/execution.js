@@ -29,7 +29,7 @@ const ExecutionPage = (() => {
         }
     }
 
-    // Fetch and display execution results
+    // Fetch and display execution results with continuous log loading
     async function fetchResults() {
         const executionId = getExecutionId();
 
@@ -47,8 +47,46 @@ const ExecutionPage = (() => {
         UI.showLoading();
 
         try {
-            const result = await API.fetchExecutionResults(executionId);
-            UI.displayResults(result);
+            // First fetch execution metadata (without logs)
+            const executionMetadata = await API.fetchExecutionResults(executionId);
+
+            if (!executionMetadata) {
+                UI.showError('Execution not found');
+                return;
+            }
+
+            // Initialize the results container with metadata
+            UI.initResultsContainer(executionMetadata);
+
+            // Now fetch logs continuously in batches
+            let previousLogCount = 0;
+            const logGenerator = API.fetchAllExecutionLogs(executionId, 100);
+
+            for await (const progress of logGenerator) {
+                // Show progress indicator
+                UI.showLoadingProgress(progress.loadedCount, progress.totalCount, progress.isComplete);
+
+                // Render only the new logs (incremental)
+                if (progress.logs.length > previousLogCount) {
+                    const newLogs = progress.logs.slice(previousLogCount);
+                    UI.renderLogsIncremental(newLogs, previousLogCount);
+                    previousLogCount = progress.logs.length;
+
+                    // Update step navigation with all logs so far
+                    UI.updateStepNavigationFromLogs(progress.logs);
+                }
+
+                // Handle completion
+                if (progress.isComplete) {
+                    if (progress.loadedCount === 0) {
+                        const resultsDiv = document.getElementById('results');
+                        if (resultsDiv) {
+                            resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
+                        }
+                        UI.hideLoadingProgress();
+                    }
+                }
+            }
         } catch (error) {
             UI.showError(error.message);
         }

@@ -84,7 +84,7 @@ const API = (() => {
         return `${getEndpoint()}/get_auth_token`;
     }
 
-    // GraphQL query for execution results
+    // GraphQL query for execution results (metadata only, logs fetched separately)
     const executionResultQuery = `
         query QueryExecutionResult($id: ID!) {
             executionResult(id: $id) {
@@ -97,7 +97,26 @@ const API = (() => {
                 flow {
                     name
                 }
-                logs(orderBy: {direction: DESC, field: TIMESTAMP}) {
+                startedAt
+                status
+                stepCount
+            }
+        }
+    `;
+
+    // GraphQL query for execution logs with pagination (ASC order to fetch from beginning)
+    const executionLogsQuery = `
+        query QueryExecutionLogs($id: ID!, $first: Int, $after: String) {
+            executionResult(id: $id) {
+                id
+                logs(first: $first, after: $after, orderBy: {direction: ASC, field: TIMESTAMP}) {
+                    totalCount
+                    pageInfo {
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                        endCursor
+                    }
                     edges {
                         node {
                             id
@@ -112,9 +131,6 @@ const API = (() => {
                         }
                     }
                 }
-                startedAt
-                status
-                stepCount
             }
         }
     `;
@@ -297,11 +313,69 @@ const API = (() => {
         return data.data;
     }
 
-    // Fetch execution results from the API
+    // Fetch execution results (metadata only) from the API
     async function fetchExecutionResults(executionId) {
         console.log(`Fetching execution results for ID: ${executionId}`);
         const data = await graphqlRequest(executionResultQuery, { id: executionId });
         return data.executionResult;
+    }
+
+    // Fetch execution logs with pagination
+    async function fetchExecutionLogs(executionId, options = {}) {
+        const { first = 100, after = null } = options;
+        console.log(`Fetching execution logs for ID: ${executionId}, first: ${first}, after: ${after}`);
+
+        const variables = { id: executionId, first };
+        if (after) {
+            variables.after = after;
+        }
+
+        const data = await graphqlRequest(executionLogsQuery, variables);
+        return data.executionResult?.logs || null;
+    }
+
+    // Fetch all execution logs continuously in batches
+    // Returns an async generator that yields progress updates
+    async function* fetchAllExecutionLogs(executionId, batchSize = 100) {
+        let allLogs = [];
+        let cursor = null;
+        let hasMore = true;
+        let totalCount = null;
+
+        while (hasMore) {
+            const logsData = await fetchExecutionLogs(executionId, {
+                first: batchSize,
+                after: cursor
+            });
+
+            if (!logsData) {
+                break;
+            }
+
+            // Get total count from first response
+            if (totalCount === null) {
+                totalCount = logsData.totalCount || 0;
+            }
+
+            // Append new logs
+            const newLogs = logsData.edges || [];
+            allLogs = allLogs.concat(newLogs);
+
+            // Update pagination state
+            hasMore = logsData.pageInfo?.hasNextPage || false;
+            cursor = logsData.pageInfo?.endCursor || null;
+
+            // Yield progress update
+            yield {
+                logs: allLogs,
+                loadedCount: allLogs.length,
+                totalCount: totalCount,
+                hasMore: hasMore,
+                isComplete: !hasMore
+            };
+        }
+
+        return allLogs;
     }
 
     // Fetch instances list with pagination
@@ -447,6 +521,8 @@ const API = (() => {
         getApiEndpoint,
         ENDPOINTS,
         fetchExecutionResults,
+        fetchExecutionLogs,
+        fetchAllExecutionLogs,
         fetchInstances,
         fetchInstanceFlows,
         fetchExecutionsByInstance,

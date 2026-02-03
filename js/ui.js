@@ -62,8 +62,79 @@ const UI = (() => {
         }
     }
 
-    // Display execution results
-    function displayResults(result) {
+    // Show loading progress with counts
+    function showLoadingProgress(loadedCount, totalCount, isComplete = false) {
+        const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+
+        // Find or create the progress indicator
+        let progressDiv = document.getElementById('loading-progress');
+
+        if (!progressDiv) {
+            // Create the progress indicator at the top of results
+            progressDiv = document.createElement('div');
+            progressDiv.id = 'loading-progress';
+            progressDiv.className = 'col-12 mb-3';
+
+            // Insert at the beginning of results
+            if (resultsDiv.firstChild) {
+                resultsDiv.insertBefore(progressDiv, resultsDiv.firstChild);
+            } else {
+                resultsDiv.appendChild(progressDiv);
+            }
+        }
+
+        if (isComplete) {
+            // Show completion message briefly, then remove
+            progressDiv.innerHTML = `
+                <div class="alert alert-success d-flex align-items-center" role="alert">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    <span>Loaded all ${loadedCount} logs</span>
+                </div>
+            `;
+            // Remove after 2 seconds
+            setTimeout(() => {
+                progressDiv.remove();
+            }, 2000);
+        } else {
+            // Calculate percentage
+            const percentage = totalCount > 0 ? Math.round((loadedCount / totalCount) * 100) : 0;
+
+            progressDiv.innerHTML = `
+                <div class="alert alert-info d-flex align-items-center" role="alert">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Loading logs...</span>
+                            <span>${loadedCount} / ${totalCount}</span>
+                        </div>
+                        <div class="progress" style="height: 6px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                 role="progressbar"
+                                 style="width: ${percentage}%"
+                                 aria-valuenow="${percentage}"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Hide loading progress
+    function hideLoadingProgress() {
+        const progressDiv = document.getElementById('loading-progress');
+        if (progressDiv) {
+            progressDiv.remove();
+        }
+    }
+
+    // Display execution results (supports both legacy single-call and progressive loading)
+    function displayResults(result, options = {}) {
         const resultsDiv = document.getElementById('results');
         const errorDiv = document.getElementById('error');
 
@@ -74,53 +145,262 @@ const UI = (() => {
             errorDiv.classList.add('d-none');
         }
 
-        resultsDiv.innerHTML = '';
+        // Handle legacy format where logs are included in result
+        if (result && result.logs && result.logs.edges) {
+            resultsDiv.innerHTML = '';
 
-        if (!result || !result.logs || !result.logs.edges.length) {
-            resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
-            return;
+            if (!result.logs.edges.length) {
+                resultsDiv.innerHTML = '<div class="col-12">No logs found for this execution</div>';
+                return;
+            }
+
+            // Build a dictionary of steps with their logs for navigation
+            const stepDict = buildStepDictionary(result.logs.edges);
+
+            // Add execution details to sidebar
+            addExecutionDetailsToSidebar(result);
+
+            // Update the step navigation in the sidebar
+            updateStepNavigation(stepDict);
+
+            const logsHtml = result.logs.edges.map((edge, index) => {
+                const log = edge.node;
+                return `
+                    <div class="col-12 mb-3" id="log-${index}" data-step-name="${log.stepName || 'Unnamed Step'}">
+                        <div class="log-card">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                                    <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
+                                </div>
+                                ${log.loopStepName ? `
+                                    <span class="badge bg-secondary">
+                                        Loop: ${log.loopStepName} #${log.loopStepIndex}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            ${log.loopPath ? `
+                                <div class="loop-info mt-2">
+                                    Loop Path: ${log.loopPath}
+                                </div>
+                            ` : ''}
+                            <pre class="mt-2 log-message">${log.message}</pre>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            resultsDiv.innerHTML = logsHtml;
+
+            // Detect and setup JSON viewers
+            detectAndSetupJsonViewers(result.logs.edges);
+        }
+    }
+
+    // Initialize results container for progressive loading
+    function initResultsContainer(executionMetadata) {
+        const resultsDiv = document.getElementById('results');
+        const errorDiv = document.getElementById('error');
+
+        if (!resultsDiv) return;
+
+        // Hide error message
+        if (errorDiv) {
+            errorDiv.classList.add('d-none');
         }
 
-        // Build a dictionary of steps with their logs for navigation
-        const stepDict = buildStepDictionary(result.logs.edges);
-        
-        // Add execution details to sidebar
-        addExecutionDetailsToSidebar(result);
-        
-        // Update the step navigation in the sidebar
-        updateStepNavigation(stepDict);
+        // Clear and prepare for logs
+        resultsDiv.innerHTML = '';
 
-        const logsHtml = result.logs.edges.map((edge, index) => {
+        // Add execution details to sidebar (metadata only, no logs yet)
+        addExecutionDetailsToSidebar(executionMetadata);
+
+        // Clear step navigation for now (will be updated as logs load)
+        let stepNav = document.getElementById('step-navigation');
+        if (stepNav) {
+            stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2">Step Navigation</h5><div class="text-muted small">Loading steps...</div>';
+        }
+    }
+
+    // Render logs incrementally (append new logs)
+    function renderLogsIncremental(logEdges, startIndex = 0) {
+        const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+
+        // Create document fragment for better performance
+        const fragment = document.createDocumentFragment();
+
+        logEdges.forEach((edge, i) => {
+            const index = startIndex + i;
             const log = edge.node;
-            return `
-                <div class="col-12 mb-3" id="log-${index}" data-step-name="${log.stepName || 'Unnamed Step'}">
-                    <div class="log-card">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
-                                <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
-                            </div>
-                            ${log.loopStepName ? `
-                                <span class="badge bg-secondary">
-                                    Loop: ${log.loopStepName} #${log.loopStepIndex}
-                                </span>
-                            ` : ''}
+
+            const logDiv = document.createElement('div');
+            logDiv.className = 'col-12 mb-3';
+            logDiv.id = `log-${index}`;
+            logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
+
+            logDiv.innerHTML = `
+                <div class="log-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                            <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
                         </div>
-                        ${log.loopPath ? `
-                            <div class="loop-info mt-2">
-                                Loop Path: ${log.loopPath}
-                            </div>
+                        ${log.loopStepName ? `
+                            <span class="badge bg-secondary">
+                                Loop: ${log.loopStepName} #${log.loopStepIndex}
+                            </span>
                         ` : ''}
-                        <pre class="mt-2 log-message">${log.message}</pre>
                     </div>
+                    ${log.loopPath ? `
+                        <div class="loop-info mt-2">
+                            Loop Path: ${log.loopPath}
+                        </div>
+                    ` : ''}
+                    <pre class="mt-2 log-message">${escapeHtml(log.message)}</pre>
                 </div>
             `;
-        }).join('');
 
-        resultsDiv.innerHTML = logsHtml;
+            fragment.appendChild(logDiv);
+        });
 
-        // Detect and setup JSON viewers
-        detectAndSetupJsonViewers(result.logs.edges);
+        resultsDiv.appendChild(fragment);
+
+        // Setup JSON viewers only for the new logs
+        detectAndSetupJsonViewersForRange(startIndex, startIndex + logEdges.length);
+    }
+
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Update step navigation with all current logs
+    function updateStepNavigationFromLogs(logEdges) {
+        const stepDict = buildStepDictionary(logEdges);
+        updateStepNavigation(stepDict);
+    }
+
+    // Detect and setup JSON viewers for a specific range of log indices
+    function detectAndSetupJsonViewersForRange(startIndex, endIndex) {
+        const logContainers = document.querySelectorAll('.log-message');
+
+        // Process only logs in the specified range
+        for (let i = startIndex; i < endIndex && i < logContainers.length; i++) {
+            const container = logContainers[i];
+            setupJsonViewerForContainer(container);
+        }
+    }
+
+    // Setup JSON viewer for a single container
+    function setupJsonViewerForContainer(container) {
+        // Skip if already processed
+        if (container.dataset.jsonProcessed) return;
+        container.dataset.jsonProcessed = 'true';
+
+        const text = container.textContent;
+
+        // First try to parse the entire message as JSON
+        try {
+            const jsonObj = JSON.parse(text);
+
+            // If we get here, the whole text is valid JSON
+            const viewButton = document.createElement('button');
+            viewButton.className = 'btn btn-sm btn-primary view-json-btn';
+            viewButton.textContent = 'View JSON';
+            viewButton.dataset.json = text;
+
+            container.appendChild(document.createElement('br'));
+            container.appendChild(viewButton);
+
+            viewButton.addEventListener('click', showJsonModal);
+            return;
+        } catch (e) {
+            // Not a valid complete JSON, continue to check for JSON patterns
+        }
+
+        // Look for patterns like "OBZ-Validation: {" or any text followed by JSON
+        const jsonMatch = text.match(/([\w\-]+)\s*:\s*(\{[\s\S]*\})/);
+
+        if (jsonMatch) {
+            try {
+                const jsonStr = jsonMatch[2];
+                JSON.parse(jsonStr);
+
+                const viewButton = document.createElement('button');
+                viewButton.className = 'btn btn-sm btn-primary view-json-btn';
+                viewButton.textContent = 'View JSON';
+                viewButton.dataset.json = jsonStr;
+
+                container.appendChild(document.createElement('br'));
+                container.appendChild(viewButton);
+
+                viewButton.addEventListener('click', showJsonModal);
+            } catch (e) {
+                // Not valid JSON, try nested patterns
+                tryNestedJsonPatterns(container, text);
+            }
+        } else {
+            // Try to find any JSON-like content in the text
+            const possibleJsonPattern = /(\{[\s\S]*\})/;
+            const possibleMatch = text.match(possibleJsonPattern);
+
+            if (possibleMatch) {
+                try {
+                    const jsonCandidate = possibleMatch[1];
+                    JSON.parse(jsonCandidate);
+
+                    const viewButton = document.createElement('button');
+                    viewButton.className = 'btn btn-sm btn-secondary view-json-btn';
+                    viewButton.textContent = 'View Possible JSON';
+                    viewButton.dataset.json = jsonCandidate;
+
+                    container.appendChild(document.createElement('br'));
+                    container.appendChild(viewButton);
+
+                    viewButton.addEventListener('click', showJsonModal);
+                } catch (e) {
+                    tryNestedJsonPatterns(container, text);
+                }
+            }
+        }
+    }
+
+    // Helper function for nested JSON patterns
+    function tryNestedJsonPatterns(container, text) {
+        const escapedJsonPattern = /"(?:message|error|response|result|data)"\s*:\s*"((?:\\.|[^"\\])*\\n\s*\{(?:\\.|[^"\\])*\}(?:\\.|[^"\\])*)/;
+        const escapedMatch = text.match(escapedJsonPattern);
+
+        if (escapedMatch) {
+            try {
+                let escapedJsonStr = escapedMatch[1]
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+
+                const jsonObjectPattern = /\{[\s\S]*\}/;
+                const jsonObjectMatch = escapedJsonStr.match(jsonObjectPattern);
+
+                if (jsonObjectMatch) {
+                    const nestedJsonStr = jsonObjectMatch[0];
+                    JSON.parse(nestedJsonStr);
+
+                    const viewButton = document.createElement('button');
+                    viewButton.className = 'btn btn-sm btn-warning view-json-btn';
+                    viewButton.textContent = 'View Nested JSON';
+                    viewButton.dataset.json = nestedJsonStr;
+
+                    container.appendChild(document.createElement('br'));
+                    container.appendChild(viewButton);
+
+                    viewButton.addEventListener('click', showJsonModal);
+                }
+            } catch (nestedError) {
+                // Failed to parse nested JSON
+            }
+        }
     }
 
     // Add execution details to the sidebar
@@ -1443,7 +1723,12 @@ const UI = (() => {
         initTheme,
         showError,
         showLoading,
+        showLoadingProgress,
+        hideLoadingProgress,
         displayResults,
+        initResultsContainer,
+        renderLogsIncremental,
+        updateStepNavigationFromLogs,
         showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,
