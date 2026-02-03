@@ -921,7 +921,8 @@ pre[class*="language-"] {
   background-color: #f8f9fa;
 }
 
-#executionsFilterBar .form-control-sm {
+#executionsFilterBar .form-control-sm,
+#executionsFilterBar .form-select-sm {
   min-width: 180px;
 }
 
@@ -964,9 +965,10 @@ pre[class*="language-"] {
     margin-bottom: 0.5rem;
   }
 
-  #executionsFilterBar .form-control-sm {
+  #executionsFilterBar .form-control-sm,
+  #executionsFilterBar .form-select-sm {
     width: 100%;
-    min-width: unset;
+    min-width: unset !important;
   }
 
   #executionsFilterBar .ms-auto {
