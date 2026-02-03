@@ -612,15 +612,43 @@ const InstancesPage = (() => {
         }
     }
 
+    // Build filter summary for display
+    function getFilterSummary() {
+        const parts = [];
+        if (currentFilters.flowName) {
+            parts.push(`Flow: ${currentFilters.flowName}`);
+        }
+        if (currentFilters.status) {
+            parts.push(`Status: ${currentFilters.status}`);
+        }
+        if (currentFilters.dateFrom || currentFilters.dateTo) {
+            const fromDate = currentFilters.dateFrom ? new Date(currentFilters.dateFrom).toLocaleDateString() : 'any';
+            const toDate = currentFilters.dateTo ? new Date(currentFilters.dateTo).toLocaleDateString() : 'any';
+            parts.push(`Date: ${fromDate} - ${toDate}`);
+        }
+        return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+    }
+
     // Render executions table (with client-side flow filtering)
     function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
+
+        // Defensive check for executionsData
+        if (!executionsData || !executionsData.edges) {
+            contentDiv.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox display-4 mb-3 d-block"></i>
+                    No executions data available
+                </div>
+            `;
+            return;
+        }
 
         // Apply client-side flow filter
         let filteredEdges = executionsData.edges;
         if (currentFilters.flowName) {
             filteredEdges = executionsData.edges.filter(edge =>
-                edge.node.flow?.name === currentFilters.flowName
+                edge.node?.flow?.name === currentFilters.flowName
             );
         }
 
@@ -653,6 +681,7 @@ const InstancesPage = (() => {
 
         filteredEdges.forEach(edge => {
             const exec = edge.node;
+            if (!exec) return; // Skip invalid edges
             const statusBadge = getStatusBadge(exec.status);
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
 
@@ -676,13 +705,20 @@ const InstancesPage = (() => {
                 </table>
             </div>
             <div class="text-muted small">
-                Showing: ${filteredEdges.length} executions
-                ${currentFilters.flowName ? ` (filtered by flow: ${currentFilters.flowName})` : ''}
+                Showing: ${filteredEdges.length} executions${getFilterSummary()}
                 ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
             </div>
         `;
 
         contentDiv.innerHTML = html;
+
+        // Scroll to top of executions panel when filters are applied (reset=true)
+        if (reset) {
+            const panel = document.getElementById('executionsPanel');
+            if (panel) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
 
         // Add click handlers for view buttons
         contentDiv.querySelectorAll('.view-execution-btn').forEach(btn => {
