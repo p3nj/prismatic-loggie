@@ -1720,6 +1720,403 @@ const UI = (() => {
         }
     }
 
+    // Build step tree from step results (groups by step and loop)
+    function buildStepTree(stepResults) {
+        const rootSteps = [];
+        const loopSteps = new Map(); // loopPath -> steps
+
+        stepResults.forEach(step => {
+            if (step.isRootResult || !step.loopPath) {
+                // Root level step
+                rootSteps.push({
+                    ...step,
+                    children: [],
+                    loopIterations: new Map()
+                });
+            } else {
+                // Step inside a loop
+                const loopPath = step.loopPath;
+                if (!loopSteps.has(loopPath)) {
+                    loopSteps.set(loopPath, []);
+                }
+                loopSteps.get(loopPath).push(step);
+            }
+        });
+
+        // Group loop steps by iteration
+        loopSteps.forEach((steps, loopPath) => {
+            // Find the parent loop step in root steps
+            const parentStep = rootSteps.find(s => s.stepName === loopPath || s.displayStepName === loopPath);
+            if (parentStep) {
+                steps.forEach(step => {
+                    const iterKey = step.loopStepIndex || 0;
+                    if (!parentStep.loopIterations.has(iterKey)) {
+                        parentStep.loopIterations.set(iterKey, []);
+                    }
+                    parentStep.loopIterations.get(iterKey).push(step);
+                });
+            }
+        });
+
+        return rootSteps;
+    }
+
+    // Update step navigation from step results (new method using stepResults API)
+    function updateStepNavigationFromStepResults(stepResults, executionId) {
+        let stepNav = document.getElementById('step-navigation');
+        if (!stepNav) {
+            const sidebar = document.querySelector('#page-execution .sidebar');
+            if (!sidebar) return;
+
+            stepNav = document.createElement('div');
+            stepNav.id = 'step-navigation';
+            stepNav.className = 'mt-4';
+            sidebar.appendChild(stepNav);
+        }
+
+        // Clear existing navigation
+        stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2">Steps</h5>';
+
+        // Build step tree
+        const stepTree = buildStepTree(stepResults);
+
+        // Create navigation container
+        const navContainer = document.createElement('div');
+        navContainer.className = 'step-nav-container mt-2 border rounded p-2 bg-light';
+        navContainer.style.maxHeight = '400px';
+        navContainer.style.overflowY = 'auto';
+
+        // Build tree structure
+        const navTree = document.createElement('ul');
+        navTree.className = 'step-nav-tree list-unstyled mb-0';
+
+        stepTree.forEach((step, index) => {
+            const stepItem = createStepNavItem(step, executionId);
+            navTree.appendChild(stepItem);
+        });
+
+        navContainer.appendChild(navTree);
+        stepNav.appendChild(navContainer);
+    }
+
+    // Create a step navigation item
+    function createStepNavItem(step, executionId) {
+        const stepItem = document.createElement('li');
+        stepItem.className = 'step-item mb-1';
+
+        const stepHeader = document.createElement('div');
+        stepHeader.className = 'd-flex align-items-center step-nav-header';
+
+        // Status indicator
+        const statusIcon = document.createElement('span');
+        statusIcon.className = `step-status-icon me-1 ${step.hasError ? 'text-danger' : 'text-success'}`;
+        statusIcon.innerHTML = step.hasError ? '<i class="bi bi-x-circle-fill"></i>' : '<i class="bi bi-check-circle-fill"></i>';
+        stepHeader.appendChild(statusIcon);
+
+        // Expand/collapse button for loop steps
+        const hasLoopIterations = step.loopIterations && step.loopIterations.size > 0;
+        if (step.isLoopStep || hasLoopIterations) {
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'btn btn-sm toggle-step me-1 p-0';
+            toggleBtn.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+            toggleBtn.style.width = '16px';
+            toggleBtn.style.height = '16px';
+            toggleBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const icon = this.querySelector('i');
+                const sublist = stepItem.querySelector('.loop-iterations-list');
+                if (sublist) {
+                    if (icon.classList.contains('bi-caret-right-fill')) {
+                        icon.classList.replace('bi-caret-right-fill', 'bi-caret-down-fill');
+                        sublist.style.display = 'block';
+                    } else {
+                        icon.classList.replace('bi-caret-down-fill', 'bi-caret-right-fill');
+                        sublist.style.display = 'none';
+                    }
+                }
+            };
+            stepHeader.appendChild(toggleBtn);
+        }
+
+        // Step name link
+        const stepLink = document.createElement('a');
+        stepLink.href = '#';
+        stepLink.className = 'step-link text-truncate flex-grow-1';
+        stepLink.textContent = step.displayStepName || step.stepName || 'Unknown Step';
+        stepLink.title = step.displayStepName || step.stepName;
+        stepLink.onclick = function(e) {
+            e.preventDefault();
+            // Could scroll to step in logs or show step output
+            showStepOutput(step, executionId);
+        };
+        stepHeader.appendChild(stepLink);
+
+        // View output button if resultsUrl exists
+        if (step.resultsUrl) {
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn btn-sm btn-outline-info ms-1 p-0 px-1';
+            viewBtn.innerHTML = '<i class="bi bi-eye"></i>';
+            viewBtn.title = 'View Step Output';
+            viewBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                fetchAndShowStepOutput(step);
+            };
+            stepHeader.appendChild(viewBtn);
+        }
+
+        stepItem.appendChild(stepHeader);
+
+        // Add loop iterations if present
+        if (hasLoopIterations) {
+            const loopList = document.createElement('ul');
+            loopList.className = 'loop-iterations-list list-unstyled ms-3 mt-1';
+            loopList.style.display = 'none'; // Initially collapsed
+
+            // Sort iterations by index
+            const sortedIterations = Array.from(step.loopIterations.entries()).sort((a, b) => a[0] - b[0]);
+
+            sortedIterations.forEach(([iterIndex, iterSteps]) => {
+                const iterItem = document.createElement('li');
+                iterItem.className = 'loop-iteration-item mb-1';
+
+                const iterHeader = document.createElement('div');
+                iterHeader.className = 'd-flex align-items-center';
+
+                // Iteration badge
+                const iterBadge = document.createElement('span');
+                iterBadge.className = 'badge bg-secondary me-1';
+                iterBadge.textContent = `#${iterIndex}`;
+                iterHeader.appendChild(iterBadge);
+
+                // Expand button for iteration steps
+                if (iterSteps.length > 0) {
+                    const iterToggle = document.createElement('button');
+                    iterToggle.className = 'btn btn-sm toggle-step me-1 p-0';
+                    iterToggle.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+                    iterToggle.style.width = '14px';
+                    iterToggle.style.height = '14px';
+                    iterToggle.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const icon = this.querySelector('i');
+                        const stepsList = iterItem.querySelector('.iteration-steps-list');
+                        if (stepsList) {
+                            if (icon.classList.contains('bi-caret-right-fill')) {
+                                icon.classList.replace('bi-caret-right-fill', 'bi-caret-down-fill');
+                                stepsList.style.display = 'block';
+                            } else {
+                                icon.classList.replace('bi-caret-down-fill', 'bi-caret-right-fill');
+                                stepsList.style.display = 'none';
+                            }
+                        }
+                    };
+                    iterHeader.appendChild(iterToggle);
+                }
+
+                // Iteration step count
+                const iterCount = document.createElement('span');
+                iterCount.className = 'text-muted small';
+                iterCount.textContent = `${iterSteps.length} step${iterSteps.length !== 1 ? 's' : ''}`;
+                iterHeader.appendChild(iterCount);
+
+                iterItem.appendChild(iterHeader);
+
+                // Add steps within this iteration
+                if (iterSteps.length > 0) {
+                    const stepsList = document.createElement('ul');
+                    stepsList.className = 'iteration-steps-list list-unstyled ms-3 mt-1';
+                    stepsList.style.display = 'none';
+
+                    iterSteps.forEach(iterStep => {
+                        const subStepItem = document.createElement('li');
+                        subStepItem.className = 'sub-step-item d-flex align-items-center mb-1';
+
+                        // Status icon
+                        const subStatus = document.createElement('span');
+                        subStatus.className = `me-1 ${iterStep.hasError ? 'text-danger' : 'text-success'}`;
+                        subStatus.innerHTML = iterStep.hasError ? '<i class="bi bi-x-circle-fill small"></i>' : '<i class="bi bi-check-circle-fill small"></i>';
+                        subStepItem.appendChild(subStatus);
+
+                        // Step link
+                        const subLink = document.createElement('a');
+                        subLink.href = '#';
+                        subLink.className = 'step-link small text-truncate';
+                        subLink.textContent = iterStep.displayStepName || iterStep.stepName;
+                        subLink.onclick = function(e) {
+                            e.preventDefault();
+                            showStepOutput(iterStep, executionId);
+                        };
+                        subStepItem.appendChild(subLink);
+
+                        // View output button
+                        if (iterStep.resultsUrl) {
+                            const subViewBtn = document.createElement('button');
+                            subViewBtn.className = 'btn btn-sm btn-link p-0 ms-1';
+                            subViewBtn.innerHTML = '<i class="bi bi-eye small"></i>';
+                            subViewBtn.title = 'View Output';
+                            subViewBtn.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                fetchAndShowStepOutput(iterStep);
+                            };
+                            subStepItem.appendChild(subViewBtn);
+                        }
+
+                        stepsList.appendChild(subStepItem);
+                    });
+
+                    iterItem.appendChild(stepsList);
+                }
+
+                loopList.appendChild(iterItem);
+            });
+
+            stepItem.appendChild(loopList);
+        }
+
+        return stepItem;
+    }
+
+    // Show step output in a modal or panel
+    function showStepOutput(step, executionId) {
+        // For now, log the step info - this could open a modal with detailed step output
+        console.log('Step output:', step);
+
+        if (step.resultsUrl) {
+            fetchAndShowStepOutput(step);
+        } else {
+            // Show basic step info
+            alert(`Step: ${step.displayStepName || step.stepName}\nStatus: ${step.hasError ? 'Error' : 'Success'}\nStarted: ${new Date(step.startedAt).toLocaleString()}\nEnded: ${step.endedAt ? new Date(step.endedAt).toLocaleString() : 'N/A'}`);
+        }
+    }
+
+    // Fetch and show step output from resultsUrl
+    async function fetchAndShowStepOutput(step) {
+        if (!step.resultsUrl) {
+            console.log('No results URL for step:', step);
+            return;
+        }
+
+        try {
+            // Fetch the step output from the resultsUrl
+            const response = await fetch(step.resultsUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch step output: ${response.status}`);
+            }
+
+            const outputData = await response.json();
+
+            // Show in JSON modal
+            showStepOutputModal(step, outputData);
+        } catch (error) {
+            console.error('Error fetching step output:', error);
+            alert(`Failed to load step output: ${error.message}`);
+        }
+    }
+
+    // Show step output in a modal
+    function showStepOutputModal(step, outputData) {
+        // Use the existing JSON modal infrastructure
+        const fakeEvent = {
+            target: {
+                dataset: {
+                    json: JSON.stringify(outputData)
+                },
+                closest: () => ({
+                    querySelector: (selector) => {
+                        if (selector === 'h5') return { textContent: step.displayStepName || step.stepName };
+                        if (selector === '.timestamp') return { textContent: new Date(step.startedAt).toLocaleString() };
+                        if (selector === '.badge') return step.loopStepIndex !== undefined ? { textContent: `Loop #${step.loopStepIndex}` } : null;
+                        if (selector === '.loop-info') return step.loopPath ? { textContent: `Loop Path: ${step.loopPath}` } : null;
+                        return null;
+                    }
+                })
+            }
+        };
+
+        showJsonModal(fakeEvent);
+    }
+
+    // Render linked executions panel
+    function renderLinkedExecutions(linkedExecutions, currentExecutionId) {
+        if (!linkedExecutions || linkedExecutions.length === 0) return;
+
+        const sidebar = document.querySelector('#page-execution .sidebar');
+        if (!sidebar) return;
+
+        // Remove existing linked executions panel
+        const existing = document.getElementById('linked-executions');
+        if (existing) {
+            existing.remove();
+        }
+
+        // Create linked executions panel
+        const panel = document.createElement('div');
+        panel.id = 'linked-executions';
+        panel.className = 'linked-executions mb-3 mt-3';
+
+        panel.innerHTML = `
+            <h5 class="border-bottom pb-2 mb-2">
+                <i class="bi bi-link-45deg me-1"></i>Linked Executions
+            </h5>
+        `;
+
+        // Create execution chain
+        const chainContainer = document.createElement('div');
+        chainContainer.className = 'execution-chain d-flex flex-wrap gap-1 align-items-center';
+
+        linkedExecutions.forEach((exec, index) => {
+            const execBadge = document.createElement('button');
+            execBadge.className = `btn btn-sm ${exec.id === currentExecutionId ? 'btn-primary' : 'btn-outline-secondary'} execution-chain-item`;
+
+            // Status icon
+            const statusIcon = exec.status === 'SUCCEEDED' ? 'check-circle' :
+                              exec.status === 'FAILED' ? 'x-circle' :
+                              exec.status === 'RUNNING' ? 'arrow-repeat' : 'clock';
+            const statusClass = exec.status === 'SUCCEEDED' ? 'text-success' :
+                               exec.status === 'FAILED' ? 'text-danger' :
+                               exec.status === 'RUNNING' ? 'text-primary' : 'text-warning';
+
+            execBadge.innerHTML = `
+                <i class="bi bi-${statusIcon} ${exec.id === currentExecutionId ? '' : statusClass} me-1"></i>
+                <span class="small">${index + 1}</span>
+            `;
+            execBadge.title = `Execution ${index + 1}\nStatus: ${exec.status}\nStarted: ${new Date(exec.startedAt).toLocaleString()}`;
+
+            if (exec.id !== currentExecutionId) {
+                execBadge.onclick = () => {
+                    ExecutionPage.setExecutionId(exec.id);
+                    ExecutionPage.fetchResults();
+                };
+            }
+
+            chainContainer.appendChild(execBadge);
+
+            // Add arrow between executions (except after last)
+            if (index < linkedExecutions.length - 1) {
+                const arrow = document.createElement('span');
+                arrow.className = 'text-muted mx-1';
+                arrow.innerHTML = '<i class="bi bi-arrow-right"></i>';
+                chainContainer.appendChild(arrow);
+            }
+        });
+
+        panel.appendChild(chainContainer);
+
+        // Insert after execution details
+        const executionDetails = document.getElementById('execution-details');
+        if (executionDetails) {
+            executionDetails.insertAdjacentElement('afterend', panel);
+        } else {
+            const firstChild = sidebar.querySelector('.mb-3');
+            if (firstChild) {
+                firstChild.insertAdjacentElement('afterend', panel);
+            }
+        }
+    }
+
     // Return public methods
     return {
         initTheme,
@@ -1731,6 +2128,8 @@ const UI = (() => {
         initResultsContainer,
         renderLogsIncremental,
         updateStepNavigationFromLogs,
+        updateStepNavigationFromStepResults,
+        renderLinkedExecutions,
         showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,

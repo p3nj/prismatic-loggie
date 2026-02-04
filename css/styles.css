@@ -975,3 +975,145 @@ pre[class*="language-"] {
     margin-left: 0 !important;
   }
 }
+
+/* ============================================
+   Step Navigation Styles (Step Results)
+   ============================================ */
+
+.step-nav-container {
+  font-size: 0.875rem;
+}
+
+[data-theme="dark"] .step-nav-container {
+  background-color: var(--card-background) !important;
+  border-color: var(--border-color) !important;
+}
+
+.step-nav-header {
+  padding: 2px 0;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.step-nav-header:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .step-nav-header:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.step-status-icon {
+  font-size: 0.75rem;
+}
+
+.step-link {
+  color: var(--text-color);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+
+.step-link:hover {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+.toggle-step {
+  background: none;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-step:hover {
+  opacity: 1;
+}
+
+.loop-iterations-list,
+.iteration-steps-list {
+  border-left: 2px solid var(--border-color);
+  padding-left: 8px;
+}
+
+.loop-iteration-item {
+  padding: 2px 0;
+}
+
+.sub-step-item {
+  font-size: 0.75rem;
+  padding: 1px 0;
+}
+
+.sub-step-item .step-link {
+  font-size: 0.75rem;
+}
+
+/* ============================================
+   Linked Executions Styles
+   ============================================ */
+
+.linked-executions {
+  padding: 0.5rem;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="dark"] .linked-executions {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.execution-chain {
+  flex-wrap: wrap;
+}
+
+.execution-chain-item {
+  min-width: 40px;
+  padding: 0.25rem 0.5rem;
+}
+
+.execution-chain-item.btn-primary {
+  cursor: default;
+}
+
+.execution-chain-item:not(.btn-primary):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   Step Output View Button
+   ============================================ */
+
+.step-nav-header .btn-outline-info {
+  font-size: 0.625rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.step-nav-header .btn-outline-info:hover {
+  transform: scale(1.1);
+}
+
+/* ============================================
+   Loading States for Steps
+   ============================================ */
+
+.step-loading {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

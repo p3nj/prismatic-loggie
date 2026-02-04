@@ -1,6 +1,9 @@
 // Execution Page Handler
 const ExecutionPage = (() => {
     let initialized = false;
+    let currentExecutionId = null;
+    let stepResultsCache = new Map(); // Cache for step results
+    let linkedExecutionsCache = null;
 
     // Initialize the execution page
     function init() {
@@ -29,7 +32,7 @@ const ExecutionPage = (() => {
         }
     }
 
-    // Fetch and display execution results with continuous log loading
+    // Fetch and display execution results with step outputs and logs
     async function fetchResults() {
         const executionId = getExecutionId();
 
@@ -44,10 +47,17 @@ const ExecutionPage = (() => {
             return;
         }
 
+        // Clear caches when loading new execution
+        if (currentExecutionId !== executionId) {
+            stepResultsCache.clear();
+            linkedExecutionsCache = null;
+            currentExecutionId = executionId;
+        }
+
         UI.showLoading();
 
         try {
-            // First fetch execution metadata (without logs)
+            // First fetch execution metadata
             const executionMetadata = await API.fetchExecutionResults(executionId);
 
             if (!executionMetadata) {
@@ -58,10 +68,15 @@ const ExecutionPage = (() => {
             // Initialize the results container with metadata
             UI.initResultsContainer(executionMetadata);
 
-            // Now fetch logs continuously in batches
+            // Fetch linked executions and step results in parallel with logs
+            const stepResultsPromise = fetchAllStepResultsWithProgress(executionId, executionMetadata.startedAt);
+            const linkedExecutionsPromise = fetchLinkedExecutionsIfNeeded(executionId, executionMetadata.startedAt);
+
+            // Start fetching logs
             let previousLogCount = 0;
             const logGenerator = API.fetchAllExecutionLogs(executionId, 100);
 
+            // Process logs as they come in
             for await (const progress of logGenerator) {
                 // Show progress indicator
                 UI.showLoadingProgress(progress.loadedCount, progress.totalCount, progress.isComplete);
@@ -71,9 +86,6 @@ const ExecutionPage = (() => {
                     const newLogs = progress.logs.slice(previousLogCount);
                     UI.renderLogsIncremental(newLogs, previousLogCount);
                     previousLogCount = progress.logs.length;
-
-                    // Update step navigation with all logs so far
-                    UI.updateStepNavigationFromLogs(progress.logs);
                 }
 
                 // Handle completion
@@ -87,8 +99,65 @@ const ExecutionPage = (() => {
                     }
                 }
             }
+
+            // Wait for step results and linked executions to complete
+            const [stepResults, linkedExecutions] = await Promise.all([
+                stepResultsPromise,
+                linkedExecutionsPromise
+            ]);
+
+            // Update the step navigation with actual step results
+            if (stepResults && stepResults.length > 0) {
+                UI.updateStepNavigationFromStepResults(stepResults, executionId);
+            }
+
+            // Show linked executions if any
+            if (linkedExecutions && linkedExecutions.length > 0) {
+                UI.renderLinkedExecutions(linkedExecutions, executionId);
+            }
+
         } catch (error) {
             UI.showError(error.message);
+        }
+    }
+
+    // Fetch all step results with progress updates
+    async function fetchAllStepResultsWithProgress(executionId, startedAt) {
+        const allSteps = [];
+
+        try {
+            const stepGenerator = API.fetchAllStepResults(executionId, {
+                batchSize: 100,
+                startedAt: startedAt
+            });
+
+            for await (const progress of stepGenerator) {
+                // Could show step loading progress here if needed
+                if (progress.isComplete) {
+                    return progress.steps;
+                }
+            }
+
+            return allSteps;
+        } catch (error) {
+            console.error('Error fetching step results:', error);
+            return [];
+        }
+    }
+
+    // Fetch linked executions if needed
+    async function fetchLinkedExecutionsIfNeeded(executionId, startedAt) {
+        if (linkedExecutionsCache) {
+            return linkedExecutionsCache;
+        }
+
+        try {
+            const linkedExecutions = await API.fetchLinkedExecutions(executionId, startedAt);
+            linkedExecutionsCache = linkedExecutions;
+            return linkedExecutions;
+        } catch (error) {
+            console.error('Error fetching linked executions:', error);
+            return [];
         }
     }
 
@@ -123,9 +192,10 @@ const ExecutionPage = (() => {
                     <hr>
                     <p>This tool helps you analyze and navigate through Prismatic execution logs with features like:</p>
                     <ul>
-                        <li>Step-by-step navigation with the TOC sidebar</li>
+                        <li>Step-by-step navigation with actual step outputs</li>
+                        <li>Loop iterations with expandable step details</li>
                         <li>JSON data auto-detection and formatted viewing</li>
-                        <li>Loop iterations organized in a tree structure</li>
+                        <li>Linked execution chain view for long-running flows</li>
                         <li>Dark/light theme support</li>
                     </ul>
                     <p class="text-muted">
