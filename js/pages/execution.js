@@ -54,6 +54,14 @@ const ExecutionPage = (() => {
             currentExecutionId = executionId;
         }
 
+        // Update URL to include execution ID for sharing/navigation
+        const currentHash = window.location.hash;
+        const baseHash = currentHash.split('?')[0] || '#execution';
+        const newUrl = `${baseHash}?executionId=${executionId}`;
+        if (window.location.hash + window.location.search !== newUrl) {
+            window.history.replaceState({ executionId }, '', newUrl);
+        }
+
         UI.showLoading();
 
         try {
@@ -122,7 +130,7 @@ const ExecutionPage = (() => {
 
             // Show linked executions if any
             if (linkedExecutions && linkedExecutions.length > 0) {
-                UI.renderLinkedExecutions(linkedExecutions, executionId);
+                UI.renderLinkedExecutions(linkedExecutions, executionId, executionMetadata);
             }
 
         } catch (error) {

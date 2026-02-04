@@ -1053,6 +1053,24 @@ pre[class*="language-"] {
 }
 
 /* ============================================
+   Execution Details Text Styling
+   ============================================ */
+
+.detail-text {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  font-size: 0.85rem;
+  max-height: 3.6em; /* Approximately 3 lines */
+  overflow: hidden;
+  cursor: help;
+}
+
+.detail-text:hover {
+  max-height: none;
+  overflow: visible;
+}
+
+/* ============================================
    Linked Executions Styles
    ============================================ */
 
@@ -1123,6 +1141,39 @@ pre[class*="language-"] {
   font-size: 0.65rem;
 }
 
+/* Execution list item styling (with datetime) */
+.execution-list-item {
+  font-size: 0.75rem;
+  transition: background-color 0.15s ease;
+}
+
+.execution-list-item.current-execution {
+  background-color: rgba(13, 110, 253, 0.1);
+  border: 1px solid rgba(13, 110, 253, 0.3);
+}
+
+.execution-list-item.hoverable-execution:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .execution-list-item.current-execution {
+  background-color: rgba(99, 179, 237, 0.15);
+  border-color: rgba(99, 179, 237, 0.3);
+}
+
+[data-theme="dark"] .execution-list-item.hoverable-execution:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.execution-index {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.execution-time {
+  font-size: 0.7rem;
+}
+
 /* Legacy styles for backwards compatibility */
 .execution-chain {
   flex-wrap: wrap;
@@ -1172,6 +1223,37 @@ pre[class*="language-"] {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(99, 179, 237, 0);
+    background-color: transparent;
+  }
+}
+
+/* ============================================
+   Step Navigation Item Highlight
+   ============================================ */
+
+.highlight-step-item {
+  animation: highlightStepPulse 1.5s ease-out;
+  border-radius: 4px;
+}
+
+@keyframes highlightStepPulse {
+  0% {
+    background-color: rgba(13, 110, 253, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+[data-theme="dark"] .highlight-step-item {
+  animation: highlightStepPulseDark 1.5s ease-out;
+}
+
+@keyframes highlightStepPulseDark {
+  0% {
+    background-color: rgba(99, 179, 237, 0.2);
+  }
+  100% {
     background-color: transparent;
   }
 }
