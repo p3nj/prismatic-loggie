@@ -739,6 +739,214 @@ const UI = (() => {
         stepNav.appendChild(navContainer);
     }
 
+    // Combined step navigation: uses logs for hopping and step results for output viewing
+    function updateStepNavigationCombined(logEdges, stepResults, executionId) {
+        // Build step dictionary from logs (for hopping)
+        const stepDict = buildStepDictionary(logEdges);
+
+        // Build step results lookup map by stepName
+        const stepResultsMap = new Map();
+        if (stepResults && stepResults.length > 0) {
+            stepResults.forEach(step => {
+                const key = step.stepName || step.displayStepName;
+                if (key) {
+                    if (!stepResultsMap.has(key)) {
+                        stepResultsMap.set(key, []);
+                    }
+                    stepResultsMap.get(key).push(step);
+                }
+            });
+        }
+
+        // Create or update the step navigation container
+        let stepNav = document.getElementById('step-navigation');
+        if (!stepNav) {
+            const sidebar = document.querySelector('#page-execution .sidebar');
+            if (!sidebar) return;
+
+            stepNav = document.createElement('div');
+            stepNav.id = 'step-navigation';
+            stepNav.className = 'mt-4';
+            sidebar.appendChild(stepNav);
+        }
+
+        // Clear existing navigation
+        stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2"><i class="bi bi-signpost-split me-2"></i>Step Navigation</h5>';
+
+        // Create navigation container
+        const navContainer = document.createElement('div');
+        navContainer.className = 'step-nav-container mt-2 border rounded p-2 bg-light';
+        navContainer.style.maxHeight = '400px';
+        navContainer.style.overflowY = 'auto';
+
+        // Build tree structure
+        const navTree = document.createElement('ul');
+        navTree.className = 'step-nav-tree list-unstyled mb-0';
+
+        // Process each step
+        for (const stepName in stepDict) {
+            const stepData = stepDict[stepName];
+            const stepResults = stepResultsMap.get(stepName) || [];
+            const hasError = stepResults.some(s => s.hasError);
+            const resultsUrl = stepResults.length > 0 ? stepResults[0].resultsUrl : null;
+
+            const stepItem = document.createElement('li');
+            stepItem.className = 'step-item mb-1';
+
+            // Main step link/header
+            const stepHeader = document.createElement('div');
+            stepHeader.className = 'd-flex align-items-center step-nav-header';
+
+            // Status indicator (from step results if available)
+            if (stepResults.length > 0) {
+                const statusIcon = document.createElement('span');
+                statusIcon.className = `step-status-icon me-1 ${hasError ? 'text-danger' : 'text-success'}`;
+                statusIcon.innerHTML = hasError ? '<i class="bi bi-x-circle-fill"></i>' : '<i class="bi bi-check-circle-fill"></i>';
+                stepHeader.appendChild(statusIcon);
+            }
+
+            // Expand/collapse button for steps with loops
+            const hasLoops = Object.keys(stepData.loops).length > 0;
+            if (hasLoops) {
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn btn-sm toggle-step me-1 p-0';
+                toggleBtn.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+                toggleBtn.style.width = '18px';
+                toggleBtn.style.height = '18px';
+                toggleBtn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const icon = this.querySelector('i');
+                    const sublist = stepItem.querySelector('.loop-list');
+                    if (sublist) {
+                        if (icon.classList.contains('bi-caret-right-fill')) {
+                            icon.classList.replace('bi-caret-right-fill', 'bi-caret-down-fill');
+                            sublist.style.display = 'block';
+                        } else {
+                            icon.classList.replace('bi-caret-down-fill', 'bi-caret-right-fill');
+                            sublist.style.display = 'none';
+                        }
+                    }
+                };
+                stepHeader.appendChild(toggleBtn);
+            } else if (stepResults.length === 0) {
+                // Add spacer for consistent indentation when no status icon
+                const spacer = document.createElement('span');
+                spacer.style.width = '18px';
+                spacer.style.display = 'inline-block';
+                stepHeader.appendChild(spacer);
+            }
+
+            // Step link (clicking navigates to log entry)
+            const stepLink = document.createElement('a');
+            stepLink.href = '#';
+            stepLink.className = 'step-link text-truncate flex-grow-1';
+            stepLink.textContent = stepName;
+            stepLink.title = `${stepName} (${stepData.indices.length} log entries) - Click to navigate`;
+
+            // Show count badge
+            const countBadge = document.createElement('span');
+            countBadge.className = 'badge bg-secondary ms-1';
+            countBadge.textContent = stepData.indices.length;
+            countBadge.style.fontSize = '0.65rem';
+
+            stepLink.onclick = function(e) {
+                e.preventDefault();
+                // Jump to the first occurrence of this step in logs
+                if (stepData.indices.length > 0) {
+                    const logElement = document.getElementById(`log-${stepData.indices[0]}`);
+                    if (logElement) {
+                        logElement.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                        // Highlight the log entry briefly
+                        logElement.classList.add('highlight-log');
+                        setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                    }
+                }
+            };
+            stepHeader.appendChild(stepLink);
+            stepHeader.appendChild(countBadge);
+
+            // View output button if resultsUrl exists
+            if (resultsUrl && stepResults.length > 0) {
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'btn btn-sm btn-outline-info ms-1 p-0 px-1';
+                viewBtn.innerHTML = '<i class="bi bi-eye"></i>';
+                viewBtn.title = 'View Step Output';
+                viewBtn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fetchAndShowStepOutput(stepResults[0]);
+                };
+                stepHeader.appendChild(viewBtn);
+            }
+
+            stepItem.appendChild(stepHeader);
+
+            // Add loop items if present
+            if (hasLoops) {
+                const loopList = document.createElement('ul');
+                loopList.className = 'loop-list list-unstyled ms-3 mt-1';
+                loopList.style.display = 'none'; // Initially collapsed
+
+                for (const loopKey in stepData.loops) {
+                    const loopData = stepData.loops[loopKey];
+
+                    const loopItem = document.createElement('li');
+                    loopItem.className = 'loop-item mb-1 d-flex align-items-center';
+
+                    // Loop badge
+                    const loopBadge = document.createElement('span');
+                    loopBadge.className = 'badge bg-info me-1';
+                    loopBadge.textContent = `#${loopData.index}`;
+                    loopBadge.style.fontSize = '0.6rem';
+                    loopItem.appendChild(loopBadge);
+
+                    const loopLink = document.createElement('a');
+                    loopLink.href = '#';
+                    loopLink.className = 'loop-link small';
+                    loopLink.textContent = loopData.name;
+                    loopLink.title = `${loopData.name} iteration ${loopData.index} (${loopData.indices.length} entries)`;
+                    loopLink.onclick = function(e) {
+                        e.preventDefault();
+                        // Jump to the first occurrence of this loop iteration
+                        if (loopData.indices.length > 0) {
+                            const logElement = document.getElementById(`log-${loopData.indices[0]}`);
+                            if (logElement) {
+                                logElement.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'start'
+                                });
+                                // Highlight the log entry briefly
+                                logElement.classList.add('highlight-log');
+                                setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                            }
+                        }
+                    };
+                    loopItem.appendChild(loopLink);
+
+                    // Count badge for loop
+                    const loopCountBadge = document.createElement('span');
+                    loopCountBadge.className = 'badge bg-secondary ms-1';
+                    loopCountBadge.textContent = loopData.indices.length;
+                    loopCountBadge.style.fontSize = '0.55rem';
+                    loopItem.appendChild(loopCountBadge);
+
+                    loopList.appendChild(loopItem);
+                }
+
+                stepItem.appendChild(loopList);
+            }
+
+            navTree.appendChild(stepItem);
+        }
+
+        navContainer.appendChild(navTree);
+        stepNav.appendChild(navContainer);
+    }
+
     // Get execution ID from input field and save it
     function getExecutionId() {
         const input = document.getElementById('executionId');
@@ -2006,14 +2214,98 @@ const UI = (() => {
                 throw new Error(`Failed to fetch step output: ${response.status}`);
             }
 
-            const outputData = await response.json();
+            // Get the response as array buffer first to check if it's binary
+            const buffer = await response.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+
+            // Check if it looks like gzipped data (starts with 0x1f 0x8b)
+            const isGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
+
+            // Check if it looks like MessagePack (common binary markers)
+            const isMsgPack = bytes[0] >= 0x80 || bytes[0] === 0xdc || bytes[0] === 0xdd;
+
+            let outputData;
+
+            if (isGzip) {
+                // Try to decompress gzip using pako if available
+                if (typeof pako !== 'undefined') {
+                    try {
+                        const decompressed = pako.ungzip(bytes, { to: 'string' });
+                        outputData = JSON.parse(decompressed);
+                    } catch (e) {
+                        throw new Error('Gzip decompression failed. The step output may be in an unsupported format.');
+                    }
+                } else {
+                    throw new Error('Step output is compressed. Decompression library not available.');
+                }
+            } else if (isMsgPack) {
+                // Try to decode MessagePack if library is available (@msgpack/msgpack)
+                if (typeof MessagePack !== 'undefined') {
+                    try {
+                        outputData = MessagePack.decode(bytes);
+                    } catch (e) {
+                        throw new Error('MessagePack decoding failed. The step output may be in an unsupported format.');
+                    }
+                } else {
+                    throw new Error('Step output is in binary format (MessagePack). Decoding library not available.');
+                }
+            } else {
+                // Try to parse as JSON
+                const text = new TextDecoder().decode(buffer);
+                outputData = JSON.parse(text);
+            }
 
             // Show in JSON modal
             showStepOutputModal(step, outputData);
         } catch (error) {
             console.error('Error fetching step output:', error);
-            alert(`Failed to load step output: ${error.message}`);
+            // Show a more user-friendly modal for errors
+            showStepOutputErrorModal(step, error.message);
         }
+    }
+
+    // Show error modal for step output
+    function showStepOutputErrorModal(step, errorMessage) {
+        const modalHtml = `
+            <div class="modal fade" id="stepOutputErrorModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header bg-warning">
+                            <h5 class="modal-title">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                Step Output Unavailable
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p><strong>Step:</strong> ${step.displayStepName || step.stepName}</p>
+                            <p><strong>Status:</strong> ${step.hasError ? '<span class="text-danger">Error</span>' : '<span class="text-success">Success</span>'}</p>
+                            <hr>
+                            <p class="text-muted mb-0">
+                                <i class="bi bi-info-circle me-1"></i>
+                                ${errorMessage}
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if present
+        const existing = document.getElementById('stepOutputErrorModal');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = new bootstrap.Modal(document.getElementById('stepOutputErrorModal'));
+        modal.show();
+
+        // Clean up after close
+        document.getElementById('stepOutputErrorModal').addEventListener('hidden.bs.modal', function() {
+            this.remove();
+        });
     }
 
     // Show step output in a modal
@@ -2039,7 +2331,7 @@ const UI = (() => {
         showJsonModal(fakeEvent);
     }
 
-    // Render linked executions panel
+    // Render linked executions panel - grouped by flow name with compact design
     function renderLinkedExecutions(linkedExecutions, currentExecutionId) {
         if (!linkedExecutions || linkedExecutions.length === 0) return;
 
@@ -2052,58 +2344,163 @@ const UI = (() => {
             existing.remove();
         }
 
+        // Group executions by flow name
+        const flowGroups = new Map();
+        let currentExecIndex = -1;
+
+        linkedExecutions.forEach((exec, index) => {
+            const flowName = exec.flow?.name || 'Unknown Flow';
+            if (!flowGroups.has(flowName)) {
+                flowGroups.set(flowName, []);
+            }
+            flowGroups.get(flowName).push({ ...exec, globalIndex: index });
+            if (exec.id === currentExecutionId) {
+                currentExecIndex = index;
+            }
+        });
+
         // Create linked executions panel
         const panel = document.createElement('div');
         panel.id = 'linked-executions';
         panel.className = 'linked-executions mb-3 mt-3';
 
+        // Header with summary
+        const totalCount = linkedExecutions.length;
+        const successCount = linkedExecutions.filter(e => e.status === 'SUCCEEDED').length;
+        const failedCount = linkedExecutions.filter(e => e.status === 'FAILED').length;
+
         panel.innerHTML = `
-            <h5 class="border-bottom pb-2 mb-2">
-                <i class="bi bi-link-45deg me-1"></i>Linked Executions
+            <h5 class="border-bottom pb-2 mb-2 d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-link-45deg me-1"></i>Execution Chain</span>
+                <span class="badge bg-secondary">${currentExecIndex + 1} / ${totalCount}</span>
             </h5>
+            <div class="execution-chain-summary mb-2 d-flex gap-2 small">
+                <span class="text-success"><i class="bi bi-check-circle"></i> ${successCount}</span>
+                <span class="text-danger"><i class="bi bi-x-circle"></i> ${failedCount}</span>
+                ${totalCount - successCount - failedCount > 0 ? `<span class="text-warning"><i class="bi bi-clock"></i> ${totalCount - successCount - failedCount}</span>` : ''}
+            </div>
         `;
 
-        // Create execution chain
-        const chainContainer = document.createElement('div');
-        chainContainer.className = 'execution-chain d-flex flex-wrap gap-1 align-items-center';
+        // Create flow groups container
+        const groupsContainer = document.createElement('div');
+        groupsContainer.className = 'linked-executions-groups';
 
-        linkedExecutions.forEach((exec, index) => {
-            const execBadge = document.createElement('button');
-            execBadge.className = `btn btn-sm ${exec.id === currentExecutionId ? 'btn-primary' : 'btn-outline-secondary'} execution-chain-item`;
+        flowGroups.forEach((executions, flowName) => {
+            const flowGroup = document.createElement('div');
+            flowGroup.className = 'flow-group mb-2';
 
-            // Status icon
-            const statusIcon = exec.status === 'SUCCEEDED' ? 'check-circle' :
-                              exec.status === 'FAILED' ? 'x-circle' :
-                              exec.status === 'RUNNING' ? 'arrow-repeat' : 'clock';
-            const statusClass = exec.status === 'SUCCEEDED' ? 'text-success' :
-                               exec.status === 'FAILED' ? 'text-danger' :
-                               exec.status === 'RUNNING' ? 'text-primary' : 'text-warning';
+            // Flow header (collapsible)
+            const flowHeader = document.createElement('div');
+            flowHeader.className = 'flow-group-header d-flex align-items-center p-2 rounded cursor-pointer';
+            flowHeader.style.backgroundColor = 'rgba(0,0,0,0.03)';
 
-            execBadge.innerHTML = `
-                <i class="bi bi-${statusIcon} ${exec.id === currentExecutionId ? '' : statusClass} me-1"></i>
-                <span class="small">${index + 1}</span>
-            `;
-            execBadge.title = `Execution ${index + 1}\nStatus: ${exec.status}\nStarted: ${new Date(exec.startedAt).toLocaleString()}`;
+            const toggleIcon = document.createElement('i');
+            toggleIcon.className = 'bi bi-caret-right-fill me-2 flow-toggle-icon';
+            toggleIcon.style.transition = 'transform 0.2s';
 
-            if (exec.id !== currentExecutionId) {
-                execBadge.onclick = () => {
-                    ExecutionPage.setExecutionId(exec.id);
-                    ExecutionPage.fetchResults();
-                };
+            const flowLabel = document.createElement('span');
+            flowLabel.className = 'flow-name flex-grow-1 fw-medium';
+            flowLabel.textContent = flowName;
+
+            const flowBadge = document.createElement('span');
+            flowBadge.className = 'badge bg-secondary';
+            flowBadge.textContent = executions.length;
+
+            flowHeader.appendChild(toggleIcon);
+            flowHeader.appendChild(flowLabel);
+            flowHeader.appendChild(flowBadge);
+
+            // Executions list (initially collapsed unless contains current execution)
+            const execList = document.createElement('div');
+            execList.className = 'flow-executions mt-1 ps-3';
+            const containsCurrent = executions.some(e => e.id === currentExecutionId);
+            execList.style.display = containsCurrent ? 'block' : 'none';
+            if (containsCurrent) {
+                toggleIcon.style.transform = 'rotate(90deg)';
             }
 
-            chainContainer.appendChild(execBadge);
+            // Create compact execution grid
+            const execGrid = document.createElement('div');
+            execGrid.className = 'd-flex flex-wrap gap-1';
 
-            // Add arrow between executions (except after last)
-            if (index < linkedExecutions.length - 1) {
-                const arrow = document.createElement('span');
-                arrow.className = 'text-muted mx-1';
-                arrow.innerHTML = '<i class="bi bi-arrow-right"></i>';
-                chainContainer.appendChild(arrow);
-            }
+            executions.forEach((exec) => {
+                const isCurrent = exec.id === currentExecutionId;
+                const execBtn = document.createElement('button');
+
+                // Status styling
+                const statusIcon = exec.status === 'SUCCEEDED' ? 'check' :
+                                  exec.status === 'FAILED' ? 'x' :
+                                  exec.status === 'RUNNING' ? 'arrow-repeat' : 'clock';
+                const statusBg = exec.status === 'SUCCEEDED' ? 'success' :
+                                exec.status === 'FAILED' ? 'danger' :
+                                exec.status === 'RUNNING' ? 'primary' : 'warning';
+
+                if (isCurrent) {
+                    execBtn.className = `btn btn-${statusBg} btn-sm execution-chip current`;
+                } else {
+                    execBtn.className = `btn btn-outline-${statusBg} btn-sm execution-chip`;
+                }
+
+                execBtn.innerHTML = `<i class="bi bi-${statusIcon}"></i><span>${exec.globalIndex + 1}</span>`;
+                execBtn.title = `#${exec.globalIndex + 1} - ${exec.status}\n${new Date(exec.startedAt).toLocaleString()}`;
+
+                if (!isCurrent) {
+                    execBtn.onclick = () => {
+                        ExecutionPage.setExecutionId(exec.id);
+                        ExecutionPage.fetchResults();
+                    };
+                }
+
+                execGrid.appendChild(execBtn);
+            });
+
+            execList.appendChild(execGrid);
+
+            // Toggle functionality
+            flowHeader.onclick = () => {
+                const isHidden = execList.style.display === 'none';
+                execList.style.display = isHidden ? 'block' : 'none';
+                toggleIcon.style.transform = isHidden ? 'rotate(90deg)' : '';
+            };
+
+            flowGroup.appendChild(flowHeader);
+            flowGroup.appendChild(execList);
+            groupsContainer.appendChild(flowGroup);
         });
 
-        panel.appendChild(chainContainer);
+        panel.appendChild(groupsContainer);
+
+        // Navigation buttons
+        const navButtons = document.createElement('div');
+        navButtons.className = 'd-flex gap-2 mt-3';
+
+        // Previous button
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
+        prevBtn.innerHTML = '<i class="bi bi-chevron-left"></i> Prev';
+        prevBtn.disabled = currentExecIndex <= 0;
+        if (currentExecIndex > 0) {
+            prevBtn.onclick = () => {
+                ExecutionPage.setExecutionId(linkedExecutions[currentExecIndex - 1].id);
+                ExecutionPage.fetchResults();
+            };
+        }
+
+        // Next button
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
+        nextBtn.innerHTML = 'Next <i class="bi bi-chevron-right"></i>';
+        nextBtn.disabled = currentExecIndex >= linkedExecutions.length - 1;
+        if (currentExecIndex < linkedExecutions.length - 1) {
+            nextBtn.onclick = () => {
+                ExecutionPage.setExecutionId(linkedExecutions[currentExecIndex + 1].id);
+                ExecutionPage.fetchResults();
+            };
+        }
+
+        navButtons.appendChild(prevBtn);
+        navButtons.appendChild(nextBtn);
+        panel.appendChild(navButtons);
 
         // Insert after execution details
         const executionDetails = document.getElementById('execution-details');
@@ -2129,6 +2526,7 @@ const UI = (() => {
         renderLogsIncremental,
         updateStepNavigationFromLogs,
         updateStepNavigationFromStepResults,
+        updateStepNavigationCombined,
         renderLinkedExecutions,
         showWelcome,
         getExecutionId,

@@ -74,6 +74,7 @@ const ExecutionPage = (() => {
 
             // Start fetching logs
             let previousLogCount = 0;
+            let allLogEdges = [];
             const logGenerator = API.fetchAllExecutionLogs(executionId, 100);
 
             // Process logs as they come in
@@ -86,6 +87,14 @@ const ExecutionPage = (() => {
                     const newLogs = progress.logs.slice(previousLogCount);
                     UI.renderLogsIncremental(newLogs, previousLogCount);
                     previousLogCount = progress.logs.length;
+                }
+
+                // Keep track of all log edges for step navigation
+                allLogEdges = progress.logs;
+
+                // Update step navigation incrementally (for smooth UX)
+                if (allLogEdges.length > 0) {
+                    UI.updateStepNavigationFromLogs(allLogEdges);
                 }
 
                 // Handle completion
@@ -106,9 +115,9 @@ const ExecutionPage = (() => {
                 linkedExecutionsPromise
             ]);
 
-            // Update the step navigation with actual step results
-            if (stepResults && stepResults.length > 0) {
-                UI.updateStepNavigationFromStepResults(stepResults, executionId);
+            // Final update with step results for eye icons (output viewing)
+            if (allLogEdges.length > 0 && stepResults && stepResults.length > 0) {
+                UI.updateStepNavigationCombined(allLogEdges, stepResults, executionId);
             }
 
             // Show linked executions if any
