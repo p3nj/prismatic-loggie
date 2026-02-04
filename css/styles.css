@@ -366,6 +366,14 @@ pre[class*="language-"] {
   }
 }
 
+/* Sidebar Sticky Positioning */
+.sidebar {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 /* Step Navigation Styles */
 .step-nav-container {
     max-height: 300px;
