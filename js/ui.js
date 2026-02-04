@@ -2454,16 +2454,36 @@ const UI = (() => {
         const flowGroups = new Map();
         let currentExecIndex = -1;
 
+        // Debug: log IDs to help diagnose matching issues
+        console.log('Looking for currentExecutionId:', currentExecutionId);
+        console.log('Available execution IDs:', linkedExecutions.map(e => e.id));
+
         linkedExecutions.forEach((exec, index) => {
             const flowName = exec.flow?.name || 'Unknown Flow';
             if (!flowGroups.has(flowName)) {
                 flowGroups.set(flowName, []);
             }
             flowGroups.get(flowName).push({ ...exec, globalIndex: index });
-            if (exec.id === currentExecutionId) {
+            // More robust ID comparison - handle potential format differences
+            if (exec.id === currentExecutionId ||
+                exec.id?.toString() === currentExecutionId?.toString() ||
+                (currentExecutionMetadata && exec.id === currentExecutionMetadata.id)) {
                 currentExecIndex = index;
+                console.log('Found current execution at index:', index);
             }
         });
+
+        // If current execution not found in linked list, it might be the first one
+        // or there's an ID mismatch - try to find by metadata
+        if (currentExecIndex === -1 && currentExecutionMetadata) {
+            const matchByStartTime = linkedExecutions.findIndex(e =>
+                e.startedAt === currentExecutionMetadata.startedAt
+            );
+            if (matchByStartTime !== -1) {
+                currentExecIndex = matchByStartTime;
+                console.log('Found current execution by startedAt at index:', matchByStartTime);
+            }
+        }
 
         // Create linked executions panel
         const panel = document.createElement('div');
@@ -2584,48 +2604,6 @@ const UI = (() => {
         });
 
         panel.appendChild(groupsContainer);
-
-        // Navigation buttons for stepping through executions in order
-        const navButtons = document.createElement('div');
-        navButtons.className = 'd-flex gap-2 mt-3';
-
-        // Previous button - goes to earlier execution in the chain
-        const prevBtn = document.createElement('button');
-        prevBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
-        prevBtn.innerHTML = '<i class="bi bi-chevron-left"></i> Prev';
-        prevBtn.title = currentExecIndex > 0
-            ? `Go to execution #${currentExecIndex} (earlier in chain)`
-            : 'Already at the first execution';
-        prevBtn.disabled = currentExecIndex <= 0;
-        if (currentExecIndex > 0) {
-            const prevExec = linkedExecutions[currentExecIndex - 1];
-            prevBtn.onclick = () => {
-                updateExecutionUrl(prevExec.id);
-                ExecutionPage.setExecutionId(prevExec.id);
-                ExecutionPage.fetchResults();
-            };
-        }
-
-        // Next button - goes to later execution in the chain
-        const nextBtn = document.createElement('button');
-        nextBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
-        nextBtn.innerHTML = 'Next <i class="bi bi-chevron-right"></i>';
-        nextBtn.title = currentExecIndex < linkedExecutions.length - 1
-            ? `Go to execution #${currentExecIndex + 2} (later in chain)`
-            : 'Already at the last execution';
-        nextBtn.disabled = currentExecIndex >= linkedExecutions.length - 1;
-        if (currentExecIndex < linkedExecutions.length - 1) {
-            const nextExec = linkedExecutions[currentExecIndex + 1];
-            nextBtn.onclick = () => {
-                updateExecutionUrl(nextExec.id);
-                ExecutionPage.setExecutionId(nextExec.id);
-                ExecutionPage.fetchResults();
-            };
-        }
-
-        navButtons.appendChild(prevBtn);
-        navButtons.appendChild(nextBtn);
-        panel.appendChild(navButtons);
 
         // Insert after execution details
         const executionDetails = document.getElementById('execution-details');
