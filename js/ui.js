@@ -2494,10 +2494,16 @@ const UI = (() => {
         const successCount = linkedExecutions.filter(e => e.status === 'SUCCEEDED' || e.status === 'SUCCESS').length;
         const failedCount = linkedExecutions.filter(e => e.status === 'FAILED' || e.status === 'FAILURE' || e.status === 'ERROR').length;
 
+        // Position badge - only show position if current execution is in the list
+        // If not in list, just show total count (current exec may be the trigger/parent)
+        const positionBadge = currentExecIndex >= 0
+            ? `${currentExecIndex + 1} / ${totalCount}`
+            : `${totalCount}`;
+
         panel.innerHTML = `
             <h5 class="border-bottom pb-2 mb-2 d-flex align-items-center justify-content-between">
                 <span><i class="bi bi-link-45deg me-1"></i>Execution Chain</span>
-                <span class="badge bg-secondary">${currentExecIndex + 1} / ${totalCount}</span>
+                <span class="badge bg-secondary">${positionBadge}</span>
             </h5>
             <div class="execution-chain-summary mb-2 d-flex gap-2 small">
                 <span class="text-success"><i class="bi bi-check-circle"></i> ${successCount}</span>
