@@ -446,15 +446,18 @@ const UI = (() => {
             `;
         }
         
+        const instanceName = result.instance?.name || 'Unknown';
+        const flowName = result.flow?.name || 'Unknown';
+
         detailsPanel.innerHTML = `
             <h5 class="border-bottom pb-2 mb-2">Execution Details</h5>
             <div class="mb-2">
                 <strong>Instance:</strong>
-                <div class="text-truncate">${result.instance?.name || 'Unknown'}</div>
+                <div class="detail-text" title="${instanceName}">${instanceName}</div>
             </div>
             <div class="mb-2">
                 <strong>Flow:</strong>
-                <div class="text-truncate">${result.flow?.name || 'Unknown'}</div>
+                <div class="detail-text" title="${flowName}">${flowName}</div>
             </div>
             <div class="mb-2">
                 <strong>Status:</strong>
@@ -529,12 +532,17 @@ const UI = (() => {
     function getStatusBadgeClass(status) {
         switch (status) {
             case 'SUCCEEDED':
+            case 'SUCCESS':
                 return 'bg-success';
             case 'FAILED':
+            case 'FAILURE':
+            case 'ERROR':
                 return 'bg-danger';
             case 'RUNNING':
+            case 'IN_PROGRESS':
                 return 'bg-primary';
             case 'PENDING':
+            case 'QUEUED':
                 return 'bg-warning';
             default:
                 return 'bg-secondary';
@@ -739,6 +747,32 @@ const UI = (() => {
         stepNav.appendChild(navContainer);
     }
 
+    // Helper function to scroll the step navigation container to show a specific item
+    function scrollStepNavToItem(item) {
+        const navContainer = document.querySelector('.step-nav-container');
+        if (!navContainer || !item) return;
+
+        const containerRect = navContainer.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+
+        // Check if item is outside the visible area of the container
+        const isAbove = itemRect.top < containerRect.top;
+        const isBelow = itemRect.bottom > containerRect.bottom;
+
+        if (isAbove || isBelow) {
+            // Scroll the item into view within the container
+            const scrollTop = item.offsetTop - navContainer.offsetTop - (containerRect.height / 2) + (itemRect.height / 2);
+            navContainer.scrollTo({
+                top: Math.max(0, scrollTop),
+                behavior: 'smooth'
+            });
+        }
+
+        // Highlight the item briefly
+        item.classList.add('highlight-step-item');
+        setTimeout(() => item.classList.remove('highlight-step-item'), 1500);
+    }
+
     // Combined step navigation: uses logs for hopping and step results for output viewing
     function updateStepNavigationCombined(logEdges, stepResults, executionId) {
         // Build step dictionary from logs (for hopping)
@@ -865,6 +899,8 @@ const UI = (() => {
                         setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
                     }
                 }
+                // Also scroll the step navigation to keep this item visible
+                scrollStepNavToItem(stepItem);
             };
             stepHeader.appendChild(stepLink);
             stepHeader.appendChild(countBadge);
@@ -891,13 +927,20 @@ const UI = (() => {
                 loopList.className = 'loop-list list-unstyled ms-3 mt-1';
                 loopList.style.display = 'none'; // Initially collapsed
 
-                for (const loopKey in stepData.loops) {
+                // Sort loop keys numerically by index
+                const sortedLoopKeys = Object.keys(stepData.loops).sort((a, b) => {
+                    const indexA = stepData.loops[a].index;
+                    const indexB = stepData.loops[b].index;
+                    return indexA - indexB;
+                });
+
+                sortedLoopKeys.forEach((loopKey, sortedIdx) => {
                     const loopData = stepData.loops[loopKey];
 
                     const loopItem = document.createElement('li');
                     loopItem.className = 'loop-item mb-1 d-flex align-items-center';
 
-                    // Loop badge
+                    // Loop badge with sequential index
                     const loopBadge = document.createElement('span');
                     loopBadge.className = 'badge bg-info me-1';
                     loopBadge.textContent = `#${loopData.index}`;
@@ -906,7 +949,7 @@ const UI = (() => {
 
                     const loopLink = document.createElement('a');
                     loopLink.href = '#';
-                    loopLink.className = 'loop-link small';
+                    loopLink.className = 'loop-link small flex-grow-1';
                     loopLink.textContent = loopData.name;
                     loopLink.title = `${loopData.name} iteration ${loopData.index} (${loopData.indices.length} entries)`;
                     loopLink.onclick = function(e) {
@@ -924,6 +967,8 @@ const UI = (() => {
                                 setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
                             }
                         }
+                        // Also scroll the step navigation to keep this item visible
+                        scrollStepNavToItem(loopItem);
                     };
                     loopItem.appendChild(loopLink);
 
@@ -934,8 +979,26 @@ const UI = (() => {
                     loopCountBadge.style.fontSize = '0.55rem';
                     loopItem.appendChild(loopCountBadge);
 
+                    // Find matching step result for this loop iteration and add view button
+                    const loopStepResult = stepResults.find(s =>
+                        s.loopStepIndex === loopData.index ||
+                        (s.loopPath && s.loopPath.includes(loopData.name))
+                    );
+                    if (loopStepResult && loopStepResult.resultsUrl) {
+                        const viewBtn = document.createElement('button');
+                        viewBtn.className = 'btn btn-sm btn-outline-info ms-1 p-0 px-1';
+                        viewBtn.innerHTML = '<i class="bi bi-eye"></i>';
+                        viewBtn.title = 'View Loop Iteration Output';
+                        viewBtn.onclick = function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            fetchAndShowStepOutput(loopStepResult);
+                        };
+                        loopItem.appendChild(viewBtn);
+                    }
+
                     loopList.appendChild(loopItem);
-                }
+                });
 
                 stepItem.appendChild(loopList);
             }
@@ -2331,8 +2394,40 @@ const UI = (() => {
         showJsonModal(fakeEvent);
     }
 
+    // Format execution time for display in execution chain
+    function formatExecutionTime(date) {
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        // For recent executions (within 24 hours), show relative time
+        if (diffMins < 1) {
+            return 'Just now';
+        } else if (diffMins < 60) {
+            return `${diffMins}m ago`;
+        } else if (diffHours < 24) {
+            return `${diffHours}h ago`;
+        } else if (diffDays < 7) {
+            return `${diffDays}d ago`;
+        } else {
+            // For older executions, show date and time
+            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+                   ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        }
+    }
+
+    // Update URL with execution ID for navigation tracking
+    function updateExecutionUrl(executionId) {
+        const currentHash = window.location.hash;
+        const baseHash = currentHash.split('?')[0] || '#execution';
+        const newUrl = `${baseHash}?executionId=${executionId}`;
+        window.history.pushState({ executionId }, '', newUrl);
+    }
+
     // Render linked executions panel - grouped by flow name with compact design
-    function renderLinkedExecutions(linkedExecutions, currentExecutionId) {
+    function renderLinkedExecutions(linkedExecutions, currentExecutionId, currentExecutionMetadata = null) {
         if (!linkedExecutions || linkedExecutions.length === 0) return;
 
         const sidebar = document.querySelector('#page-execution .sidebar');
@@ -2342,6 +2437,17 @@ const UI = (() => {
         const existing = document.getElementById('linked-executions');
         if (existing) {
             existing.remove();
+        }
+
+        // Update the current execution's status in the linked executions array with fresh metadata
+        // This ensures the current execution shows accurate status even if API returned stale data
+        if (currentExecutionMetadata) {
+            linkedExecutions = linkedExecutions.map(exec => {
+                if (exec.id === currentExecutionId) {
+                    return { ...exec, status: currentExecutionMetadata.status };
+                }
+                return exec;
+            });
         }
 
         // Group executions by flow name
@@ -2366,8 +2472,8 @@ const UI = (() => {
 
         // Header with summary
         const totalCount = linkedExecutions.length;
-        const successCount = linkedExecutions.filter(e => e.status === 'SUCCEEDED').length;
-        const failedCount = linkedExecutions.filter(e => e.status === 'FAILED').length;
+        const successCount = linkedExecutions.filter(e => e.status === 'SUCCEEDED' || e.status === 'SUCCESS').length;
+        const failedCount = linkedExecutions.filter(e => e.status === 'FAILED' || e.status === 'FAILURE' || e.status === 'ERROR').length;
 
         panel.innerHTML = `
             <h5 class="border-bottom pb-2 mb-2 d-flex align-items-center justify-content-between">
@@ -2419,42 +2525,51 @@ const UI = (() => {
                 toggleIcon.style.transform = 'rotate(90deg)';
             }
 
-            // Create compact execution grid
-            const execGrid = document.createElement('div');
-            execGrid.className = 'd-flex flex-wrap gap-1';
+            // Create execution list with datetime
+            const execListInner = document.createElement('div');
+            execListInner.className = 'execution-list-items';
 
             executions.forEach((exec) => {
                 const isCurrent = exec.id === currentExecutionId;
-                const execBtn = document.createElement('button');
+                const execItem = document.createElement('div');
+                execItem.className = `execution-list-item d-flex align-items-center py-1 px-2 rounded mb-1 ${isCurrent ? 'current-execution' : 'hoverable-execution'}`;
 
-                // Status styling
-                const statusIcon = exec.status === 'SUCCEEDED' ? 'check' :
-                                  exec.status === 'FAILED' ? 'x' :
-                                  exec.status === 'RUNNING' ? 'arrow-repeat' : 'clock';
-                const statusBg = exec.status === 'SUCCEEDED' ? 'success' :
-                                exec.status === 'FAILED' ? 'danger' :
-                                exec.status === 'RUNNING' ? 'primary' : 'warning';
+                // Status styling (handle both SUCCEEDED/SUCCESS and FAILED/FAILURE/ERROR)
+                const isSuccess = exec.status === 'SUCCEEDED' || exec.status === 'SUCCESS';
+                const isFailed = exec.status === 'FAILED' || exec.status === 'FAILURE' || exec.status === 'ERROR';
+                const isRunning = exec.status === 'RUNNING' || exec.status === 'IN_PROGRESS';
+                const statusIcon = isSuccess ? 'check-circle-fill' :
+                                  isFailed ? 'x-circle-fill' :
+                                  isRunning ? 'arrow-repeat' : 'clock';
+                const statusColor = isSuccess ? 'text-success' :
+                                isFailed ? 'text-danger' :
+                                isRunning ? 'text-primary' : 'text-warning';
 
-                if (isCurrent) {
-                    execBtn.className = `btn btn-${statusBg} btn-sm execution-chip current`;
-                } else {
-                    execBtn.className = `btn btn-outline-${statusBg} btn-sm execution-chip`;
-                }
+                // Format datetime as relative or short format
+                const startTime = new Date(exec.startedAt);
+                const timeStr = formatExecutionTime(startTime);
 
-                execBtn.innerHTML = `<i class="bi bi-${statusIcon}"></i><span>${exec.globalIndex + 1}</span>`;
-                execBtn.title = `#${exec.globalIndex + 1} - ${exec.status}\n${new Date(exec.startedAt).toLocaleString()}`;
+                execItem.innerHTML = `
+                    <span class="${statusColor} me-2"><i class="bi bi-${statusIcon}"></i></span>
+                    <span class="execution-index badge bg-secondary me-2">#${exec.globalIndex + 1}</span>
+                    <span class="execution-time small text-muted flex-grow-1">${timeStr}</span>
+                `;
+                execItem.title = `${exec.status} - ${startTime.toLocaleString()}`;
 
                 if (!isCurrent) {
-                    execBtn.onclick = () => {
+                    execItem.style.cursor = 'pointer';
+                    execItem.onclick = () => {
+                        // Update URL with execution ID before navigating
+                        updateExecutionUrl(exec.id);
                         ExecutionPage.setExecutionId(exec.id);
                         ExecutionPage.fetchResults();
                     };
                 }
 
-                execGrid.appendChild(execBtn);
+                execListInner.appendChild(execItem);
             });
 
-            execList.appendChild(execGrid);
+            execList.appendChild(execListInner);
 
             // Toggle functionality
             flowHeader.onclick = () => {
@@ -2470,30 +2585,40 @@ const UI = (() => {
 
         panel.appendChild(groupsContainer);
 
-        // Navigation buttons
+        // Navigation buttons for stepping through executions in order
         const navButtons = document.createElement('div');
         navButtons.className = 'd-flex gap-2 mt-3';
 
-        // Previous button
+        // Previous button - goes to earlier execution in the chain
         const prevBtn = document.createElement('button');
         prevBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
         prevBtn.innerHTML = '<i class="bi bi-chevron-left"></i> Prev';
+        prevBtn.title = currentExecIndex > 0
+            ? `Go to execution #${currentExecIndex} (earlier in chain)`
+            : 'Already at the first execution';
         prevBtn.disabled = currentExecIndex <= 0;
         if (currentExecIndex > 0) {
+            const prevExec = linkedExecutions[currentExecIndex - 1];
             prevBtn.onclick = () => {
-                ExecutionPage.setExecutionId(linkedExecutions[currentExecIndex - 1].id);
+                updateExecutionUrl(prevExec.id);
+                ExecutionPage.setExecutionId(prevExec.id);
                 ExecutionPage.fetchResults();
             };
         }
 
-        // Next button
+        // Next button - goes to later execution in the chain
         const nextBtn = document.createElement('button');
         nextBtn.className = 'btn btn-outline-secondary btn-sm flex-grow-1';
         nextBtn.innerHTML = 'Next <i class="bi bi-chevron-right"></i>';
+        nextBtn.title = currentExecIndex < linkedExecutions.length - 1
+            ? `Go to execution #${currentExecIndex + 2} (later in chain)`
+            : 'Already at the last execution';
         nextBtn.disabled = currentExecIndex >= linkedExecutions.length - 1;
         if (currentExecIndex < linkedExecutions.length - 1) {
+            const nextExec = linkedExecutions[currentExecIndex + 1];
             nextBtn.onclick = () => {
-                ExecutionPage.setExecutionId(linkedExecutions[currentExecIndex + 1].id);
+                updateExecutionUrl(nextExec.id);
+                ExecutionPage.setExecutionId(nextExec.id);
                 ExecutionPage.fetchResults();
             };
         }

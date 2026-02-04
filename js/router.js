@@ -36,10 +36,23 @@ const Router = (() => {
         window.location.hash = hashPath;
     }
 
-    // Get current route parameters
+    // Get current route parameters (from sessionStorage and URL query string)
     function getParams() {
         const stored = sessionStorage.getItem('routeParams');
-        return stored ? JSON.parse(stored) : {};
+        const storedParams = stored ? JSON.parse(stored) : {};
+
+        // Also parse query parameters from the URL hash
+        const hash = window.location.hash.slice(1);
+        const queryIndex = hash.indexOf('?');
+        if (queryIndex !== -1) {
+            const queryString = hash.substring(queryIndex + 1);
+            const urlParams = new URLSearchParams(queryString);
+            urlParams.forEach((value, key) => {
+                storedParams[key] = value;
+            });
+        }
+
+        return storedParams;
     }
 
     // Clear route parameters
@@ -86,6 +99,19 @@ const Router = (() => {
     function init() {
         // Listen for hash changes
         window.addEventListener('hashchange', handleRouteChange);
+
+        // Listen for popstate (browser back/forward)
+        window.addEventListener('popstate', (event) => {
+            // Check if we have execution state and we're on the execution page
+            if (event.state && event.state.executionId) {
+                const hash = window.location.hash.slice(1);
+                const path = hash.split('?')[0];
+                if (path === 'execution') {
+                    ExecutionPage.setExecutionId(event.state.executionId);
+                    ExecutionPage.fetchResults();
+                }
+            }
+        });
 
         // Handle initial route
         handleRouteChange();
