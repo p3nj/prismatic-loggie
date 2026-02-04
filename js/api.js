@@ -1,5 +1,20 @@
 // API configuration and interaction
 const API = (() => {
+    // Rate limiter to prevent hitting API limits (20 req/s, using 250ms delay for safety)
+    const RateLimiter = {
+        lastRequest: 0,
+        minDelay: 250, // 250ms between requests (4 req/s, very conservative)
+
+        async wait() {
+            const now = Date.now();
+            const elapsed = now - this.lastRequest;
+            if (elapsed < this.minDelay) {
+                await new Promise(resolve => setTimeout(resolve, this.minDelay - elapsed));
+            }
+            this.lastRequest = Date.now();
+        }
+    };
+
     // Available endpoints
     const ENDPOINTS = [
         { value: 'https://app.prismatic.io', label: 'US (app.prismatic.io)' },
@@ -278,11 +293,80 @@ const API = (() => {
         }
     `;
 
-    // Generic GraphQL request helper
-    async function graphqlRequest(query, variables = {}) {
+    // GraphQL query for step results (step outputs)
+    const stepResultsQuery = `
+        query getStepOutput($executionId: ID!, $first: Int, $isRootResult: Boolean, $loopPath: String, $after: String, $startedAt: DateTime) {
+            stepResults(
+                executionResult: $executionId
+                isRootResult: $isRootResult
+                loopPath: $loopPath
+                first: $first
+                orderBy: {direction: ASC, field: STARTED_AT}
+                after: $after
+                startedAt_Gte: $startedAt
+            ) {
+                nodes {
+                    id
+                    startedAt
+                    endedAt
+                    loopStepIndex
+                    loopStepName
+                    stepName
+                    displayStepName
+                    isLoopStep
+                    isRootResult
+                    loopPath
+                    hasError
+                    resultsUrl
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for linked/chained executions (for long-running flows)
+    const linkedExecutionsQuery = `
+        query getLinkedExecutionList($invokedBy: ExecutionInvokedByInput) {
+            executionResults(
+                invokedBy: $invokedBy
+                orderBy: {direction: ASC, field: STARTED_AT}
+            ) {
+                nodes {
+                    id
+                    startedAt
+                    endedAt
+                    queuedAt
+                    resumedAt
+                    error
+                    invokeType
+                    allowUpdate
+                    status
+                    lineage {
+                        hasChildren
+                        invokedBy {
+                            execution {
+                                id
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    // Generic GraphQL request helper (with rate limiting)
+    async function graphqlRequest(query, variables = {}, useRateLimiter = true) {
         const token = getToken();
         if (!token) {
             throw new Error('API token is required. Please authenticate first.');
+        }
+
+        // Apply rate limiting if enabled
+        if (useRateLimiter) {
+            await RateLimiter.wait();
         }
 
         const response = await fetch(getApiEndpoint(), {
@@ -475,6 +559,79 @@ const API = (() => {
         return data.replayExecution.instanceExecutionResult;
     }
 
+    // Fetch step results for an execution (with pagination support)
+    async function fetchStepResults(executionId, options = {}) {
+        const { first = 100, after = null, isRootResult = null, loopPath = null, startedAt = null } = options;
+        console.log(`Fetching step results for execution: ${executionId}, loopPath: ${loopPath || 'root'}`);
+
+        const variables = {
+            executionId,
+            first
+        };
+
+        if (after) variables.after = after;
+        if (isRootResult !== null) variables.isRootResult = isRootResult;
+        if (loopPath) variables.loopPath = loopPath;
+        if (startedAt) variables.startedAt = startedAt;
+
+        const data = await graphqlRequest(stepResultsQuery, variables);
+        return data.stepResults;
+    }
+
+    // Fetch all step results with pagination (batch load with rate limiting)
+    async function* fetchAllStepResults(executionId, options = {}) {
+        const { batchSize = 100, isRootResult = null, loopPath = null, startedAt = null } = options;
+        let allSteps = [];
+        let cursor = null;
+        let hasMore = true;
+
+        while (hasMore) {
+            const stepsData = await fetchStepResults(executionId, {
+                first: batchSize,
+                after: cursor,
+                isRootResult,
+                loopPath,
+                startedAt
+            });
+
+            if (!stepsData || !stepsData.nodes) {
+                break;
+            }
+
+            // Append new steps
+            allSteps = allSteps.concat(stepsData.nodes);
+
+            // Update pagination state
+            hasMore = stepsData.pageInfo?.hasNextPage || false;
+            cursor = stepsData.pageInfo?.endCursor || null;
+
+            // Yield progress update
+            yield {
+                steps: allSteps,
+                loadedCount: allSteps.length,
+                hasMore: hasMore,
+                isComplete: !hasMore
+            };
+        }
+
+        return allSteps;
+    }
+
+    // Fetch linked/chained executions for long-running flows
+    async function fetchLinkedExecutions(executionId, startedAt) {
+        console.log(`Fetching linked executions for: ${executionId}`);
+
+        const variables = {
+            invokedBy: {
+                id: executionId,
+                startedAt: startedAt
+            }
+        };
+
+        const data = await graphqlRequest(linkedExecutionsQuery, variables);
+        return data.executionResults?.nodes || [];
+    }
+
     // Legacy support - update config from DOM elements (for backward compatibility)
     function updateConfig() {
         const endpointSelect = document.getElementById('endpointSelect');
@@ -518,7 +675,7 @@ const API = (() => {
 
     // Return public methods
     return {
-        // New methods
+        // Core methods
         getEndpoint,
         setEndpoint,
         getToken,
@@ -528,9 +685,14 @@ const API = (() => {
         getTokenUrl,
         getApiEndpoint,
         ENDPOINTS,
+        // Execution methods
         fetchExecutionResults,
         fetchExecutionLogs,
         fetchAllExecutionLogs,
+        fetchStepResults,
+        fetchAllStepResults,
+        fetchLinkedExecutions,
+        // Instance methods
         fetchInstances,
         fetchInstanceFlows,
         fetchExecutionsByInstance,
