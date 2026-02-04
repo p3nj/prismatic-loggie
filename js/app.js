@@ -3,6 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     UI.initTheme();
 
+    // Initialize auth (populates dropdowns and sets up event listeners)
+    AuthPage.init();
+
     // Update auth status in navbar
     AuthPage.updateAuthStatus();
 

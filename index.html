@@ -49,11 +49,51 @@
                             <i class="theme-icon bi bi-moon text-light ms-2"></i>
                         </div>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#auth" id="authNavLink">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="authNavLink" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                             <i class="bi bi-key me-1"></i>
                             <span id="authStatusText">Setup Token</span>
                         </a>
+                        <div class="dropdown-menu dropdown-menu-end auth-dropdown-menu" aria-labelledby="authNavLink">
+                            <div class="auth-dropdown-content p-3">
+                                <h6 class="mb-3"><i class="bi bi-key me-2"></i>Connect to Prismatic</h6>
+
+                                <div class="mb-2">
+                                    <label class="form-label small text-muted mb-1" for="authEndpointDropdown">Region</label>
+                                    <select class="form-select form-select-sm" id="authEndpointDropdown">
+                                        <!-- Options populated by JS -->
+                                    </select>
+                                </div>
+
+                                <div class="mb-2">
+                                    <label class="form-label small text-muted mb-1" for="authApiTokenDropdown">API Token</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="password" id="authApiTokenDropdown" class="form-control" placeholder="Paste your token">
+                                        <button class="btn btn-outline-secondary" type="button" id="toggleTokenVisibilityDropdown" title="Show/hide token">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="d-grid gap-2 mb-2">
+                                    <button class="btn btn-primary btn-sm" id="saveAuthDropdownButton">
+                                        <i class="bi bi-check-lg me-1"></i>Connect
+                                    </button>
+                                </div>
+
+                                <div id="authDropdownMessage" class="small d-none"></div>
+
+                                <div class="text-center mt-2">
+                                    <button class="btn btn-link btn-sm text-muted p-0" id="getTokenDropdownLink">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i>Get token from Prismatic
+                                    </button>
+                                </div>
+
+                                <p class="text-muted small mt-2 mb-0 text-center">
+                                    <i class="bi bi-shield-check me-1"></i>Token stored locally
+                                </p>
+                            </div>
+                        </div>
                     </li>
                 </ul>
             </div>
