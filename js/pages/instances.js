@@ -459,9 +459,9 @@ const InstancesPage = (() => {
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1 min-width-0">
-                        <div class="fw-bold text-truncate" title="${instance.name}">${instance.name}</div>
-                        <small class="text-muted d-block text-truncate">${instance.customer?.name || 'No customer'}</small>
-                        <small class="text-muted d-block text-truncate">${instance.integration?.name || 'Unknown integration'}</small>
+                        <div class="instance-name" title="${instance.name}">${instance.name}</div>
+                        <small class="text-muted d-block instance-meta">${instance.customer?.name || 'No customer'}</small>
+                        <small class="text-muted d-block instance-meta">${instance.integration?.name || 'Unknown integration'}</small>
                     </div>
                     <div class="ms-2">
                         <i class="bi ${statusIcon} ${statusClass}"></i>

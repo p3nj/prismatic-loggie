@@ -19,62 +19,81 @@ const AuthPage = (() => {
         initialized = true;
     }
 
-    // Populate endpoint dropdown with options
+    // Populate endpoint dropdown with options (supports both page and navbar dropdown)
     function populateEndpoints() {
+        // Populate page dropdown
         const select = document.getElementById('authEndpointSelect');
-        if (!select) return;
+        if (select) {
+            select.innerHTML = '';
+            API.ENDPOINTS.forEach(endpoint => {
+                const option = document.createElement('option');
+                option.value = endpoint.value;
+                option.textContent = endpoint.label;
+                select.appendChild(option);
+            });
+        }
 
-        select.innerHTML = '';
-        API.ENDPOINTS.forEach(endpoint => {
-            const option = document.createElement('option');
-            option.value = endpoint.value;
-            option.textContent = endpoint.label;
-            select.appendChild(option);
-        });
+        // Populate navbar dropdown
+        const dropdownSelect = document.getElementById('authEndpointDropdown');
+        if (dropdownSelect) {
+            dropdownSelect.innerHTML = '';
+            API.ENDPOINTS.forEach(endpoint => {
+                const option = document.createElement('option');
+                option.value = endpoint.value;
+                option.textContent = endpoint.label;
+                dropdownSelect.appendChild(option);
+            });
+        }
     }
 
-    // Load saved authentication config
+    // Load saved authentication config (supports both page and navbar dropdown)
     function loadSavedAuth() {
+        const savedEndpoint = API.getEndpoint();
+        const savedToken = API.getToken();
+
+        // Page elements
         const select = document.getElementById('authEndpointSelect');
         const tokenInput = document.getElementById('authApiToken');
 
         if (select) {
-            const savedEndpoint = API.getEndpoint();
             select.value = savedEndpoint;
         }
 
-        if (tokenInput) {
-            const savedToken = API.getToken();
-            if (savedToken) {
-                tokenInput.value = savedToken;
-            }
+        if (tokenInput && savedToken) {
+            tokenInput.value = savedToken;
+        }
+
+        // Navbar dropdown elements
+        const dropdownSelect = document.getElementById('authEndpointDropdown');
+        const dropdownTokenInput = document.getElementById('authApiTokenDropdown');
+
+        if (dropdownSelect) {
+            dropdownSelect.value = savedEndpoint;
+        }
+
+        if (dropdownTokenInput && savedToken) {
+            dropdownTokenInput.value = savedToken;
         }
 
         // Update auth status in navbar
         updateAuthStatus();
     }
 
-    // Setup event listeners
+    // Setup event listeners (supports both page and navbar dropdown)
     function setupEventListeners() {
+        // === Page elements ===
         // Endpoint change - load token for that endpoint
         const endpointSelect = document.getElementById('authEndpointSelect');
         if (endpointSelect) {
             endpointSelect.addEventListener('change', () => {
-                API.setEndpoint(endpointSelect.value);
-                const tokenInput = document.getElementById('authApiToken');
-                if (tokenInput) {
-                    tokenInput.value = API.getToken();
-                }
-                // Clear cache and re-validate for new endpoint
-                validationCache = { endpoint: null, token: null, result: null };
-                updateAuthStatus(true);
+                handleEndpointChange(endpointSelect.value, 'authApiToken', 'authEndpointDropdown', 'authApiTokenDropdown');
             });
         }
 
         // Save button
         const saveBtn = document.getElementById('saveAuthButton');
         if (saveBtn) {
-            saveBtn.addEventListener('click', saveAuth);
+            saveBtn.addEventListener('click', () => saveAuth('page'));
         }
 
         // Get token link
@@ -89,24 +108,89 @@ const AuthPage = (() => {
         const toggleBtn = document.getElementById('toggleTokenVisibility');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', () => {
-                const tokenInput = document.getElementById('authApiToken');
-                const icon = toggleBtn.querySelector('i');
-                if (tokenInput.type === 'password') {
-                    tokenInput.type = 'text';
-                    icon.classList.replace('bi-eye', 'bi-eye-slash');
-                } else {
-                    tokenInput.type = 'password';
-                    icon.classList.replace('bi-eye-slash', 'bi-eye');
-                }
+                toggleTokenVisibility('authApiToken', toggleBtn);
+            });
+        }
+
+        // === Navbar dropdown elements ===
+        // Endpoint change for dropdown
+        const dropdownEndpointSelect = document.getElementById('authEndpointDropdown');
+        if (dropdownEndpointSelect) {
+            dropdownEndpointSelect.addEventListener('change', () => {
+                handleEndpointChange(dropdownEndpointSelect.value, 'authApiTokenDropdown', 'authEndpointSelect', 'authApiToken');
+            });
+        }
+
+        // Save button for dropdown
+        const dropdownSaveBtn = document.getElementById('saveAuthDropdownButton');
+        if (dropdownSaveBtn) {
+            dropdownSaveBtn.addEventListener('click', () => saveAuth('dropdown'));
+        }
+
+        // Get token link for dropdown
+        const dropdownGetTokenBtn = document.getElementById('getTokenDropdownLink');
+        if (dropdownGetTokenBtn) {
+            dropdownGetTokenBtn.addEventListener('click', () => {
+                window.open(API.getTokenUrl(), '_blank');
+            });
+        }
+
+        // Toggle token visibility for dropdown
+        const dropdownToggleBtn = document.getElementById('toggleTokenVisibilityDropdown');
+        if (dropdownToggleBtn) {
+            dropdownToggleBtn.addEventListener('click', () => {
+                toggleTokenVisibility('authApiTokenDropdown', dropdownToggleBtn);
             });
         }
     }
 
-    // Save authentication
-    async function saveAuth() {
-        const endpointSelect = document.getElementById('authEndpointSelect');
-        const tokenInput = document.getElementById('authApiToken');
-        const saveBtn = document.getElementById('saveAuthButton');
+    // Handle endpoint change - sync both forms
+    function handleEndpointChange(newEndpoint, tokenInputId, otherEndpointId, otherTokenInputId) {
+        API.setEndpoint(newEndpoint);
+
+        // Update current token input
+        const tokenInput = document.getElementById(tokenInputId);
+        if (tokenInput) {
+            tokenInput.value = API.getToken() || '';
+        }
+
+        // Sync other form
+        const otherEndpoint = document.getElementById(otherEndpointId);
+        if (otherEndpoint) {
+            otherEndpoint.value = newEndpoint;
+        }
+
+        const otherTokenInput = document.getElementById(otherTokenInputId);
+        if (otherTokenInput) {
+            otherTokenInput.value = API.getToken() || '';
+        }
+
+        // Clear cache and re-validate for new endpoint
+        validationCache = { endpoint: null, token: null, result: null };
+        updateAuthStatus(true);
+    }
+
+    // Toggle token visibility
+    function toggleTokenVisibility(tokenInputId, toggleBtn) {
+        const tokenInput = document.getElementById(tokenInputId);
+        const icon = toggleBtn.querySelector('i');
+        if (tokenInput.type === 'password') {
+            tokenInput.type = 'text';
+            icon.classList.replace('bi-eye', 'bi-eye-slash');
+        } else {
+            tokenInput.type = 'password';
+            icon.classList.replace('bi-eye-slash', 'bi-eye');
+        }
+    }
+
+    // Save authentication (supports both page and dropdown modes)
+    async function saveAuth(mode = 'page') {
+        const isDropdown = mode === 'dropdown';
+
+        const endpointSelect = document.getElementById(isDropdown ? 'authEndpointDropdown' : 'authEndpointSelect');
+        const tokenInput = document.getElementById(isDropdown ? 'authApiTokenDropdown' : 'authApiToken');
+        const saveBtn = document.getElementById(isDropdown ? 'saveAuthDropdownButton' : 'saveAuthButton');
+        const messageId = isDropdown ? 'authDropdownMessage' : 'authMessage';
 
         if (!tokenInput || !endpointSelect) return;
 
@@ -114,13 +198,21 @@ const AuthPage = (() => {
         const endpoint = endpointSelect.value;
 
         if (!token) {
-            showMessage('Please enter an API token.', 'warning');
+            showMessage('Please enter an API token.', 'warning', messageId);
             return;
         }
 
         // Save endpoint and token
         API.setEndpoint(endpoint);
         API.setToken(token);
+
+        // Sync to other form
+        const otherEndpointId = isDropdown ? 'authEndpointSelect' : 'authEndpointDropdown';
+        const otherTokenId = isDropdown ? 'authApiToken' : 'authApiTokenDropdown';
+        const otherEndpoint = document.getElementById(otherEndpointId);
+        const otherToken = document.getElementById(otherTokenId);
+        if (otherEndpoint) otherEndpoint.value = endpoint;
+        if (otherToken) otherToken.value = token;
 
         // Show validating state
         if (saveBtn) {
@@ -146,7 +238,15 @@ const AuthPage = (() => {
 
             // Show success message with user info
             const userName = result.user?.name || result.user?.email || '';
-            showMessage(`Connected successfully${userName ? ` as ${userName}` : ''}!`, 'success');
+            showMessage(`Connected successfully${userName ? ` as ${userName}` : ''}!`, 'success', messageId);
+
+            // Close dropdown if in dropdown mode and redirect
+            if (isDropdown) {
+                const dropdown = bootstrap.Dropdown.getInstance(document.getElementById('authNavLink'));
+                if (dropdown) {
+                    setTimeout(() => dropdown.hide(), 800);
+                }
+            }
 
             // Redirect to instances page after a short delay
             setTimeout(() => {
@@ -158,21 +258,21 @@ const AuthPage = (() => {
 
             // Show error message
             if (result.reason === 'expired') {
-                showMessage('Token is invalid or expired. Please get a new token from Prismatic.', 'danger');
+                showMessage('Token is invalid or expired. Please get a new token from Prismatic.', 'danger', messageId);
             } else if (result.reason === 'network') {
-                showMessage('Network error. Please check your connection and try again.', 'danger');
+                showMessage('Network error. Please check your connection and try again.', 'danger', messageId);
             } else {
-                showMessage('Failed to validate token. Please try again.', 'danger');
+                showMessage('Failed to validate token. Please try again.', 'danger', messageId);
             }
         }
     }
 
-    // Show message
-    function showMessage(text, type) {
-        const messageDiv = document.getElementById('authMessage');
+    // Show message (supports both page and dropdown)
+    function showMessage(text, type, elementId = 'authMessage') {
+        const messageDiv = document.getElementById(elementId);
         if (!messageDiv) return;
 
-        messageDiv.className = `alert alert-${type} mt-3`;
+        messageDiv.className = `alert alert-${type} small`;
         messageDiv.textContent = text;
         messageDiv.classList.remove('d-none');
 
