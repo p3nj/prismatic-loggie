@@ -559,10 +559,20 @@ const InstancesPage = (() => {
         await loadExecutions(instanceId, true);
     }
 
+    // Count how many edges match the current flow filter
+    function countFilteredEdges(edges) {
+        if (!currentFilters.flowName) {
+            return edges.length;
+        }
+        return edges.filter(edge => edge.node?.flow?.name === currentFilters.flowName).length;
+    }
+
     // Load executions for an instance
-    async function loadExecutions(instanceId, reset = false) {
+    async function loadExecutions(instanceId, reset = false, autoFetchForFlowFilter = true) {
         const contentDiv = document.getElementById('executionsContent');
         const loadMoreDiv = document.getElementById('executionsLoadMore');
+        const MIN_FILTERED_RESULTS = 20; // Minimum results to show before stopping auto-fetch
+        const MAX_AUTO_FETCH_PAGES = 10; // Maximum pages to auto-fetch to prevent infinite loops
 
         if (reset) {
             executionsData = null;
@@ -595,6 +605,20 @@ const InstancesPage = (() => {
             } else {
                 executionsData.edges = [...executionsData.edges, ...data.edges];
                 executionsData.pageInfo = data.pageInfo;
+            }
+
+            // Auto-fetch more pages if flow filter is active and we have too few matching results
+            if (autoFetchForFlowFilter && currentFilters.flowName && executionsData.pageInfo.hasNextPage) {
+                const filteredCount = countFilteredEdges(executionsData.edges);
+                const pagesFetched = Math.ceil(executionsData.edges.length / 50);
+
+                if (filteredCount < MIN_FILTERED_RESULTS && pagesFetched < MAX_AUTO_FETCH_PAGES) {
+                    // Update loading message to show progress
+                    contentDiv.innerHTML = `<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading executions... (found ${filteredCount} matching "${currentFilters.flowName}")</div></div>`;
+
+                    // Recursively fetch more (without reset, and continue auto-fetch)
+                    return loadExecutions(instanceId, false, true);
+                }
             }
 
             renderExecutions(reset);
@@ -732,7 +756,8 @@ const InstancesPage = (() => {
     // Load more executions (pagination)
     function loadMoreExecutions() {
         if (selectedInstance) {
-            loadExecutions(selectedInstance.id, false);
+            // Pass false for autoFetchForFlowFilter to disable recursive auto-fetch on manual load more
+            loadExecutions(selectedInstance.id, false, false);
         }
     }
 
