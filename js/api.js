@@ -344,6 +344,9 @@ const API = (() => {
                     invokeType
                     allowUpdate
                     status
+                    flow {
+                        name
+                    }
                     lineage {
                         hasChildren
                         invokedBy {

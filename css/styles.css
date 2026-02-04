@@ -1057,15 +1057,73 @@ pre[class*="language-"] {
    ============================================ */
 
 .linked-executions {
-  padding: 0.5rem;
-  border-radius: 4px;
+  padding: 0.75rem;
+  border-radius: 6px;
   background-color: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 [data-theme="dark"] .linked-executions {
   background-color: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
+.linked-executions h5 {
+  font-size: 0.9rem;
+}
+
+.execution-chain-summary {
+  font-size: 0.75rem;
+}
+
+/* Flow group styling */
+.flow-group-header {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.flow-group-header:hover {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="dark"] .flow-group-header {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+[data-theme="dark"] .flow-group-header:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.flow-name {
+  font-size: 0.8rem;
+}
+
+/* Execution chip styling */
+.execution-chip {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 36px;
+  justify-content: center;
+}
+
+.execution-chip.current {
+  cursor: default;
+  font-weight: 600;
+}
+
+.execution-chip:not(.current):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.execution-chip i {
+  font-size: 0.65rem;
+}
+
+/* Legacy styles for backwards compatibility */
 .execution-chain {
   flex-wrap: wrap;
 }
@@ -1082,6 +1140,40 @@ pre[class*="language-"] {
 .execution-chain-item:not(.btn-primary):hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   Log Highlight Animation
+   ============================================ */
+
+.highlight-log {
+  animation: highlightPulse 2s ease-out;
+}
+
+@keyframes highlightPulse {
+  0% {
+    box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.5);
+    background-color: rgba(13, 110, 253, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(13, 110, 253, 0);
+    background-color: transparent;
+  }
+}
+
+[data-theme="dark"] .highlight-log {
+  animation: highlightPulseDark 2s ease-out;
+}
+
+@keyframes highlightPulseDark {
+  0% {
+    box-shadow: 0 0 0 4px rgba(99, 179, 237, 0.5);
+    background-color: rgba(99, 179, 237, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 179, 237, 0);
+    background-color: transparent;
+  }
 }
 
 /* ============================================
