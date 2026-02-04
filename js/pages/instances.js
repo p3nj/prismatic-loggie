@@ -5,11 +5,12 @@ const InstancesPage = (() => {
     let executionsData = null;
     let selectedInstance = null;
     let searchTimeout = null;
-    let allFlowNames = new Set(); // Track all unique flow names
+    let allFlows = new Map(); // Map of flow name -> flow id
     let currentFilters = {
         dateFrom: null,
         dateTo: null,
-        flowName: null,
+        flowId: null,
+        flowName: null, // Keep for display purposes
         status: null
     };
 
@@ -218,7 +219,9 @@ const InstancesPage = (() => {
 
         currentFilters.dateFrom = fromInput.value ? new Date(fromInput.value).toISOString() : null;
         currentFilters.dateTo = toInput.value ? new Date(toInput.value).toISOString() : null;
-        currentFilters.flowName = flowSelect.value || null;
+        // Flow select value is the flow ID, get name from selected option text
+        currentFilters.flowId = flowSelect.value || null;
+        currentFilters.flowName = flowSelect.selectedOptions[0]?.text !== 'All Flows' ? flowSelect.selectedOptions[0]?.text : null;
         currentFilters.status = statusSelect.value || null;
 
         // Update URL
@@ -261,6 +264,7 @@ const InstancesPage = (() => {
         currentFilters = {
             dateFrom: null,
             dateTo: null,
+            flowId: null,
             flowName: null,
             status: null
         };
@@ -281,7 +285,7 @@ const InstancesPage = (() => {
     function updateFilterStatus() {
         const filterStatus = document.getElementById('filterStatusBadge');
         const hasActiveFilters = currentFilters.dateFrom || currentFilters.dateTo ||
-                                  currentFilters.flowName || currentFilters.status;
+                                  currentFilters.flowId || currentFilters.status;
         if (hasActiveFilters) {
             filterStatus.classList.remove('d-none');
         } else {
@@ -339,41 +343,31 @@ const InstancesPage = (() => {
         if (shareBtn) shareBtn.classList.remove('d-none');
     }
 
-    // Populate flow dropdown from executions data
+    // Populate flow dropdown with flow IDs as values
     function populateFlowDropdown() {
         const flowSelect = document.getElementById('filterFlow');
         if (!flowSelect) return;
 
         // Get current selection before repopulating
-        const currentSelection = currentFilters.flowName || flowSelect.value;
+        const currentFlowId = currentFilters.flowId || flowSelect.value;
 
         // Clear and repopulate
         flowSelect.innerHTML = '<option value="">All Flows</option>';
 
-        // Sort flow names alphabetically
-        const sortedFlows = Array.from(allFlowNames).sort((a, b) => a.localeCompare(b));
+        // Sort flow names alphabetically and create options
+        const sortedFlows = Array.from(allFlows.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
-        sortedFlows.forEach(flowName => {
+        sortedFlows.forEach(([flowName, flowId]) => {
             const option = document.createElement('option');
-            option.value = flowName;
+            option.value = flowId;
             option.textContent = flowName;
             flowSelect.appendChild(option);
         });
 
         // Restore selection if it exists
-        if (currentSelection && allFlowNames.has(currentSelection)) {
-            flowSelect.value = currentSelection;
+        if (currentFlowId) {
+            flowSelect.value = currentFlowId;
         }
-    }
-
-    // Extract flow names from executions and add to the set
-    function extractFlowNames(edges) {
-        edges.forEach(edge => {
-            const flowName = edge.node.flow?.name;
-            if (flowName) {
-                allFlowNames.add(flowName);
-            }
-        });
     }
 
     // Load all available flows for the dropdown from instance flowConfigs
@@ -381,10 +375,10 @@ const InstancesPage = (() => {
         try {
             const instanceData = await API.fetchInstanceFlows(instanceId);
             if (instanceData && instanceData.flowConfigs && instanceData.flowConfigs.nodes) {
-                allFlowNames = new Set();
+                allFlows = new Map();
                 instanceData.flowConfigs.nodes.forEach(config => {
-                    if (config.flow && config.flow.name) {
-                        allFlowNames.add(config.flow.name);
+                    if (config.flow && config.flow.name && config.flow.id) {
+                        allFlows.set(config.flow.name, config.flow.id);
                     }
                 });
                 populateFlowDropdown();
@@ -492,8 +486,8 @@ const InstancesPage = (() => {
     async function selectInstance(instance, skipUrlUpdate = false) {
         selectedInstance = instance;
 
-        // Reset flow names when selecting a new instance
-        allFlowNames = new Set();
+        // Reset flows when selecting a new instance
+        allFlows = new Map();
 
         // Update visual selection
         document.querySelectorAll('.instance-item').forEach(item => {
@@ -535,8 +529,8 @@ const InstancesPage = (() => {
 
         selectedInstance = instance;
 
-        // Reset flow names
-        allFlowNames = new Set();
+        // Reset flows
+        allFlows = new Map();
 
         // Update header
         document.getElementById('selectedInstanceName').textContent = instance.name;
@@ -559,20 +553,10 @@ const InstancesPage = (() => {
         await loadExecutions(instanceId, true);
     }
 
-    // Count how many edges match the current flow filter
-    function countFilteredEdges(edges) {
-        if (!currentFilters.flowName) {
-            return edges.length;
-        }
-        return edges.filter(edge => edge.node?.flow?.name === currentFilters.flowName).length;
-    }
-
     // Load executions for an instance
-    async function loadExecutions(instanceId, reset = false, autoFetchForFlowFilter = true) {
+    async function loadExecutions(instanceId, reset = false) {
         const contentDiv = document.getElementById('executionsContent');
         const loadMoreDiv = document.getElementById('executionsLoadMore');
-        const MIN_FILTERED_RESULTS = 20; // Minimum results to show before stopping auto-fetch
-        const MAX_AUTO_FETCH_PAGES = 10; // Maximum pages to auto-fetch to prevent infinite loops
 
         if (reset) {
             executionsData = null;
@@ -580,7 +564,7 @@ const InstancesPage = (() => {
         }
 
         try {
-            const options = { first: 50 }; // Fetch more to get flow names
+            const options = { first: 50 };
             if (executionsData && executionsData.pageInfo.endCursor && !reset) {
                 options.after = executionsData.pageInfo.endCursor;
             }
@@ -596,29 +580,19 @@ const InstancesPage = (() => {
             if (currentFilters.status) {
                 options.status = currentFilters.status;
             }
-            // Note: Flow filtering is done client-side since API doesn't support it
+            // Add flow filter (server-side)
+            if (currentFilters.flowId) {
+                options.flowId = currentFilters.flowId;
+            }
 
             const data = await API.fetchExecutionsByInstance(instanceId, options);
 
             if (reset) {
                 executionsData = data;
             } else {
-                executionsData.edges = [...executionsData.edges, ...data.edges];
+                // API now returns nodes instead of edges
+                executionsData.nodes = [...executionsData.nodes, ...data.nodes];
                 executionsData.pageInfo = data.pageInfo;
-            }
-
-            // Auto-fetch more pages if flow filter is active and we have too few matching results
-            if (autoFetchForFlowFilter && currentFilters.flowName && executionsData.pageInfo.hasNextPage) {
-                const filteredCount = countFilteredEdges(executionsData.edges);
-                const pagesFetched = Math.ceil(executionsData.edges.length / 50);
-
-                if (filteredCount < MIN_FILTERED_RESULTS && pagesFetched < MAX_AUTO_FETCH_PAGES) {
-                    // Update loading message to show progress
-                    contentDiv.innerHTML = `<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading executions... (found ${filteredCount} matching "${currentFilters.flowName}")</div></div>`;
-
-                    // Recursively fetch more (without reset, and continue auto-fetch)
-                    return loadExecutions(instanceId, false, true);
-                }
             }
 
             renderExecutions(reset);
@@ -653,12 +627,12 @@ const InstancesPage = (() => {
         return parts.length > 0 ? ` (${parts.join(', ')})` : '';
     }
 
-    // Render executions table (with client-side flow filtering)
+    // Render executions table
     function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
 
         // Defensive check for executionsData
-        if (!executionsData || !executionsData.edges) {
+        if (!executionsData || !executionsData.nodes) {
             contentDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 mb-3 d-block"></i>
@@ -668,17 +642,11 @@ const InstancesPage = (() => {
             return;
         }
 
-        // Apply client-side flow filter
-        let filteredEdges = executionsData.edges;
-        if (currentFilters.flowName) {
-            filteredEdges = executionsData.edges.filter(edge =>
-                edge.node?.flow?.name === currentFilters.flowName
-            );
-        }
+        const executions = executionsData.nodes;
 
-        if (filteredEdges.length === 0) {
+        if (executions.length === 0) {
             const filterActive = currentFilters.dateFrom || currentFilters.dateTo ||
-                                  currentFilters.flowName || currentFilters.status;
+                                  currentFilters.flowId || currentFilters.status;
             contentDiv.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-inbox display-4 mb-3 d-block"></i>
@@ -703,9 +671,8 @@ const InstancesPage = (() => {
                     <tbody>
         `;
 
-        filteredEdges.forEach(edge => {
-            const exec = edge.node;
-            if (!exec) return; // Skip invalid edges
+        executions.forEach(exec => {
+            if (!exec) return; // Skip invalid entries
             const statusBadge = getStatusBadge(exec.status);
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
 
@@ -729,7 +696,7 @@ const InstancesPage = (() => {
                 </table>
             </div>
             <div class="text-muted small">
-                Showing: ${filteredEdges.length} executions${getFilterSummary()}
+                Showing: ${executions.length} executions${getFilterSummary()}
                 ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
             </div>
         `;
@@ -756,8 +723,7 @@ const InstancesPage = (() => {
     // Load more executions (pagination)
     function loadMoreExecutions() {
         if (selectedInstance) {
-            // Pass false for autoFetchForFlowFilter to disable recursive auto-fetch on manual load more
-            loadExecutions(selectedInstance.id, false, false);
+            loadExecutions(selectedInstance.id, false);
         }
     }
 
@@ -812,8 +778,8 @@ const InstancesPage = (() => {
         init();
 
         // Reset filters on new route
-        currentFilters = { dateFrom: null, dateTo: null, flowName: null, status: null };
-        allFlowNames = new Set();
+        currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null };
+        allFlows = new Map();
 
         // Parse URL parameters
         const urlParams = parseUrlParams();
