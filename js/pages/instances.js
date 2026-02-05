@@ -588,7 +588,8 @@ const InstancesPage = (() => {
         }
 
         // Find initial chain roots from current executions
-        // Only fetch for parents that are OUTSIDE our current results (outside date filter)
+        // Only fetch for executions that have parent outside results AND have children
+        // (they're mid-chain nodes that need the chain completed)
         let pendingRoots = new Map();
         for (const exec of executions) {
             if (!exec) continue;
@@ -596,13 +597,13 @@ const InstancesPage = (() => {
             const parentRef = exec.lineage?.invokedBy?.execution;
             const hasChildren = exec.lineage?.hasChildren;
 
-            if (parentRef?.id && parentRef?.startedAt) {
-                // Has parent - only add if parent is NOT already in our results
+            if (parentRef?.id && parentRef?.startedAt && hasChildren) {
+                // Has parent outside results AND has children - mid-chain node needing completion
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
                 }
-            } else if (hasChildren) {
-                // Is a root with children - fetch descendants that might be outside date filter
+            } else if (hasChildren && !parentRef) {
+                // True root with children - fetch descendants that might be outside date filter
                 if (!processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
                     pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
@@ -632,9 +633,11 @@ const InstancesPage = (() => {
                     for (const exec of chainExecutions) {
                         allExecutions.set(exec.id, exec);
 
-                        // Check if this fetched execution has a parent we haven't processed
+                        // Check if this fetched execution needs back-fetch:
+                        // Has parent outside results AND has children (mid-chain node)
                         const parentRef = exec.lineage?.invokedBy?.execution;
-                        if (parentRef?.id && parentRef?.startedAt &&
+                        const hasChildren = exec.lineage?.hasChildren;
+                        if (parentRef?.id && parentRef?.startedAt && hasChildren &&
                             !processedRoots.has(parentRef.id) &&
                             !allExecutions.has(parentRef.id)) {
                             // Parent is outside our results - need to back-fetch
