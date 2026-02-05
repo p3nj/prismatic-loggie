@@ -1489,6 +1489,20 @@ pre[class*="language-"] {
 
 #yamlEditorContainer {
   background-color: var(--card-background);
+  height: calc(100vh - 180px) !important;
+  min-height: 400px;
+}
+
+/* Make the editor panel card fill available height */
+#yamlEditorPanel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+}
+
+#yamlEditorPanel .card-body {
+  flex: 1;
+  overflow: hidden;
 }
 
 /* Toast container */
