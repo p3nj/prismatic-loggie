@@ -578,9 +578,22 @@ const InstancesPage = (() => {
     // Uses server-side flowId filter to only get same-flow recursive calls (excludes cross-flow)
     // Back-fetches until true root is found (handles parents outside date filter)
     // onProgress callback for live UI updates: (executions, remaining, fetched) => void
-    async function fetchCompleteChains(executions, targetFlowId, onProgress) {
+    // alreadyLoadedNodes: optional array of nodes already loaded (from previous batches) to avoid redundant fetches
+    async function fetchCompleteChains(executions, targetFlowId, onProgress, alreadyLoadedNodes = []) {
         const allExecutions = new Map(); // Final map of all executions
         const processedRoots = new Set(); // Track which roots we've already fetched
+
+        // Add already-loaded nodes to map first (these are from previous Load More batches)
+        // Also mark their IDs as processed to avoid redundant fetches
+        for (const exec of alreadyLoadedNodes) {
+            if (exec) {
+                allExecutions.set(exec.id, exec);
+                // If this was a root with children, mark it as already processed
+                if (exec.lineage?.hasChildren && !exec.lineage?.invokedBy?.execution) {
+                    processedRoots.add(exec.id);
+                }
+            }
+        }
 
         // Add initial executions to map
         for (const exec of executions) {
@@ -599,11 +612,13 @@ const InstancesPage = (() => {
 
             if (parentRef?.id && parentRef?.startedAt && hasChildren) {
                 // Has parent outside results AND has children - mid-chain node needing completion
+                // Skip if parent is already in allExecutions (from previous batches or current batch)
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
                 }
             } else if (hasChildren && !parentRef) {
                 // True root with children - fetch descendants that might be outside date filter
+                // Skip if already processed (from previous Load More batches)
                 if (!processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
                     pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
@@ -611,7 +626,8 @@ const InstancesPage = (() => {
         }
 
         if (pendingRoots.size === 0) {
-            return executions; // No chains to fetch
+            // No chains to fetch - return all executions (including already-loaded)
+            return Array.from(allExecutions.values());
         }
 
         let fetchedCount = 0;
@@ -704,13 +720,9 @@ const InstancesPage = (() => {
                 const existingNodes = (!reset && executionsData?.nodes) ? [...executionsData.nodes] : [];
 
                 // Live update callback - render progressively as chains are fetched
-                const onProgress = (newChainNodes, remaining, fetched) => {
-                    // Combine existing nodes with newly fetched chain nodes (dedupe by id)
-                    const nodeMap = new Map();
-                    existingNodes.forEach(n => nodeMap.set(n.id, n));
-                    newChainNodes.forEach(n => nodeMap.set(n.id, n));
-
-                    executionsData = { ...data, nodes: Array.from(nodeMap.values()) };
+                // allNodes already includes existingNodes + new batch + chain-fetched nodes
+                const onProgress = (allNodes, remaining, fetched) => {
+                    executionsData = { ...data, nodes: allNodes };
                     renderExecutions(true);
 
                     // Show progress indicator
@@ -725,13 +737,9 @@ const InstancesPage = (() => {
                     }
                 };
 
-                const chainFetchedNodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress);
-
-                // Final result: combine existing + chain-fetched nodes (dedupe by id)
-                const nodeMap = new Map();
-                existingNodes.forEach(n => nodeMap.set(n.id, n));
-                chainFetchedNodes.forEach(n => nodeMap.set(n.id, n));
-                data.nodes = Array.from(nodeMap.values());
+                // Pass existingNodes to avoid redundant API calls for already-loaded chains
+                // fetchCompleteChains returns all nodes (existing + new + chain-fetched)
+                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress, existingNodes);
             }
 
             if (reset) {
