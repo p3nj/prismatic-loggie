@@ -613,7 +613,7 @@ const API = (() => {
         }
     `;
 
-    // GraphQL query for instance daily usage metrics
+    // GraphQL query for instance daily usage metrics (with instance filter)
     const instanceDailyUsageMetricsQuery = `
         query GetInstanceDailyUsageMetrics($first: Int, $after: String, $instanceId: ID, $snapshotDateGte: Date, $snapshotDateLte: Date) {
             instanceDailyUsageMetrics(
@@ -640,6 +640,45 @@ const API = (() => {
                         id
                         name
                         customer {
+                            id
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for ALL instances daily usage metrics (no instance filter - for aggregation)
+    const allInstancesDailyUsageMetricsQuery = `
+        query GetAllInstancesDailyUsageMetrics($first: Int, $after: String, $snapshotDateGte: Date, $snapshotDateLte: Date) {
+            instanceDailyUsageMetrics(
+                first: $first,
+                after: $after,
+                snapshotDate_Gte: $snapshotDateGte,
+                snapshotDate_Lte: $snapshotDateLte,
+                sortBy: [{field: SNAPSHOT_DATE, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    snapshotDate
+                    successfulExecutionCount
+                    failedExecutionCount
+                    stepCount
+                    spendMbSecs
+                    instance {
+                        id
+                        name
+                        customer {
+                            id
+                            name
+                        }
+                        integration {
                             id
                             name
                         }
@@ -1147,7 +1186,7 @@ const API = (() => {
         return data.instanceDailyUsageMetrics;
     }
 
-    // Fetch all instance daily usage metrics with pagination
+    // Fetch all instance daily usage metrics with pagination (for specific instance)
     async function* fetchAllInstanceDailyUsageMetrics(options = {}) {
         const { batchSize = 100, instanceId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
         let allMetrics = [];
@@ -1173,6 +1212,55 @@ const API = (() => {
                 metrics: allMetrics,
                 loadedCount: allMetrics.length,
                 totalCount: metricsData.totalCount,
+                isComplete: !hasMore
+            };
+        }
+
+        return allMetrics;
+    }
+
+    // Fetch ALL instances' daily usage metrics (no instance filter - for top performers aggregation)
+    async function fetchAllInstancesDailyUsageMetrics(options = {}) {
+        const { first = 500, after = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        console.log('Fetching all instances daily usage metrics');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (snapshotDateGte) variables.snapshotDateGte = snapshotDateGte;
+        if (snapshotDateLte) variables.snapshotDateLte = snapshotDateLte;
+
+        const data = await graphqlRequest(allInstancesDailyUsageMetricsQuery, variables);
+        return data.instanceDailyUsageMetrics;
+    }
+
+    // Generator to fetch ALL instances' daily metrics with full pagination
+    async function* fetchAllInstancesDailyUsageMetricsFull(options = {}) {
+        const { batchSize = 500, snapshotDateGte = null, snapshotDateLte = null } = options;
+        let allMetrics = [];
+        let cursor = null;
+        let hasMore = true;
+        let totalCount = 0;
+
+        while (hasMore) {
+            const metricsData = await fetchAllInstancesDailyUsageMetrics({
+                first: batchSize,
+                after: cursor,
+                snapshotDateGte,
+                snapshotDateLte
+            });
+
+            if (!metricsData || !metricsData.nodes) break;
+
+            totalCount = metricsData.totalCount || totalCount;
+            allMetrics = allMetrics.concat(metricsData.nodes);
+            hasMore = metricsData.pageInfo?.hasNextPage || false;
+            cursor = metricsData.pageInfo?.endCursor || null;
+
+            yield {
+                metrics: allMetrics,
+                loadedCount: allMetrics.length,
+                totalCount: totalCount,
+                hasMore: hasMore,
                 isComplete: !hasMore
             };
         }
@@ -1276,6 +1364,8 @@ const API = (() => {
         fetchInstancesByCustomer,
         fetchInstanceDailyUsageMetrics,
         fetchAllInstanceDailyUsageMetrics,
+        fetchAllInstancesDailyUsageMetrics,
+        fetchAllInstancesDailyUsageMetricsFull,
         fetchRecentExecutionsAnalysis,
         // Legacy methods for backward compatibility
         loadSavedConfig,

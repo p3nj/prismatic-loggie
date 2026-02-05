@@ -697,7 +697,10 @@
                             <div class="col-md-6">
                                 <div class="card h-100">
                                     <div class="card-header d-flex justify-content-between align-items-center">
-                                        <h6 class="mb-0"><i class="bi bi-trophy me-2"></i>Top by Volume</h6>
+                                        <h6 class="mb-0">
+                                            <i class="bi bi-trophy me-2"></i>Top by Volume
+                                            <span id="instanceMetricsLoading" class="d-none ms-2"></span>
+                                        </h6>
                                         <select class="form-select form-select-sm" id="topVolumeMetric" style="width: auto;">
                                             <option value="customers">Customers</option>
                                             <option value="instances">Instances</option>
@@ -737,7 +740,7 @@
                                 <span class="badge bg-primary" id="recentExecutionsCount">0</span>
                             </div>
                             <div class="card-body p-0">
-                                <div id="recentExecutionsList" class="recent-executions-list" style="max-height: 300px; overflow-y: auto;">
+                                <div id="recentExecutionsList" class="recent-executions-list" style="max-height: 500px; overflow-y: auto;">
                                     <div class="text-center text-muted py-4">
                                         <i class="bi bi-clock-history display-6 mb-2 d-block"></i>
                                         <small>Recent executions will appear here</small>
