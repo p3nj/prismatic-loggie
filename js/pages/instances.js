@@ -699,9 +699,18 @@ const InstancesPage = (() => {
             // When flow filter is active, fetch complete chains to include executions outside date range
             // Uses server-side flowId filter to exclude cross-flow calls
             if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
+                // For Load More (reset=false), preserve existing nodes before chain fetching
+                // This prevents the old batch from being lost during onProgress updates
+                const existingNodes = (!reset && executionsData?.nodes) ? [...executionsData.nodes] : [];
+
                 // Live update callback - render progressively as chains are fetched
-                const onProgress = (executions, remaining, fetched) => {
-                    executionsData = { ...data, nodes: executions };
+                const onProgress = (newChainNodes, remaining, fetched) => {
+                    // Combine existing nodes with newly fetched chain nodes (dedupe by id)
+                    const nodeMap = new Map();
+                    existingNodes.forEach(n => nodeMap.set(n.id, n));
+                    newChainNodes.forEach(n => nodeMap.set(n.id, n));
+
+                    executionsData = { ...data, nodes: Array.from(nodeMap.values()) };
                     renderExecutions(true);
 
                     // Show progress indicator
@@ -716,14 +725,25 @@ const InstancesPage = (() => {
                     }
                 };
 
-                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress);
+                const chainFetchedNodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress);
+
+                // Final result: combine existing + chain-fetched nodes (dedupe by id)
+                const nodeMap = new Map();
+                existingNodes.forEach(n => nodeMap.set(n.id, n));
+                chainFetchedNodes.forEach(n => nodeMap.set(n.id, n));
+                data.nodes = Array.from(nodeMap.values());
             }
 
             if (reset) {
                 executionsData = data;
             } else {
-                // API now returns nodes instead of edges
-                executionsData.nodes = [...executionsData.nodes, ...data.nodes];
+                // For flow filter: data already contains combined old + new (deduped above)
+                // For non-flow filter: need to append normally
+                if (currentFilters.flowId) {
+                    executionsData = data;
+                } else {
+                    executionsData.nodes = [...executionsData.nodes, ...data.nodes];
+                }
                 executionsData.pageInfo = data.pageInfo;
             }
 
