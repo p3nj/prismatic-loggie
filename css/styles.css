@@ -1432,3 +1432,108 @@ pre[class*="language-"] {
 .instance-item[title] {
   position: relative;
 }
+
+/* ============================================
+   Integrations Page Styles
+   ============================================ */
+
+.integrations-list {
+  overflow-y: auto;
+  max-height: calc(100vh - 250px);
+  flex: 1;
+}
+
+.integration-item {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.integration-item:hover {
+  background-color: rgba(13, 110, 253, 0.1);
+}
+
+.integration-item.active {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+}
+
+.integration-item.active .text-muted {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.integration-item.active .badge {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+}
+
+/* Dark theme for integrations */
+[data-theme="dark"] .integration-item:hover {
+  background-color: rgba(61, 139, 253, 0.2);
+}
+
+/* YAML Editor Panel */
+#yamlEditorPanel .card-header {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#yamlEditorPanel .card-header > div {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#versionSelect {
+  min-width: 250px;
+  max-width: 400px;
+}
+
+#yamlEditorContainer {
+  background-color: var(--card-background);
+}
+
+/* Toast container */
+.toast-container {
+  z-index: 1100;
+}
+
+/* Responsive adjustments for integrations page */
+@media (max-width: 991.98px) {
+  #page-integrations .sticky-sidebar {
+    position: static;
+    max-height: none;
+    margin-bottom: 1.5rem;
+  }
+
+  .integrations-list {
+    max-height: 300px;
+  }
+
+  #yamlEditorContainer {
+    height: 50vh !important;
+    min-height: 300px !important;
+  }
+
+  #versionSelect {
+    min-width: 150px;
+    width: 100%;
+  }
+
+  #yamlEditorPanel .card-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+
+  #yamlEditorPanel .card-header > div {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  #yamlEditorPanel .btn-group {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  #yamlEditorPanel .btn-group .btn {
+    flex: 1;
+  }
+}

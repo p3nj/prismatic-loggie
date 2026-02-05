@@ -33,6 +33,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#integrations">
+                            <i class="bi bi-diagram-3 me-1"></i>Integrations
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#execution">
                             <i class="bi bi-play-circle me-1"></i>Execution
                         </a>
@@ -253,6 +258,78 @@
             </div>
         </div>
 
+        <!-- Integrations Page -->
+        <div id="page-integrations" class="page-container d-none">
+            <div class="container-fluid py-4">
+                <div class="row">
+                    <!-- Integrations List Column -->
+                    <div class="col-lg-4 col-xl-3">
+                        <div class="card sticky-sidebar">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Integrations</h5>
+                                <button class="btn btn-sm btn-outline-primary" id="refreshIntegrationsBtn" title="Refresh">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="p-3 border-bottom">
+                                    <input type="text" class="form-control form-control-sm" id="integrationSearchInput" placeholder="Search integrations...">
+                                </div>
+                                <div id="integrationsList" class="integrations-list">
+                                    <!-- Integrations populated by JS -->
+                                </div>
+                                <div id="integrationsLoadMore" class="p-3 text-center d-none">
+                                    <button class="btn btn-sm btn-outline-primary" id="loadMoreIntegrationsBtn">
+                                        Load More
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- YAML Editor Column -->
+                    <div class="col-lg-8 col-xl-9">
+                        <div id="yamlEditorPanel" class="card d-none">
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+                                <div class="d-flex align-items-center">
+                                    <h5 class="mb-0 me-3">
+                                        <i class="bi bi-file-code me-2"></i>
+                                        <span id="selectedIntegrationName">Select an Integration</span>
+                                    </h5>
+                                    <select class="form-select form-select-sm" id="versionSelect" style="width: auto; min-width: 200px;">
+                                        <option value="">Select version...</option>
+                                    </select>
+                                </div>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-outline-success" id="exportYamlBtn" disabled title="Download YAML">
+                                        <i class="bi bi-download me-1"></i>Export
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" id="importYamlBtn" disabled title="Import YAML file">
+                                        <i class="bi bi-upload me-1"></i>Import
+                                    </button>
+                                    <input type="file" id="importYamlFile" accept=".yaml,.yml" class="d-none">
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="yamlEditorContainer" style="height: 70vh; min-height: 400px;">
+                                    <!-- Monaco editor will be created here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div id="yamlEditorPlaceholder" class="card">
+                            <div class="card-body">
+                                <div class="text-center text-muted py-5">
+                                    <i class="bi bi-arrow-left-circle display-4 mb-3 d-block"></i>
+                                    <p>Select an integration from the list to view its YAML definition</p>
+                                    <small>You can switch between versions and export/import YAML files</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Execution Page (Original functionality) -->
         <div id="page-execution" class="page-container d-none">
             <div class="container-fluid py-4">
@@ -292,6 +369,7 @@
     <script src="js/ui.js"></script>
     <script src="js/pages/auth.js"></script>
     <script src="js/pages/instances.js"></script>
+    <script src="js/pages/integrations.js"></script>
     <script src="js/pages/execution.js"></script>
     <script src="js/app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.36.1/min/vs/loader.js"></script>

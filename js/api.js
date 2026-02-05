@@ -360,6 +360,106 @@ const API = (() => {
         }
     `;
 
+    // GraphQL query for integrations list (low-code integrations only)
+    const integrationsQuery = `
+        query GetIntegrations($first: Int, $after: String, $searchTerm: String) {
+            integrations(
+                first: $first,
+                after: $after,
+                name_Icontains: $searchTerm,
+                sortBy: [{field: NAME, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    hasPreviousPage
+                    startCursor
+                    endCursor
+                }
+                nodes {
+                    id
+                    name
+                    description
+                    versionNumber
+                    versionIsLatest
+                    versionCreatedAt
+                    versionComment
+                    category
+                    labels
+                    customer {
+                        id
+                        name
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for integration with versions
+    const integrationWithVersionsQuery = `
+        query GetIntegrationWithVersions($id: ID!) {
+            integration(id: $id) {
+                id
+                name
+                description
+                definition
+                versionNumber
+                versionIsLatest
+                versionCreatedAt
+                versionComment
+                category
+                labels
+                customer {
+                    id
+                    name
+                }
+                versions {
+                    nodes {
+                        id
+                        versionNumber
+                        versionComment
+                        versionCreatedAt
+                        versionIsAvailable
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for specific integration version definition
+    const integrationVersionDefinitionQuery = `
+        query GetIntegrationVersionDefinition($id: ID!) {
+            integration(id: $id) {
+                id
+                name
+                versionNumber
+                versionComment
+                versionCreatedAt
+                definition
+            }
+        }
+    `;
+
+    // GraphQL mutation for importing integration
+    const importIntegrationMutation = `
+        mutation ImportIntegration($integrationId: ID, $definition: String!) {
+            importIntegration(input: {
+                integrationId: $integrationId,
+                definition: $definition
+            }) {
+                integration {
+                    id
+                    name
+                    versionNumber
+                }
+                errors {
+                    field
+                    messages
+                }
+            }
+        }
+    `;
+
     // Generic GraphQL request helper (with rate limiting)
     async function graphqlRequest(query, variables = {}, useRateLimiter = true) {
         const token = getToken();
@@ -635,6 +735,54 @@ const API = (() => {
         return data.executionResults?.nodes || [];
     }
 
+    // Fetch integrations list with pagination
+    async function fetchIntegrations(options = {}) {
+        const { first = 20, after = null, searchTerm = null } = options;
+        console.log('Fetching integrations list');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (searchTerm) variables.searchTerm = searchTerm;
+
+        const data = await graphqlRequest(integrationsQuery, variables);
+        return data.integrations;
+    }
+
+    // Fetch integration with all versions
+    async function fetchIntegrationWithVersions(integrationId) {
+        console.log(`Fetching integration with versions: ${integrationId}`);
+        const data = await graphqlRequest(integrationWithVersionsQuery, { id: integrationId });
+        return data.integration;
+    }
+
+    // Fetch specific version's definition
+    async function fetchIntegrationVersionDefinition(versionId) {
+        console.log(`Fetching integration version definition: ${versionId}`);
+        const data = await graphqlRequest(integrationVersionDefinitionQuery, { id: versionId });
+        return data.integration;
+    }
+
+    // Import integration from YAML definition
+    async function importIntegration(definition, integrationId = null) {
+        console.log(`Importing integration${integrationId ? ` (updating ${integrationId})` : ' (new)'}`);
+
+        const variables = { definition };
+        if (integrationId) {
+            variables.integrationId = integrationId;
+        }
+
+        const data = await graphqlRequest(importIntegrationMutation, variables);
+
+        if (data.importIntegration.errors && data.importIntegration.errors.length > 0) {
+            const errorMessages = data.importIntegration.errors
+                .map(e => e.messages.join(', '))
+                .join('; ');
+            throw new Error(`Failed to import integration: ${errorMessages}`);
+        }
+
+        return data.importIntegration.integration;
+    }
+
     // Legacy support - update config from DOM elements (for backward compatibility)
     function updateConfig() {
         const endpointSelect = document.getElementById('endpointSelect');
@@ -701,6 +849,11 @@ const API = (() => {
         fetchExecutionsByInstance,
         fetchExecutions,
         replayExecution,
+        // Integration methods
+        fetchIntegrations,
+        fetchIntegrationWithVersions,
+        fetchIntegrationVersionDefinition,
+        importIntegration,
         // Legacy methods for backward compatibility
         loadSavedConfig,
         updateConfig
