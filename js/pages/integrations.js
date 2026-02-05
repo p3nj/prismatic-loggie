@@ -333,10 +333,9 @@ const IntegrationsPage = (() => {
 
         select.innerHTML = versions.map(v => {
             const isCurrent = v.versionNumber === integration.versionNumber;
-            const date = v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '';
-            const comment = v.comment ? ` - ${v.comment}` : '';
+            const availableTag = v.isAvailable ? '' : ' [Unavailable]';
             return `<option value="${v.id}" ${isCurrent ? 'selected' : ''}>
-                v${v.versionNumber} (${date})${comment}${isCurrent ? ' [Current]' : ''}
+                v${v.versionNumber}${isCurrent ? ' [Current]' : ''}${availableTag}
             </option>`;
         }).join('');
 
