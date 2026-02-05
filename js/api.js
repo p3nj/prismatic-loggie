@@ -429,7 +429,6 @@ const API = (() => {
                 versionComment
                 versionSequenceId
                 createdAt
-                updatedAt
                 hasUnpublishedChanges
                 category
                 labels
