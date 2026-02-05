@@ -75,17 +75,17 @@ const IntegrationsPage = (() => {
         const versionSelect = document.getElementById('versionSelect');
         if (versionSelect) {
             versionSelect.addEventListener('change', (e) => {
-                const versionId = e.target.value;
-                if (versionId && selectedIntegration) {
-                    // Check if this is the current version (uses integration ID)
-                    if (versionId === selectedIntegration.id) {
+                const versionNumber = parseInt(e.target.value, 10);
+                if (versionNumber && selectedIntegration) {
+                    // Check if this is the current version
+                    if (versionNumber === selectedIntegration.versionNumber) {
                         // Current version - we already have the definition
                         if (selectedIntegration.definition) {
                             showYamlInEditor(selectedIntegration.definition);
                         }
                     } else {
-                        // Historical version - need to fetch
-                        loadVersionDefinition(versionId);
+                        // Historical version - need to fetch using versionSequenceId and versionNumber
+                        loadVersionDefinition(selectedIntegration.versionSequenceId, versionNumber);
                     }
                 }
             });
@@ -374,7 +374,6 @@ const IntegrationsPage = (() => {
         // If current version is not in the list, add it (it might be a draft/unpublished version)
         if (!currentVersionInList && integration.versionNumber) {
             versions.unshift({
-                id: integration.id, // Use integration ID for current version
                 versionNumber: integration.versionNumber,
                 isAvailable: true,
                 isCurrent: true
@@ -387,7 +386,7 @@ const IntegrationsPage = (() => {
         select.innerHTML = versions.map(v => {
             const isCurrent = v.versionNumber === integration.versionNumber;
             const availableTag = v.isAvailable === false ? ' [Unavailable]' : '';
-            return `<option value="${v.id}" ${isCurrent ? 'selected' : ''}>
+            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''}>
                 v${v.versionNumber}${isCurrent ? ' [Current]' : ''}${availableTag}
             </option>`;
         }).join('');
@@ -397,14 +396,14 @@ const IntegrationsPage = (() => {
     }
 
     // Load specific version definition
-    async function loadVersionDefinition(versionId) {
+    async function loadVersionDefinition(versionSequenceId, versionNumber) {
         showEditorLoading();
 
         try {
-            const version = await API.fetchIntegrationVersionDefinition(versionId);
+            const version = await API.fetchIntegrationVersionDefinition(versionSequenceId, versionNumber);
             selectedVersion = version;
 
-            if (version.definition) {
+            if (version && version.definition) {
                 showYamlInEditor(version.definition);
             } else {
                 showYamlInEditor('# No definition available for this version');
@@ -418,8 +417,8 @@ const IntegrationsPage = (() => {
                     <div class="d-flex justify-content-center align-items-center h-100 text-muted">
                         <div class="text-center p-4">
                             <i class="bi bi-clock-history display-4 mb-3 d-block"></i>
-                            <p class="mb-2">Historical version definitions are not directly accessible via API.</p>
-                            <p class="small">To view this version's definition, please use the Prismatic web interface or CLI.</p>
+                            <p class="mb-2">Error loading version definition.</p>
+                            <p class="small">${escapeHtml(error.message)}</p>
                             <p class="small text-muted mt-3">Select the current version to view its definition here.</p>
                         </div>
                     </div>
