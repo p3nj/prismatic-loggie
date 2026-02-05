@@ -11,6 +11,7 @@ const IntegrationsPage = (() => {
     let hasUnsavedChanges = false;
     let isCurrentVersionUnpublished = false;
     let yamlValidationTimeout = null;
+    let isEditModeEnabled = false; // Track if edit mode is explicitly enabled
 
     // Get current theme
     function getCurrentTheme() {
@@ -110,6 +111,12 @@ const IntegrationsPage = (() => {
         if (versionSwapBtn) {
             versionSwapBtn.addEventListener('click', showVersionSwapConfirmation);
         }
+
+        // Edit Mode toggle button
+        const editModeBtn = document.getElementById('enableEditModeBtn');
+        if (editModeBtn) {
+            editModeBtn.addEventListener('click', toggleEditMode);
+        }
     }
 
     // Handle version change
@@ -118,6 +125,10 @@ const IntegrationsPage = (() => {
         const selectedOption = e.target.selectedOptions[0];
         const isUnpublished = selectedOption?.dataset.unpublished === 'true';
         const comment = selectedOption?.dataset.comment || '';
+
+        // Reset edit mode when switching versions
+        isEditModeEnabled = false;
+        updateEditModeUI(false);
 
         // Update version comment display
         updateVersionComment(comment);
@@ -129,12 +140,16 @@ const IntegrationsPage = (() => {
             // Update Version Swap button visibility
             updateVersionSwapButton(isHistoricalVersion);
 
+            // Update Edit Mode button visibility (only for unpublished versions)
+            updateEditModeButton(isUnpublished && !isHistoricalVersion);
+
             if (!isHistoricalVersion) {
                 // Current version - we already have the definition
                 isCurrentVersionUnpublished = isUnpublished;
                 if (selectedIntegration.definition) {
+                    // Always start in read-only mode, user must enable edit mode explicitly
                     showYamlInEditor(selectedIntegration.definition, {
-                        readOnly: !isUnpublished
+                        readOnly: true
                     });
                 }
             } else {
@@ -157,6 +172,135 @@ const IntegrationsPage = (() => {
             versionSwapBtn.classList.add('d-none');
             versionSwapBtn.disabled = true;
         }
+    }
+
+    // Toggle edit mode on/off
+    function toggleEditMode() {
+        if (!isCurrentVersionUnpublished) {
+            showToast('Edit mode is only available for unpublished versions', 'error');
+            return;
+        }
+
+        if (isEditModeEnabled) {
+            // Turning off edit mode - check for unsaved changes
+            if (hasUnsavedChanges) {
+                if (!confirm('You have unsaved changes. Are you sure you want to exit edit mode? Your changes will be lost.')) {
+                    return;
+                }
+            }
+            disableEditMode();
+        } else {
+            enableEditMode();
+        }
+    }
+
+    // Enable edit mode
+    function enableEditMode() {
+        if (!yamlEditor || !isCurrentVersionUnpublished) return;
+
+        isEditModeEnabled = true;
+
+        // Update Monaco editor to be editable
+        yamlEditor.updateOptions({ readOnly: false });
+
+        // Update UI
+        updateEditModeUI(true);
+        updateEditorModeBadges(false);
+
+        // Setup change detection
+        yamlEditor.onDidChangeModelContent(() => {
+            const currentContent = yamlEditor.getValue();
+            const changed = currentContent !== originalYamlContent;
+            updateUnsavedChangesState(changed);
+
+            // Debounced YAML validation
+            clearTimeout(yamlValidationTimeout);
+            yamlValidationTimeout = setTimeout(() => {
+                validateYaml(currentContent);
+            }, 500);
+        });
+
+        // Show save button and validation
+        showSaveButton();
+        showYamlValidation();
+        validateYaml(yamlEditor.getValue());
+
+        showToast('Edit mode enabled. Be careful with your changes!', 'info');
+    }
+
+    // Disable edit mode
+    function disableEditMode() {
+        if (!yamlEditor) return;
+
+        isEditModeEnabled = false;
+
+        // Revert to original content if there were unsaved changes
+        if (hasUnsavedChanges) {
+            yamlEditor.setValue(originalYamlContent);
+        }
+
+        // Update Monaco editor to be read-only
+        yamlEditor.updateOptions({ readOnly: true });
+
+        // Update UI
+        updateEditModeUI(false);
+        updateEditorModeBadges(true);
+
+        // Hide save button and validation
+        hideSaveButton();
+        hideYamlValidation();
+
+        // Reset change state
+        hasUnsavedChanges = false;
+        updateUnsavedChangesState(false);
+
+        showToast('Edit mode disabled', 'info');
+    }
+
+    // Update edit mode UI (button state)
+    function updateEditModeUI(editModeOn) {
+        const editModeBtn = document.getElementById('enableEditModeBtn');
+        const editModeBtnIcon = editModeBtn?.querySelector('i');
+        const editModeBtnText = editModeBtn?.querySelector('span');
+
+        if (!editModeBtn) return;
+
+        if (editModeOn) {
+            editModeBtn.classList.remove('btn-outline-warning');
+            editModeBtn.classList.add('btn-warning');
+            if (editModeBtnIcon) {
+                editModeBtnIcon.classList.remove('bi-pencil');
+                editModeBtnIcon.classList.add('bi-x-circle');
+            }
+            if (editModeBtnText) {
+                editModeBtnText.textContent = 'Exit Edit Mode';
+            }
+        } else {
+            editModeBtn.classList.remove('btn-warning');
+            editModeBtn.classList.add('btn-outline-warning');
+            if (editModeBtnIcon) {
+                editModeBtnIcon.classList.remove('bi-x-circle');
+                editModeBtnIcon.classList.add('bi-pencil');
+            }
+            if (editModeBtnText) {
+                editModeBtnText.textContent = 'Enable Edit Mode';
+            }
+        }
+    }
+
+    // Show/hide edit mode button based on version type
+    function updateEditModeButton(canEdit) {
+        const editModeBtn = document.getElementById('enableEditModeBtn');
+        if (!editModeBtn) return;
+
+        if (canEdit) {
+            editModeBtn.classList.remove('d-none');
+        } else {
+            editModeBtn.classList.add('d-none');
+        }
+
+        // Reset button state when showing
+        updateEditModeUI(isEditModeEnabled);
     }
 
     // Route handler
@@ -342,6 +486,8 @@ const IntegrationsPage = (() => {
 
         selectedIntegration = integration;
         hasUnsavedChanges = false;
+        isEditModeEnabled = false; // Reset edit mode when switching integrations
+        updateEditModeUI(false);
 
         // Show loading state in panels
         showPanelsLoading();
@@ -367,11 +513,14 @@ const IntegrationsPage = (() => {
             // Update version comment for current version
             updateVersionComment(fullIntegration.versionComment || '');
 
+            // Show/hide edit mode button based on whether current version is unpublished
+            updateEditModeButton(isCurrentVersionUnpublished);
+
             // Show current version's definition in editor
-            // Unpublished version is editable, published versions are readonly
+            // Always start in read-only mode - user must enable edit mode explicitly
             if (fullIntegration.definition) {
                 showYamlInEditor(fullIntegration.definition, {
-                    readOnly: !isCurrentVersionUnpublished
+                    readOnly: true
                 });
             }
 
@@ -655,14 +804,25 @@ const IntegrationsPage = (() => {
     function updateEditorModeBadges(readOnly) {
         const readOnlyBadge = document.getElementById('editorReadOnlyBadge');
         const editableBadge = document.getElementById('editorEditableBadge');
+        const viewModeBadge = document.getElementById('editorViewModeBadge');
         const editorModeIndicator = document.getElementById('editorModeIndicator');
 
+        // Hide all badges first
+        if (readOnlyBadge) readOnlyBadge.classList.add('d-none');
+        if (editableBadge) editableBadge.classList.add('d-none');
+        if (viewModeBadge) viewModeBadge.classList.add('d-none');
+        if (editorModeIndicator) editorModeIndicator.classList.add('d-none');
+
         if (readOnly) {
-            if (readOnlyBadge) readOnlyBadge.classList.remove('d-none');
-            if (editableBadge) editableBadge.classList.add('d-none');
-            if (editorModeIndicator) editorModeIndicator.classList.add('d-none');
+            if (isCurrentVersionUnpublished) {
+                // Unpublished but in view mode (edit mode not enabled)
+                if (viewModeBadge) viewModeBadge.classList.remove('d-none');
+            } else {
+                // Published/historical versions - truly read-only
+                if (readOnlyBadge) readOnlyBadge.classList.remove('d-none');
+            }
         } else {
-            if (readOnlyBadge) readOnlyBadge.classList.add('d-none');
+            // Edit mode is enabled
             if (editableBadge) editableBadge.classList.remove('d-none');
             if (editorModeIndicator) editorModeIndicator.classList.remove('d-none');
         }

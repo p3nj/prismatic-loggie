@@ -330,6 +330,11 @@
 
                                 <!-- Action Buttons -->
                                 <div class="d-grid gap-2">
+                                    <!-- Edit Mode Toggle Button (only for unpublished versions) -->
+                                    <button class="btn btn-outline-warning btn-sm d-none" id="enableEditModeBtn">
+                                        <i class="bi bi-pencil me-1"></i><span>Enable Edit Mode</span>
+                                    </button>
+
                                     <!-- Save Button (only for unpublished with changes) -->
                                     <button class="btn btn-success btn-sm d-none" id="saveYamlBtn" disabled>
                                         <i class="bi bi-save me-1"></i>Save Changes
@@ -376,7 +381,8 @@
                                 <h6 class="mb-0">
                                     <i class="bi bi-file-code me-2"></i>YAML Definition
                                     <span id="editorReadOnlyBadge" class="badge bg-secondary ms-2 d-none">Read Only</span>
-                                    <span id="editorEditableBadge" class="badge bg-success ms-2 d-none">Editable</span>
+                                    <span id="editorViewModeBadge" class="badge bg-info ms-2 d-none">View Mode</span>
+                                    <span id="editorEditableBadge" class="badge bg-success ms-2 d-none">Edit Mode</span>
                                 </h6>
                                 <div id="unsavedChangesBadge" class="badge bg-warning text-dark d-none">
                                     <i class="bi bi-exclamation-circle me-1"></i>Unsaved Changes
