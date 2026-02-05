@@ -780,6 +780,10 @@ const UI = (() => {
 
         // Build step results lookup map by stepName
         const stepResultsMap = new Map();
+        // Track unique step names from step results in order of appearance
+        const allStepNames = [];
+        const seenStepNames = new Set();
+
         if (stepResults && stepResults.length > 0) {
             stepResults.forEach(step => {
                 const key = step.stepName || step.displayStepName;
@@ -788,8 +792,22 @@ const UI = (() => {
                         stepResultsMap.set(key, []);
                     }
                     stepResultsMap.get(key).push(step);
+
+                    // Track unique step names in order
+                    if (!seenStepNames.has(key)) {
+                        seenStepNames.add(key);
+                        allStepNames.push(key);
+                    }
                 }
             });
+        }
+
+        // Also add any step names from logs that might not be in step results
+        for (const stepName in stepDict) {
+            if (!seenStepNames.has(stepName)) {
+                seenStepNames.add(stepName);
+                allStepNames.push(stepName);
+            }
         }
 
         // Create or update the step navigation container
@@ -817,12 +835,13 @@ const UI = (() => {
         const navTree = document.createElement('ul');
         navTree.className = 'step-nav-tree list-unstyled mb-0';
 
-        // Process each step
-        for (const stepName in stepDict) {
-            const stepData = stepDict[stepName];
-            const stepResults = stepResultsMap.get(stepName) || [];
-            const hasError = stepResults.some(s => s.hasError);
-            const resultsUrl = stepResults.length > 0 ? stepResults[0].resultsUrl : null;
+        // Process each step from the combined list (step results + logs)
+        allStepNames.forEach(stepName => {
+            const stepData = stepDict[stepName]; // May be undefined if no logs
+            const stepResultsList = stepResultsMap.get(stepName) || [];
+            const hasError = stepResultsList.some(s => s.hasError);
+            const resultsUrl = stepResultsList.length > 0 ? stepResultsList[0].resultsUrl : null;
+            const hasLogs = stepData && stepData.indices && stepData.indices.length > 0;
 
             const stepItem = document.createElement('li');
             stepItem.className = 'step-item mb-1';
@@ -832,15 +851,15 @@ const UI = (() => {
             stepHeader.className = 'd-flex align-items-center step-nav-header';
 
             // Status indicator (from step results if available)
-            if (stepResults.length > 0) {
+            if (stepResultsList.length > 0) {
                 const statusIcon = document.createElement('span');
                 statusIcon.className = `step-status-icon me-1 ${hasError ? 'text-danger' : 'text-success'}`;
                 statusIcon.innerHTML = hasError ? '<i class="bi bi-x-circle-fill"></i>' : '<i class="bi bi-check-circle-fill"></i>';
                 stepHeader.appendChild(statusIcon);
             }
 
-            // Expand/collapse button for steps with loops
-            const hasLoops = Object.keys(stepData.loops).length > 0;
+            // Expand/collapse button for steps with loops (only if we have log data)
+            const hasLoops = stepData && Object.keys(stepData.loops).length > 0;
             if (hasLoops) {
                 const toggleBtn = document.createElement('button');
                 toggleBtn.className = 'btn btn-sm toggle-step me-1 p-0';
@@ -863,7 +882,7 @@ const UI = (() => {
                     }
                 };
                 stepHeader.appendChild(toggleBtn);
-            } else if (stepResults.length === 0) {
+            } else if (stepResultsList.length === 0) {
                 // Add spacer for consistent indentation when no status icon
                 const spacer = document.createElement('span');
                 spacer.style.width = '18px';
@@ -871,42 +890,59 @@ const UI = (() => {
                 stepHeader.appendChild(spacer);
             }
 
-            // Step link (clicking navigates to log entry)
-            const stepLink = document.createElement('a');
-            stepLink.href = '#';
-            stepLink.className = 'step-link text-truncate flex-grow-1';
-            stepLink.textContent = stepName;
-            stepLink.title = `${stepName} (${stepData.indices.length} log entries) - Click to navigate`;
+            // Step link or label based on whether logs exist
+            if (hasLogs) {
+                // Step link (clicking navigates to log entry)
+                const stepLink = document.createElement('a');
+                stepLink.href = '#';
+                stepLink.className = 'step-link text-truncate flex-grow-1';
+                stepLink.textContent = stepName;
+                stepLink.title = `${stepName} (${stepData.indices.length} log entries) - Click to navigate`;
 
-            // Show count badge
-            const countBadge = document.createElement('span');
-            countBadge.className = 'badge bg-secondary ms-1';
-            countBadge.textContent = stepData.indices.length;
-            countBadge.style.fontSize = '0.65rem';
-
-            stepLink.onclick = function(e) {
-                e.preventDefault();
-                // Jump to the first occurrence of this step in logs
-                if (stepData.indices.length > 0) {
-                    const logElement = document.getElementById(`log-${stepData.indices[0]}`);
-                    if (logElement) {
-                        logElement.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
-                        // Highlight the log entry briefly
-                        logElement.classList.add('highlight-log');
-                        setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                stepLink.onclick = function(e) {
+                    e.preventDefault();
+                    // Jump to the first occurrence of this step in logs
+                    if (stepData.indices.length > 0) {
+                        const logElement = document.getElementById(`log-${stepData.indices[0]}`);
+                        if (logElement) {
+                            logElement.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'
+                            });
+                            // Highlight the log entry briefly
+                            logElement.classList.add('highlight-log');
+                            setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                        }
                     }
-                }
-                // Also scroll the step navigation to keep this item visible
-                scrollStepNavToItem(stepItem);
-            };
-            stepHeader.appendChild(stepLink);
-            stepHeader.appendChild(countBadge);
+                    // Also scroll the step navigation to keep this item visible
+                    scrollStepNavToItem(stepItem);
+                };
+                stepHeader.appendChild(stepLink);
+
+                // Show count badge for logs
+                const countBadge = document.createElement('span');
+                countBadge.className = 'badge bg-secondary ms-1';
+                countBadge.textContent = stepData.indices.length;
+                countBadge.style.fontSize = '0.65rem';
+                stepHeader.appendChild(countBadge);
+            } else {
+                // No logs - show as non-clickable label with "output only" indicator
+                const stepLabel = document.createElement('span');
+                stepLabel.className = 'step-label-no-logs text-truncate flex-grow-1';
+                stepLabel.textContent = stepName;
+                stepLabel.title = `${stepName} - No logs available (output only)`;
+                stepHeader.appendChild(stepLabel);
+
+                // Show "output only" badge
+                const outputOnlyBadge = document.createElement('span');
+                outputOnlyBadge.className = 'badge bg-light text-muted ms-1 output-only-badge';
+                outputOnlyBadge.textContent = 'output only';
+                outputOnlyBadge.style.fontSize = '0.6rem';
+                stepHeader.appendChild(outputOnlyBadge);
+            }
 
             // View output button if resultsUrl exists
-            if (resultsUrl && stepResults.length > 0) {
+            if (resultsUrl && stepResultsList.length > 0) {
                 const viewBtn = document.createElement('button');
                 viewBtn.className = 'btn btn-sm btn-outline-info ms-1 p-0 px-1';
                 viewBtn.innerHTML = '<i class="bi bi-eye"></i>';
@@ -914,14 +950,14 @@ const UI = (() => {
                 viewBtn.onclick = function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    fetchAndShowStepOutput(stepResults[0]);
+                    fetchAndShowStepOutput(stepResultsList[0]);
                 };
                 stepHeader.appendChild(viewBtn);
             }
 
             stepItem.appendChild(stepHeader);
 
-            // Add loop items if present
+            // Add loop items if present (only for steps with logs)
             if (hasLoops) {
                 const loopList = document.createElement('ul');
                 loopList.className = 'loop-list list-unstyled ms-3 mt-1';
@@ -980,7 +1016,7 @@ const UI = (() => {
                     loopItem.appendChild(loopCountBadge);
 
                     // Find matching step result for this loop iteration and add view button
-                    const loopStepResult = stepResults.find(s =>
+                    const loopStepResult = stepResultsList.find(s =>
                         s.loopStepIndex === loopData.index ||
                         (s.loopPath && s.loopPath.includes(loopData.name))
                     );
@@ -1004,7 +1040,7 @@ const UI = (() => {
             }
 
             navTree.appendChild(stepItem);
-        }
+        });
 
         navContainer.appendChild(navTree);
         stepNav.appendChild(navContainer);
