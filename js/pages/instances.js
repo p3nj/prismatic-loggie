@@ -613,19 +613,17 @@ const InstancesPage = (() => {
 
         console.log(`Fetching ${chainRoots.size} complete chain(s) for flowId: ${targetFlowId}...`);
 
-        // Fetch complete chains in parallel, using flowId for server-side filtering
-        const chainPromises = Array.from(chainRoots.values()).map(async (root) => {
+        // Fetch chains sequentially to respect API rate limits
+        const chainResults = [];
+        for (const root of chainRoots.values()) {
             try {
-                // Pass flowId to filter out cross-flow calls at the API level
                 const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt, targetFlowId);
-                return { rootId: root.id, executions: chainExecutions };
+                chainResults.push({ rootId: root.id, executions: chainExecutions });
             } catch (error) {
                 console.error(`Error fetching chain for ${root.id}:`, error);
-                return { rootId: root.id, executions: [] };
+                chainResults.push({ rootId: root.id, executions: [] });
             }
-        });
-
-        const chainResults = await Promise.all(chainPromises);
+        }
 
         // Build a map of all executions from complete chains (already filtered by server)
         // Mark each execution with its chain root ID for proper grouping
@@ -646,20 +644,29 @@ const InstancesPage = (() => {
             mergedExecutions.set(id, exec);
         }
 
-        // Then add original executions that aren't in fetched chains
+        // Then add original executions, marking chain roots appropriately
         for (const exec of executions) {
-            if (exec && !mergedExecutions.has(exec.id)) {
-                const hasParent = exec.lineage?.invokedBy?.execution?.id;
-                const hasChildren = exec.lineage?.hasChildren;
+            if (!exec) continue;
 
-                if (hasParent || hasChildren) {
-                    // This is a chain root from original query - mark it with its own ID
-                    exec._chainRootId = exec._chainRootId || exec.id;
-                    mergedExecutions.set(exec.id, exec);
-                } else {
-                    // Standalone execution
-                    mergedExecutions.set(exec.id, exec);
-                }
+            const hasParent = exec.lineage?.invokedBy?.execution?.id;
+            const hasChildren = exec.lineage?.hasChildren;
+
+            if (mergedExecutions.has(exec.id)) {
+                // Already added from chain fetch, skip
+                continue;
+            }
+
+            if (hasChildren && !hasParent) {
+                // This is a chain ROOT - mark with its own ID as chain root
+                exec._chainRootId = exec.id;
+                mergedExecutions.set(exec.id, exec);
+            } else if (hasParent) {
+                // This execution has a parent - use parent's ID as chain root
+                exec._chainRootId = exec.lineage.invokedBy.execution.id;
+                mergedExecutions.set(exec.id, exec);
+            } else {
+                // Standalone execution (no parent, no children)
+                mergedExecutions.set(exec.id, exec);
             }
         }
 
