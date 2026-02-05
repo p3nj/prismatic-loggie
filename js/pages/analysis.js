@@ -1194,7 +1194,7 @@ const AnalysisPage = (() => {
         const customerItem = document.getElementById('breadcrumbCustomerItem');
         const customerLink = document.getElementById('breadcrumbCustomer');
         const instanceItem = document.getElementById('breadcrumbInstanceItem');
-        const instanceSpan = document.getElementById('breadcrumbInstance');
+        const instanceLink = document.getElementById('breadcrumbInstance');
 
         // Reset
         customerItem?.classList.add('d-none');
@@ -1206,7 +1206,11 @@ const AnalysisPage = (() => {
 
             if (state.selectedInstanceId) {
                 instanceItem?.classList.remove('d-none');
-                if (instanceSpan) instanceSpan.textContent = state.selectedInstanceName || 'Instance';
+                if (instanceLink) {
+                    instanceLink.textContent = state.selectedInstanceName || 'Instance';
+                    // Set href to open Instance page with this instance pre-selected
+                    instanceLink.href = `#instances?instanceId=${encodeURIComponent(state.selectedInstanceId)}&instanceName=${encodeURIComponent(state.selectedInstanceName || '')}`;
+                }
             }
         }
     }
@@ -1327,12 +1331,18 @@ const AnalysisPage = (() => {
             return;
         }
 
+        const endpoint = API.getEndpoint();
+
         let html = executions.map(exec => {
             const startTime = new Date(exec.startedAt);
             const statusClass = exec.status === 'SUCCEEDED' || exec.status === 'SUCCESS' ? 'success' :
                                exec.status === 'FAILED' || exec.status === 'ERROR' ? 'danger' : 'secondary';
             const statusIcon = exec.status === 'SUCCEEDED' || exec.status === 'SUCCESS' ? 'check-circle' :
                               exec.status === 'FAILED' || exec.status === 'ERROR' ? 'x-circle' : 'hourglass-split';
+
+            // Build Prismatic URL for external link
+            const prismaticUrl = exec.instance?.id ?
+                `${endpoint}/instances/${exec.instance.id}/executions/?executionId=${exec.id}` : null;
 
             return `
                 <div class="recent-execution-item p-2 border-bottom d-flex align-items-center">
@@ -1352,9 +1362,16 @@ const AnalysisPage = (() => {
                         <small class="text-muted d-block">${startTime.toLocaleTimeString()}</small>
                         <small class="text-muted">${startTime.toLocaleDateString()}</small>
                     </div>
-                    <a href="#execution?executionId=${exec.id}" class="btn btn-sm btn-outline-primary ms-2" title="View details">
-                        <i class="bi bi-box-arrow-up-right"></i>
-                    </a>
+                    <div class="btn-group btn-group-sm ms-2">
+                        ${prismaticUrl ? `
+                        <a href="${prismaticUrl}" class="btn btn-outline-secondary" target="_blank" title="Open in Prismatic">
+                            <i class="bi bi-link-45deg"></i>
+                        </a>
+                        ` : ''}
+                        <a href="#execution?executionId=${exec.id}" class="btn btn-outline-primary" target="_blank" title="Open in Execution tab">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                    </div>
                 </div>
             `;
         }).join('');
