@@ -407,6 +407,7 @@ const API = (() => {
                 versionIsLatest
                 versionCreatedAt
                 versionComment
+                versionSequenceId
                 category
                 labels
                 customer {
@@ -424,27 +425,21 @@ const API = (() => {
         }
     `;
 
-    // GraphQL query for specific version - tries to get definition through Version's integration reference
+    // GraphQL query for specific version by versionSequenceId and versionNumber
     const integrationVersionDefinitionQuery = `
-        query GetIntegrationVersionDefinition($id: ID!) {
-            node(id: $id) {
-                ... on Integration {
+        query GetIntegrationVersionDefinition($versionSequenceId: UUID!, $versionNumber: Int!) {
+            integrations(
+                versionSequenceId: $versionSequenceId,
+                versionNumber: $versionNumber,
+                allVersions: true
+            ) {
+                nodes {
                     id
                     name
                     versionNumber
                     versionComment
                     versionCreatedAt
                     definition
-                }
-                ... on Version {
-                    id
-                    versionNumber
-                    isAvailable
-                    integration {
-                        id
-                        name
-                        definition
-                    }
                 }
             }
         }
@@ -765,26 +760,19 @@ const API = (() => {
         return data.integration;
     }
 
-    // Fetch specific version's definition
-    async function fetchIntegrationVersionDefinition(versionId) {
-        console.log(`Fetching integration version definition: ${versionId}`);
-        const data = await graphqlRequest(integrationVersionDefinitionQuery, { id: versionId });
-        const node = data.node;
+    // Fetch specific version's definition by versionSequenceId and versionNumber
+    async function fetchIntegrationVersionDefinition(versionSequenceId, versionNumber) {
+        console.log(`Fetching integration version definition: versionSequenceId=${versionSequenceId}, versionNumber=${versionNumber}`);
+        const data = await graphqlRequest(integrationVersionDefinitionQuery, {
+            versionSequenceId,
+            versionNumber
+        });
 
-        if (!node) return null;
+        const nodes = data.integrations?.nodes;
+        if (!nodes || nodes.length === 0) return null;
 
-        // If it's a Version node, extract the integration data
-        if (node.integration) {
-            return {
-                id: node.id,
-                versionNumber: node.versionNumber,
-                name: node.integration.name,
-                definition: node.integration.definition
-            };
-        }
-
-        // If it's an Integration node directly
-        return node;
+        // Return the first matching integration version
+        return nodes[0];
     }
 
     // Import integration from YAML definition
