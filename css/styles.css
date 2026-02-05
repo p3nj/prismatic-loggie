@@ -1553,19 +1553,8 @@ pre[class*="language-"] {
   font-weight: 500;
 }
 
-/* Template Metadata Section */
-.template-metadata-section {
-  background-color: rgba(108, 117, 125, 0.03);
-}
-
-[data-theme="dark"] .template-metadata-section {
-  background-color: rgba(108, 117, 125, 0.05);
-}
-
 /* Metadata display spans with tooltips */
-#publishedAtDisplay,
-#templateCreatedAtDisplay,
-#templateUpdatedAtDisplay {
+#latestPublishedDisplay {
   cursor: help;
   text-decoration: underline dotted;
   text-underline-offset: 2px;

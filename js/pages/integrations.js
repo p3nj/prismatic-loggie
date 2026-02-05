@@ -123,6 +123,18 @@ const IntegrationsPage = (() => {
         if (openDesignerBtn) {
             openDesignerBtn.addEventListener('click', openInDesigner);
         }
+
+        // Publish button
+        const publishBtn = document.getElementById('publishBtn');
+        if (publishBtn) {
+            publishBtn.addEventListener('click', showPublishModal);
+        }
+
+        // Publish modal confirm button
+        const confirmPublishBtn = document.getElementById('confirmPublishBtn');
+        if (confirmPublishBtn) {
+            confirmPublishBtn.addEventListener('click', handlePublishConfirm);
+        }
     }
 
     // Open the integration in Prismatic Designer
@@ -345,6 +357,80 @@ const IntegrationsPage = (() => {
         updateEditModeUI(isEditModeEnabled);
     }
 
+    // Show/hide publish button based on whether there are unpublished changes
+    function updatePublishButton(canPublish) {
+        const publishBtn = document.getElementById('publishBtn');
+
+        if (publishBtn) {
+            if (canPublish && selectedIntegration) {
+                publishBtn.classList.remove('d-none');
+                publishBtn.disabled = false;
+            } else {
+                publishBtn.classList.add('d-none');
+                publishBtn.disabled = true;
+            }
+        }
+    }
+
+    // Show publish modal
+    function showPublishModal() {
+        const modal = document.getElementById('publishModal');
+        const commentInput = document.getElementById('publishComment');
+
+        if (modal && commentInput) {
+            // Clear previous comment
+            commentInput.value = '';
+            // Show the modal using Bootstrap
+            const bsModal = new bootstrap.Modal(modal);
+            bsModal.show();
+        }
+    }
+
+    // Handle publish confirmation
+    async function handlePublishConfirm() {
+        if (!selectedIntegration) {
+            showToast('No integration selected', 'error');
+            return;
+        }
+
+        const modal = document.getElementById('publishModal');
+        const commentInput = document.getElementById('publishComment');
+        const confirmBtn = document.getElementById('confirmPublishBtn');
+
+        // Get the comment (can be empty)
+        const comment = commentInput?.value.trim() || null;
+
+        // Disable button and show loading
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Publishing...';
+        }
+
+        try {
+            // Call the publish API
+            const result = await API.publishIntegration(selectedIntegration.id, comment);
+
+            // Close the modal
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            if (bsModal) bsModal.hide();
+
+            // Show success message
+            showToast(`Published v${result.versionNumber} successfully`, 'success');
+
+            // Refresh the integration to show new version info
+            await selectIntegration(selectedIntegration.id);
+        } catch (error) {
+            console.error('Error publishing integration:', error);
+            showToast(`Failed to publish: ${error.message}`, 'error');
+        } finally {
+            // Reset button state
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Publish';
+            }
+        }
+    }
+
     // Route handler
     function onRoute(params) {
         init();
@@ -555,10 +641,7 @@ const IntegrationsPage = (() => {
             // Update version comment for current version
             updateVersionComment(fullIntegration.versionComment || '');
 
-            // Update template metadata (created/updated dates)
-            updateTemplateMetadata(fullIntegration);
-
-            // Update version metadata (published by, published at, status)
+            // Update version metadata (published by, latest version with date, status)
             updateVersionMetadata(fullIntegration);
 
             // Show/hide edit mode button based on whether current version is unpublished
@@ -847,33 +930,12 @@ const IntegrationsPage = (() => {
         return user.name || user.email || '-';
     }
 
-    // Update template metadata display (createdAt, versionCreatedAt)
-    function updateTemplateMetadata(integration) {
-        const createdAtEl = document.getElementById('templateCreatedAtDisplay');
-        const updatedAtEl = document.getElementById('templateUpdatedAtDisplay');
-
-        if (createdAtEl) {
-            const created = formatRelativeTime(integration.createdAt);
-            createdAtEl.textContent = created.relative;
-            createdAtEl.title = created.full;
-        }
-
-        // Use versionCreatedAt instead of updatedAt - updatedAt changes on every API call
-        if (updatedAtEl) {
-            const updated = formatRelativeTime(integration.versionCreatedAt);
-            updatedAtEl.textContent = updated.relative;
-            updatedAtEl.title = updated.full;
-        }
-    }
-
-    // Update version metadata display (publishedBy, publishedAt, latest version, status)
+    // Update version metadata display (publishedBy, latest version with date, status)
     function updateVersionMetadata(integration, currentVersionNumber = null) {
         const publishedByEl = document.getElementById('publishedByDisplay');
-        const publishedAtEl = document.getElementById('publishedAtDisplay');
         const latestPublishedEl = document.getElementById('latestPublishedDisplay');
         const unpublishedChangesEl = document.getElementById('unpublishedChangesDisplay');
         const publishedByRow = document.getElementById('publishedByRow');
-        const publishedAtRow = document.getElementById('publishedAtRow');
 
         if (!integration) return;
 
@@ -900,27 +962,19 @@ const IntegrationsPage = (() => {
             }
         }
 
-        // Update published at
-        if (publishedAtEl && publishedAtRow) {
-            if (isSelectedVersionUnpublished) {
-                publishedAtRow.classList.add('d-none');
-            } else {
-                publishedAtRow.classList.remove('d-none');
-                const published = formatRelativeTime(selectedVersionData?.publishedAt);
-                publishedAtEl.textContent = published.relative;
-                publishedAtEl.title = published.full;
-            }
-        }
-
-        // Find latest published version
+        // Find latest published version and show with publish date
         if (latestPublishedEl) {
             if (versions.length > 0) {
                 // Sort by version number descending to find the latest
                 const sortedVersions = [...versions].sort((a, b) => b.versionNumber - a.versionNumber);
                 const latestPublished = sortedVersions[0];
-                latestPublishedEl.textContent = `v${latestPublished.versionNumber}`;
+                // Format: v5 - 2 hours ago
+                const publishDate = formatRelativeTime(latestPublished.publishedAt);
+                latestPublishedEl.textContent = `v${latestPublished.versionNumber} - ${publishDate.relative}`;
+                latestPublishedEl.title = publishDate.full;
             } else {
                 latestPublishedEl.textContent = '-';
+                latestPublishedEl.title = '';
             }
         }
 
@@ -940,6 +994,10 @@ const IntegrationsPage = (() => {
                 unpublishedChangesEl.innerHTML = '<span class="badge bg-success">Published</span>';
             }
         }
+
+        // Update publish button visibility
+        const canPublish = !isHistoricalVersion && (isSelectedVersionUnpublished || integration.hasUnpublishedChanges);
+        updatePublishButton(canPublish);
     }
 
     // Show YAML in Monaco editor

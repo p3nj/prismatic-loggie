@@ -499,6 +499,26 @@ const API = (() => {
         }
     `;
 
+    // GraphQL mutation for publishing integration
+    const publishIntegrationMutation = `
+        mutation PublishIntegration($id: ID!, $comment: String) {
+            publishIntegration(input: {
+                id: $id,
+                comment: $comment
+            }) {
+                integration {
+                    id
+                    name
+                    versionNumber
+                }
+                errors {
+                    field
+                    messages
+                }
+            }
+        }
+    `;
+
     // Generic GraphQL request helper (with rate limiting)
     async function graphqlRequest(query, variables = {}, useRateLimiter = true) {
         const token = getToken();
@@ -837,6 +857,27 @@ const API = (() => {
         return data.importIntegration.integration;
     }
 
+    // Publish integration with optional comment
+    async function publishIntegration(integrationId, comment = null) {
+        console.log(`Publishing integration: ${integrationId}${comment ? ` with comment: "${comment}"` : ''}`);
+
+        const variables = { id: integrationId };
+        if (comment) {
+            variables.comment = comment;
+        }
+
+        const data = await graphqlRequest(publishIntegrationMutation, variables);
+
+        if (data.publishIntegration.errors && data.publishIntegration.errors.length > 0) {
+            const errorMessages = data.publishIntegration.errors
+                .map(e => e.messages.join(', '))
+                .join('; ');
+            throw new Error(`Failed to publish integration: ${errorMessages}`);
+        }
+
+        return data.publishIntegration.integration;
+    }
+
     // Legacy support - update config from DOM elements (for backward compatibility)
     function updateConfig() {
         const endpointSelect = document.getElementById('endpointSelect');
@@ -909,6 +950,7 @@ const API = (() => {
         fetchIntegrationWithVersions,
         fetchIntegrationVersionDefinition,
         importIntegration,
+        publishIntegration,
         // Legacy methods for backward compatibility
         loadSavedConfig,
         updateConfig
