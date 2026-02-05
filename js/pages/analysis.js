@@ -1345,32 +1345,38 @@ const AnalysisPage = (() => {
                 `${endpoint}/instances/${exec.instance.id}/executions/?executionId=${exec.id}` : null;
 
             return `
-                <div class="recent-execution-item p-2 border-bottom d-flex align-items-center">
-                    <div class="me-2">
-                        <i class="bi bi-${statusIcon}-fill text-${statusClass}"></i>
-                    </div>
-                    <div class="flex-grow-1 min-width-0">
-                        <div class="d-flex align-items-center">
-                            <span class="fw-medium text-truncate me-2" title="${escapeHtml(exec.flow?.name || '')}">${escapeHtml(exec.flow?.name || 'Unknown Flow')}</span>
-                            <span class="badge bg-light text-dark" style="font-size: 0.65rem;">${formatTriggerType(exec.invokeType)}</span>
+                <div class="recent-execution-item p-2 border-bottom">
+                    <div class="d-flex align-items-center">
+                        <div class="me-2 flex-shrink-0">
+                            <i class="bi bi-${statusIcon}-fill text-${statusClass}"></i>
                         </div>
-                        <small class="text-muted">
-                            ${escapeHtml(exec.instance?.customer?.name || '')} / ${escapeHtml(exec.instance?.name || '')}
-                        </small>
+                        <div class="flex-grow-1 min-width-0">
+                            <div class="d-flex align-items-center flex-wrap">
+                                <span class="fw-medium text-truncate me-2" title="${escapeHtml(exec.flow?.name || '')}">${escapeHtml(exec.flow?.name || 'Unknown Flow')}</span>
+                                <span class="badge bg-light text-dark d-none d-sm-inline" style="font-size: 0.65rem;">${formatTriggerType(exec.invokeType)}</span>
+                            </div>
+                            <small class="text-muted d-block text-truncate">
+                                ${escapeHtml(exec.instance?.customer?.name || '')} / ${escapeHtml(exec.instance?.name || '')}
+                            </small>
+                        </div>
+                        <div class="text-end ms-2 flex-shrink-0 d-none d-sm-block">
+                            <small class="text-muted d-block">${startTime.toLocaleTimeString()}</small>
+                            <small class="text-muted">${startTime.toLocaleDateString()}</small>
+                        </div>
+                        <div class="btn-group btn-group-sm ms-2 flex-shrink-0">
+                            ${prismaticUrl ? `
+                            <a href="${prismaticUrl}" class="btn btn-outline-secondary d-none d-md-inline-block" target="_blank" title="Open in Prismatic">
+                                <i class="bi bi-link-45deg"></i>
+                            </a>
+                            ` : ''}
+                            <a href="#execution?executionId=${exec.id}" class="btn btn-outline-primary" target="_blank" title="Open in Execution tab">
+                                <i class="bi bi-box-arrow-up-right"></i>
+                            </a>
+                        </div>
                     </div>
-                    <div class="text-end ms-2">
-                        <small class="text-muted d-block">${startTime.toLocaleTimeString()}</small>
-                        <small class="text-muted">${startTime.toLocaleDateString()}</small>
-                    </div>
-                    <div class="btn-group btn-group-sm ms-2">
-                        ${prismaticUrl ? `
-                        <a href="${prismaticUrl}" class="btn btn-outline-secondary" target="_blank" title="Open in Prismatic">
-                            <i class="bi bi-link-45deg"></i>
-                        </a>
-                        ` : ''}
-                        <a href="#execution?executionId=${exec.id}" class="btn btn-outline-primary" target="_blank" title="Open in Execution tab">
-                            <i class="bi bi-box-arrow-up-right"></i>
-                        </a>
+                    <div class="d-flex d-sm-none justify-content-between mt-1 ps-4">
+                        <small class="text-muted">${startTime.toLocaleDateString()} ${startTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</small>
+                        <span class="badge bg-light text-dark" style="font-size: 0.6rem;">${formatTriggerType(exec.invokeType)}</span>
                     </div>
                 </div>
             `;

@@ -79,6 +79,11 @@ const AuthPage = (() => {
         updateAuthStatus();
     }
 
+    // Check if viewport is mobile-sized
+    function isMobileView() {
+        return window.innerWidth < 992;
+    }
+
     // Setup event listeners (supports both page and navbar dropdown)
     function setupEventListeners() {
         // === Page elements ===
@@ -109,6 +114,23 @@ const AuthPage = (() => {
         if (toggleBtn) {
             toggleBtn.addEventListener('click', () => {
                 toggleTokenVisibility('authApiToken', toggleBtn);
+            });
+        }
+
+        // === Navbar auth link - redirect to full page on mobile ===
+        const authNavLink = document.getElementById('authNavLink');
+        if (authNavLink) {
+            authNavLink.addEventListener('click', (e) => {
+                if (isMobileView()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Collapse the navbar menu
+                    const navbarCollapse = document.getElementById('navbarNav');
+                    const bsCollapse = bootstrap.Collapse.getInstance(navbarCollapse);
+                    if (bsCollapse) bsCollapse.hide();
+                    // Navigate to full-page auth
+                    Router.navigate('auth');
+                }
             });
         }
 

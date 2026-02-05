@@ -352,15 +352,15 @@ pre[class*="language-"] {
 
 /* Improve responsiveness on smaller screens */
 @media (max-width: 768px) {
-  .d-flex {
+  #page-execution .sidebar .d-flex {
     flex-direction: column;
   }
-  
+
   #apiToken, #executionId {
     margin-right: 0 !important;
     margin-bottom: 0.5rem;
   }
-  
+
   #loadButton, #getTokenButton {
     width: 100%;
   }
@@ -2124,31 +2124,8 @@ pre[class*="language-"] {
 }
 
 @media (max-width: 767.98px) {
-  #page-analysis #kpiCardsRow > .col {
-    flex: 0 0 100%;
-    max-width: 100%;
-  }
-
   #page-analysis .kpi-card .display-6 {
     font-size: 1.5rem;
-  }
-
-  #page-analysis #timeRangeButtons {
-    flex-wrap: wrap;
-  }
-
-  #page-analysis #timeRangeButtons .btn {
-    font-size: 0.7rem;
-    padding: 0.2rem 0.5rem;
-  }
-
-  #page-analysis .row.g-2 > .col-auto {
-    width: 100%;
-  }
-
-  #page-analysis .ms-auto {
-    margin-left: 0 !important;
-    margin-top: 0.5rem;
   }
 }
 
@@ -2192,4 +2169,367 @@ pre[class*="language-"] {
   background-color: var(--danger-color);
   border-color: var(--danger-color);
   color: white;
+}
+
+/* ============================================
+   Mobile Optimizations
+   ============================================ */
+
+/* --- Auth Page Mobile --- */
+.auth-page-container {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: calc(100vh - 80px);
+}
+
+@media (max-width: 575.98px) {
+  .auth-page-container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  #page-auth .card {
+    max-width: 100%;
+    border-radius: 0.5rem;
+  }
+
+  #page-auth .card-body {
+    padding: 1rem;
+  }
+
+  #page-auth .form-select,
+  #page-auth .form-control {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+}
+
+/* --- Navbar Mobile Adjustments --- */
+@media (max-width: 991.98px) {
+  .navbar .navbar-nav {
+    padding: 0.5rem 0;
+  }
+
+  .navbar .nav-link {
+    padding: 0.5rem 0.75rem;
+    margin: 0.125rem 0;
+  }
+
+  .navbar .theme-switch-wrapper {
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* On mobile, auth nav-item behaves like a regular link */
+  .navbar .nav-item.dropdown .auth-dropdown-menu {
+    display: none !important;
+  }
+}
+
+/* --- Analysis Page Mobile --- */
+.analysis-controls {
+  gap: 0.5rem;
+}
+
+.analysis-date-inputs {
+  gap: 0.25rem;
+}
+
+.analysis-date-inputs input[type="date"] {
+  width: 130px;
+  min-width: 0;
+}
+
+@media (max-width: 767.98px) {
+  .analysis-controls {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .analysis-controls-left {
+    flex-direction: column;
+    align-items: stretch !important;
+    width: 100%;
+  }
+
+  .analysis-controls-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .analysis-date-inputs {
+    width: 100%;
+  }
+
+  .analysis-date-inputs input[type="date"] {
+    width: auto;
+    flex: 1;
+    font-size: 0.8rem;
+  }
+
+  #timeRangeButtons {
+    width: 100%;
+    display: flex !important;
+  }
+
+  #timeRangeButtons .btn {
+    flex: 1;
+    font-size: 0.75rem;
+    padding: 0.3rem 0.25rem;
+  }
+
+  /* KPI cards - 2 columns on small mobile */
+  #kpiCardsRow {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  #kpiCardsRow > .col {
+    flex: none !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  #kpiCardsRow > .col:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .kpi-card .card-body {
+    padding: 0.75rem !important;
+  }
+
+  .kpi-card .display-6 {
+    font-size: 1.25rem !important;
+  }
+
+  .kpi-card .small {
+    font-size: 0.7rem;
+  }
+
+  /* Distribution charts - stack fully */
+  #page-analysis .col-md-4 {
+    margin-bottom: 0.75rem;
+  }
+
+  #page-analysis .chart-container {
+    height: 200px !important;
+  }
+
+  /* Recent executions - compact on mobile */
+  .recent-execution-item {
+    padding: 0.5rem !important;
+  }
+
+  /* Drill down sidebar */
+  #page-analysis .sticky-sidebar {
+    margin-bottom: 1rem;
+  }
+
+  #page-analysis .analysis-list {
+    max-height: 200px !important;
+  }
+
+  #page-analysis .card-header h6 {
+    font-size: 0.8rem;
+  }
+
+  /* Top by volume/errors */
+  #page-analysis .col-md-6 {
+    margin-bottom: 0.75rem;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Extra small screens: KPI single column */
+  #kpiCardsRow {
+    grid-template-columns: 1fr !important;
+  }
+
+  #kpiCardsRow > .col:last-child {
+    grid-column: auto;
+  }
+}
+
+/* --- Integrations Page Mobile --- */
+@media (max-width: 991.98px) {
+  #page-integrations .container-fluid {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Stack columns properly */
+  #page-integrations .sticky-sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .integrations-list {
+    max-height: 200px;
+  }
+
+  /* Version control panel - horizontal layout on tablet */
+  #versionControlPanel {
+    max-height: none;
+  }
+
+  #yamlEditorPanel {
+    height: auto;
+  }
+
+  #yamlEditorContainer {
+    height: 50vh !important;
+    min-height: 300px !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  #page-integrations .container-fluid {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .integrations-list {
+    max-height: 150px;
+  }
+
+  #yamlEditorContainer {
+    height: 40vh !important;
+    min-height: 250px !important;
+  }
+
+  /* Template info sections - more compact */
+  #versionControlPanel .template-header-section,
+  #versionControlPanel .version-section,
+  #versionControlPanel .version-metadata-section,
+  #versionControlPanel .actions-section,
+  #versionControlPanel #editModeSection {
+    padding: 0.5rem !important;
+  }
+
+  #versionControlPanel .form-label {
+    font-size: 0.7rem;
+    margin-bottom: 0.25rem;
+  }
+
+  /* Action buttons - grid on mobile for better touch targets */
+  #versionControlPanel .actions-section .d-grid {
+    gap: 0.375rem !important;
+  }
+
+  /* Integration items - compact */
+  .integration-item {
+    padding: 0.5rem !important;
+  }
+
+  .integration-item .fw-semibold {
+    font-size: 0.85rem;
+  }
+
+  /* Make version control collapsible look on mobile */
+  #versionControlColumn {
+    order: 2;
+  }
+}
+
+/* --- Instances Page Mobile --- */
+@media (max-width: 767.98px) {
+  #page-instances .container-fluid {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .instances-list {
+    max-height: 180px;
+  }
+
+  /* Execution filter bar - full-width stacked */
+  #executionsFilterBar .col-auto {
+    width: 100%;
+  }
+
+  #executionsFilterBar .form-select-sm,
+  #executionsFilterBar .form-control-sm {
+    width: 100%;
+  }
+}
+
+/* --- Execution Page Mobile --- */
+@media (max-width: 767.98px) {
+  #page-execution .sidebar {
+    position: static;
+    margin-bottom: 1rem;
+  }
+
+  #page-execution .d-flex {
+    flex-direction: column;
+  }
+
+  #page-execution #executionId {
+    margin-right: 0 !important;
+    margin-bottom: 0.5rem;
+  }
+
+  #page-execution #loadButton {
+    width: 100%;
+  }
+}
+
+/* --- General Mobile Utilities --- */
+@media (max-width: 767.98px) {
+  /* Reduce padding on container-fluid for mobile */
+  .container-fluid {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Card headers - tighter on mobile */
+  .card-header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .card-header h5 {
+    font-size: 0.95rem;
+  }
+
+  .card-header h6 {
+    font-size: 0.85rem;
+  }
+
+  /* Prevent inputs from being too small to tap */
+  .form-control-sm,
+  .form-select-sm {
+    min-height: 36px;
+    font-size: 0.85rem;
+  }
+
+  .btn-sm {
+    min-height: 34px;
+    padding: 0.3rem 0.5rem;
+  }
+
+  /* Modal adjustments for mobile */
+  .modal-content {
+    margin: 2% auto;
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .modal-lg {
+    width: 95%;
+  }
+
+  /* JSON modal */
+  .json-modal-container {
+    height: 85vh;
+  }
+
+  /* Breadcrumb on mobile */
+  .breadcrumb {
+    font-size: 0.8rem;
+  }
+
+  /* Badge sizing */
+  .badge {
+    font-size: 0.65rem;
+  }
 }
