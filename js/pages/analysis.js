@@ -88,9 +88,10 @@ const AnalysisPage = (() => {
         // Time range buttons
         document.querySelectorAll('#timeRangeButtons button').forEach(btn => {
             btn.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
                 document.querySelectorAll('#timeRangeButtons button').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                state.timeRange = e.target.dataset.range;
+                button.classList.add('active');
+                state.timeRange = button.dataset.range;
                 updateDateRange();
                 loadAllData();
             });
@@ -475,7 +476,7 @@ const AnalysisPage = (() => {
                         callbacks: {
                             label: (context) => {
                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((context.raw / total) * 100).toFixed(1);
+                                const percentage = total > 0 ? ((context.raw / total) * 100).toFixed(1) : '0.0';
                                 return `${context.label}: ${formatNumber(context.raw)} (${percentage}%)`;
                             }
                         }
@@ -1102,25 +1103,6 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Update the "last updated" time display
-    function updateLastUpdatedTime() {
-        if (!state.lastUpdated) return;
-
-        const seconds = Math.floor((Date.now() - state.lastUpdated.getTime()) / 1000);
-        const text = document.getElementById('lastUpdatedText');
-
-        if (text) {
-            if (seconds < 60) {
-                text.textContent = 'Updated just now';
-            } else if (seconds < 3600) {
-                const mins = Math.floor(seconds / 60);
-                text.textContent = `Updated ${mins}m ago`;
-            } else {
-                text.textContent = `Updated ${state.lastUpdated.toLocaleTimeString()}`;
-            }
-        }
-    }
-
     // Show error message with toast
     function showError(message) {
         console.error(message);
@@ -1133,12 +1115,12 @@ const AnalysisPage = (() => {
             container.style.zIndex = '1050';
             document.body.appendChild(container);
         }
-        // Create toast
+        // Create toast with escaped message to prevent XSS
         const toastId = 'toast-' + Date.now();
         container.innerHTML = `
             <div id="${toastId}" class="toast align-items-center text-bg-danger border-0" role="alert">
                 <div class="d-flex">
-                    <div class="toast-body"><i class="bi bi-exclamation-triangle me-2"></i>${message}</div>
+                    <div class="toast-body"><i class="bi bi-exclamation-triangle me-2"></i>${escapeHtml(message)}</div>
                     <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
                 </div>
             </div>
