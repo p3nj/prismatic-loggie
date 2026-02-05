@@ -584,14 +584,9 @@ const InstancesPage = (() => {
         const processedRoots = new Set(); // Track which roots we've already fetched
 
         // Add already-loaded nodes to map first (these are from previous Load More batches)
-        // Also mark their IDs as processed to avoid redundant fetches
         for (const exec of alreadyLoadedNodes) {
             if (exec) {
                 allExecutions.set(exec.id, exec);
-                // If this was a root with children, mark it as already processed
-                if (exec.lineage?.hasChildren && !exec.lineage?.invokedBy?.execution) {
-                    processedRoots.add(exec.id);
-                }
             }
         }
 
@@ -610,17 +605,16 @@ const InstancesPage = (() => {
             const parentRef = exec.lineage?.invokedBy?.execution;
             const hasChildren = exec.lineage?.hasChildren;
 
+            // Only fetch for mid-chain nodes: has parent outside results AND has children
+            // This back-fetches to find the true root of the chain
+            // NOTE: We intentionally DON'T fetch for "true roots with children" because:
+            // 1. hasChildren may be set at flow level (flow supports recursion) not execution level
+            // 2. Children have later timestamps, so they should be in same date range or future pages
+            // 3. Fetching for all roots causes excessive API calls (49 calls for 50 executions)
             if (parentRef?.id && parentRef?.startedAt && hasChildren) {
-                // Has parent outside results AND has children - mid-chain node needing completion
                 // Skip if parent is already in allExecutions (from previous batches or current batch)
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
-                }
-            } else if (hasChildren && !parentRef) {
-                // True root with children - fetch descendants that might be outside date filter
-                // Skip if already processed (from previous Load More batches)
-                if (!processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
-                    pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
             }
         }
@@ -723,7 +717,8 @@ const InstancesPage = (() => {
                 // allNodes already includes existingNodes + new batch + chain-fetched nodes
                 const onProgress = (allNodes, remaining, fetched) => {
                     executionsData = { ...data, nodes: allNodes };
-                    renderExecutions(true);
+                    // Use false to preserve scroll position during progress updates
+                    renderExecutions(false);
 
                     // Show progress indicator
                     const progressDiv = document.getElementById('chainLoadingProgress');
