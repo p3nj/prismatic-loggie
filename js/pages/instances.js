@@ -553,6 +553,88 @@ const InstancesPage = (() => {
         await loadExecutions(instanceId, true);
     }
 
+    // Fetch complete execution chains for executions that have lineage data
+    async function fetchCompleteChains(executions) {
+        // Find executions that are part of chains (have lineage data)
+        const chainRoots = new Map(); // Map of root execution ID -> root execution info
+        const processedChains = new Set(); // Track which chains we've already fetched
+
+        for (const exec of executions) {
+            if (!exec) continue;
+
+            // Check if this execution is part of a chain
+            const hasParent = exec.lineage?.invokedBy?.execution?.id;
+            const hasChildren = exec.lineage?.hasChildren;
+
+            if (hasParent || hasChildren) {
+                // Find the root of the chain - if we have a parent, use its info; otherwise use this execution
+                let rootId, rootStartedAt;
+                if (hasParent) {
+                    rootId = exec.lineage.invokedBy.execution.id;
+                    rootStartedAt = exec.lineage.invokedBy.execution.startedAt;
+                } else {
+                    // This execution is the root (has children but no parent)
+                    rootId = exec.id;
+                    rootStartedAt = exec.startedAt;
+                }
+
+                if (!processedChains.has(rootId)) {
+                    chainRoots.set(rootId, { id: rootId, startedAt: rootStartedAt });
+                    processedChains.add(rootId);
+                }
+            }
+        }
+
+        if (chainRoots.size === 0) {
+            return executions; // No chains to fetch
+        }
+
+        console.log(`Fetching ${chainRoots.size} complete chain(s)...`);
+
+        // Fetch complete chains in parallel
+        const chainPromises = Array.from(chainRoots.values()).map(async (root) => {
+            try {
+                const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt);
+                return { rootId: root.id, executions: chainExecutions };
+            } catch (error) {
+                console.error(`Error fetching chain for ${root.id}:`, error);
+                return { rootId: root.id, executions: [] };
+            }
+        });
+
+        const chainResults = await Promise.all(chainPromises);
+
+        // Build a map of all executions from complete chains
+        const completeChainExecutions = new Map();
+        for (const result of chainResults) {
+            for (const exec of result.executions) {
+                completeChainExecutions.set(exec.id, exec);
+            }
+        }
+
+        // Merge: use complete chain data where available, keep original for standalone executions
+        const mergedExecutions = new Map();
+
+        // First add all complete chain executions
+        for (const [id, exec] of completeChainExecutions) {
+            mergedExecutions.set(id, exec);
+        }
+
+        // Then add standalone executions (those not part of any fetched chain)
+        for (const exec of executions) {
+            if (exec && !completeChainExecutions.has(exec.id)) {
+                // Only add if this execution is not part of a chain we fetched
+                const hasParent = exec.lineage?.invokedBy?.execution?.id;
+                const hasChildren = exec.lineage?.hasChildren;
+                if (!hasParent && !hasChildren) {
+                    mergedExecutions.set(exec.id, exec);
+                }
+            }
+        }
+
+        return Array.from(mergedExecutions.values());
+    }
+
     // Load executions for an instance
     async function loadExecutions(instanceId, reset = false) {
         const contentDiv = document.getElementById('executionsContent');
@@ -586,6 +668,12 @@ const InstancesPage = (() => {
             }
 
             const data = await API.fetchExecutionsByInstance(instanceId, options);
+
+            // When flow filter is active, fetch complete chains to include executions outside date range
+            if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
+                contentDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading execution chains...</div></div>';
+                data.nodes = await fetchCompleteChains(data.nodes);
+            }
 
             if (reset) {
                 executionsData = data;
