@@ -554,7 +554,8 @@ const InstancesPage = (() => {
     }
 
     // Fetch complete execution chains for executions that have lineage data
-    async function fetchCompleteChains(executions) {
+    // Only includes executions of the same flow (filters out cross-flow calls)
+    async function fetchCompleteChains(executions, targetFlowName) {
         // Find executions that are part of chains (have lineage data)
         const chainRoots = new Map(); // Map of root execution ID -> root execution info
         const processedChains = new Set(); // Track which chains we've already fetched
@@ -589,7 +590,7 @@ const InstancesPage = (() => {
             return executions; // No chains to fetch
         }
 
-        console.log(`Fetching ${chainRoots.size} complete chain(s)...`);
+        console.log(`Fetching ${chainRoots.size} complete chain(s) for flow: ${targetFlowName}...`);
 
         // Fetch complete chains in parallel
         const chainPromises = Array.from(chainRoots.values()).map(async (root) => {
@@ -604,18 +605,21 @@ const InstancesPage = (() => {
 
         const chainResults = await Promise.all(chainPromises);
 
-        // Build a map of all executions from complete chains
+        // Build a map of all executions from complete chains, filtered to same flow only
         const completeChainExecutions = new Map();
         for (const result of chainResults) {
             for (const exec of result.executions) {
-                completeChainExecutions.set(exec.id, exec);
+                // Only include executions of the same flow (filter out cross-flow calls)
+                if (exec.flow?.name === targetFlowName) {
+                    completeChainExecutions.set(exec.id, exec);
+                }
             }
         }
 
         // Merge: use complete chain data where available, keep original for standalone executions
         const mergedExecutions = new Map();
 
-        // First add all complete chain executions
+        // First add all complete chain executions (already filtered to same flow)
         for (const [id, exec] of completeChainExecutions) {
             mergedExecutions.set(id, exec);
         }
@@ -670,9 +674,10 @@ const InstancesPage = (() => {
             const data = await API.fetchExecutionsByInstance(instanceId, options);
 
             // When flow filter is active, fetch complete chains to include executions outside date range
-            if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
+            // Only fetches executions of the same flow (filters out cross-flow calls)
+            if (currentFilters.flowId && currentFilters.flowName && data.nodes && data.nodes.length > 0) {
                 contentDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading execution chains...</div></div>';
-                data.nodes = await fetchCompleteChains(data.nodes);
+                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowName);
             }
 
             if (reset) {
