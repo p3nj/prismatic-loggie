@@ -595,21 +595,20 @@ const InstancesPage = (() => {
             if (exec) allExecutions.set(exec.id, exec);
         }
 
-        // Find mid-chain nodes that need back-fetching to find their roots
-        // NOTE: We only back-fetch, NOT forward-fetch, because:
+        // Find nodes that need back-fetching to find their roots
+        // NOTE: We only back-fetch (find parents), NOT forward-fetch (find children), because:
         // - hasChildren=true includes cross-flow calls, but we filter by same-flow
         // - Forward-fetching causes excessive API calls (49 calls returning empty for cross-flow)
         // - Same-flow children within date filter are already in results
+        // Back-fetch works for ANY node with parent outside results (including leaf nodes)
         let pendingRoots = new Map();
         for (const exec of executions) {
             if (!exec) continue;
 
             const parentRef = exec.lineage?.invokedBy?.execution;
-            const hasChildren = exec.lineage?.hasChildren;
 
-            // Only fetch for mid-chain nodes: has parent outside results AND has children
-            // This back-fetches to find the true root of the chain
-            if (parentRef?.id && parentRef?.startedAt && hasChildren) {
+            // Back-fetch: has parent outside results - fetch to find the root and complete the chain
+            if (parentRef?.id && parentRef?.startedAt) {
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
                 }
@@ -640,11 +639,10 @@ const InstancesPage = (() => {
                     for (const exec of chainExecutions) {
                         allExecutions.set(exec.id, exec);
 
-                        // Check if this fetched execution needs back-fetch:
-                        // Has parent outside results AND has children (mid-chain node)
+                        // Check if this fetched execution also needs back-fetch
+                        // (its parent might also be outside our results - continue up the chain)
                         const parentRef = exec.lineage?.invokedBy?.execution;
-                        const hasChildren = exec.lineage?.hasChildren;
-                        if (parentRef?.id && parentRef?.startedAt && hasChildren &&
+                        if (parentRef?.id && parentRef?.startedAt &&
                             !processedRoots.has(parentRef.id) &&
                             !allExecutions.has(parentRef.id)) {
                             // Parent is outside our results - need to back-fetch
