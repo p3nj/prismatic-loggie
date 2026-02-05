@@ -357,10 +357,12 @@ const API = (() => {
     `;
 
     // GraphQL query for linked/chained executions (for long-running flows)
+    // Filters by flowConfig_Flow to only get same-flow recursive calls, not cross-flow calls
     const linkedExecutionsQuery = `
-        query getLinkedExecutionList($invokedBy: ExecutionInvokedByInput) {
+        query getLinkedExecutionList($invokedBy: ExecutionInvokedByInput, $flowId: ID) {
             executionResults(
                 invokedBy: $invokedBy
+                flowConfig_Flow: $flowId
                 orderBy: {direction: ASC, field: STARTED_AT}
             ) {
                 nodes {
@@ -374,6 +376,7 @@ const API = (() => {
                     allowUpdate
                     status
                     flow {
+                        id
                         name
                     }
                     lineage {
@@ -796,8 +799,9 @@ const API = (() => {
     }
 
     // Fetch linked/chained executions for long-running flows
-    async function fetchLinkedExecutions(executionId, startedAt) {
-        console.log(`Fetching linked executions for: ${executionId}`);
+    // flowId parameter filters to only get same-flow executions (excludes cross-flow calls)
+    async function fetchLinkedExecutions(executionId, startedAt, flowId = null) {
+        console.log(`Fetching linked executions for: ${executionId}${flowId ? ` (flow: ${flowId})` : ''}`);
 
         const variables = {
             invokedBy: {
@@ -805,6 +809,10 @@ const API = (() => {
                 startedAt: startedAt
             }
         };
+
+        if (flowId) {
+            variables.flowId = flowId;
+        }
 
         const data = await graphqlRequest(linkedExecutionsQuery, variables);
         return data.executionResults?.nodes || [];
