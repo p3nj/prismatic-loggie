@@ -578,40 +578,46 @@ const InstancesPage = (() => {
     // Uses server-side flowId filter to only get same-flow recursive calls (excludes cross-flow)
     // Back-fetches until true root is found (handles parents outside date filter)
     // onProgress callback for live UI updates: (executions, remaining, fetched) => void
-    async function fetchCompleteChains(executions, targetFlowId, onProgress) {
+    // alreadyLoadedNodes: optional array of nodes already loaded (from previous batches) to avoid redundant fetches
+    async function fetchCompleteChains(executions, targetFlowId, onProgress, alreadyLoadedNodes = []) {
         const allExecutions = new Map(); // Final map of all executions
         const processedRoots = new Set(); // Track which roots we've already fetched
+
+        // Add already-loaded nodes to map first (these are from previous Load More batches)
+        for (const exec of alreadyLoadedNodes) {
+            if (exec) {
+                allExecutions.set(exec.id, exec);
+            }
+        }
 
         // Add initial executions to map
         for (const exec of executions) {
             if (exec) allExecutions.set(exec.id, exec);
         }
 
-        // Find initial chain roots from current executions
-        // Only fetch for executions that have parent outside results AND have children
-        // (they're mid-chain nodes that need the chain completed)
+        // Find nodes that need back-fetching to find their roots
+        // NOTE: We only back-fetch (find parents), NOT forward-fetch (find children), because:
+        // - hasChildren=true includes cross-flow calls, but we filter by same-flow
+        // - Forward-fetching causes excessive API calls (49 calls returning empty for cross-flow)
+        // - Same-flow children within date filter are already in results
+        // Back-fetch works for ANY node with parent outside results (including leaf nodes)
         let pendingRoots = new Map();
         for (const exec of executions) {
             if (!exec) continue;
 
             const parentRef = exec.lineage?.invokedBy?.execution;
-            const hasChildren = exec.lineage?.hasChildren;
 
-            if (parentRef?.id && parentRef?.startedAt && hasChildren) {
-                // Has parent outside results AND has children - mid-chain node needing completion
+            // Back-fetch: has parent outside results - fetch to find the root and complete the chain
+            if (parentRef?.id && parentRef?.startedAt) {
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
-                }
-            } else if (hasChildren && !parentRef) {
-                // True root with children - fetch descendants that might be outside date filter
-                if (!processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
-                    pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
             }
         }
 
         if (pendingRoots.size === 0) {
-            return executions; // No chains to fetch
+            // No chains to fetch - return all executions (including already-loaded)
+            return Array.from(allExecutions.values());
         }
 
         let fetchedCount = 0;
@@ -633,11 +639,10 @@ const InstancesPage = (() => {
                     for (const exec of chainExecutions) {
                         allExecutions.set(exec.id, exec);
 
-                        // Check if this fetched execution needs back-fetch:
-                        // Has parent outside results AND has children (mid-chain node)
+                        // Check if this fetched execution also needs back-fetch
+                        // (its parent might also be outside our results - continue up the chain)
                         const parentRef = exec.lineage?.invokedBy?.execution;
-                        const hasChildren = exec.lineage?.hasChildren;
-                        if (parentRef?.id && parentRef?.startedAt && hasChildren &&
+                        if (parentRef?.id && parentRef?.startedAt &&
                             !processedRoots.has(parentRef.id) &&
                             !allExecutions.has(parentRef.id)) {
                             // Parent is outside our results - need to back-fetch
@@ -699,10 +704,16 @@ const InstancesPage = (() => {
             // When flow filter is active, fetch complete chains to include executions outside date range
             // Uses server-side flowId filter to exclude cross-flow calls
             if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
+                // For Load More (reset=false), preserve existing nodes before chain fetching
+                // This prevents the old batch from being lost during onProgress updates
+                const existingNodes = (!reset && executionsData?.nodes) ? [...executionsData.nodes] : [];
+
                 // Live update callback - render progressively as chains are fetched
-                const onProgress = (executions, remaining, fetched) => {
-                    executionsData = { ...data, nodes: executions };
-                    renderExecutions(true);
+                // allNodes already includes existingNodes + new batch + chain-fetched nodes
+                const onProgress = (allNodes, remaining, fetched) => {
+                    executionsData = { ...data, nodes: allNodes };
+                    // Use false to preserve scroll position during progress updates
+                    renderExecutions(false);
 
                     // Show progress indicator
                     const progressDiv = document.getElementById('chainLoadingProgress');
@@ -716,14 +727,21 @@ const InstancesPage = (() => {
                     }
                 };
 
-                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress);
+                // Pass existingNodes to avoid redundant API calls for already-loaded chains
+                // fetchCompleteChains returns all nodes (existing + new + chain-fetched)
+                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress, existingNodes);
             }
 
             if (reset) {
                 executionsData = data;
             } else {
-                // API now returns nodes instead of edges
-                executionsData.nodes = [...executionsData.nodes, ...data.nodes];
+                // For flow filter: data already contains combined old + new (deduped above)
+                // For non-flow filter: need to append normally
+                if (currentFilters.flowId) {
+                    executionsData = data;
+                } else {
+                    executionsData.nodes = [...executionsData.nodes, ...data.nodes];
+                }
                 executionsData.pageInfo = data.pageInfo;
             }
 
