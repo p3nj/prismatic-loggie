@@ -595,19 +595,11 @@ const InstancesPage = (() => {
             if (exec) allExecutions.set(exec.id, exec);
         }
 
-        // Build set of execution IDs that are referenced as parents by other executions
-        // This helps us determine if children are already in results vs. missing
-        const referencedAsParent = new Set();
-        for (const exec of allExecutions.values()) {
-            if (exec?.lineage?.invokedBy?.execution?.id) {
-                referencedAsParent.add(exec.lineage.invokedBy.execution.id);
-            }
-        }
-
-        // Find chain roots that need fetching
-        // Two cases:
-        // 1. Back-fetch: execution has parent outside results (need to find root)
-        // 2. Forward-fetch: true root has children outside results (need to find descendants)
+        // Find mid-chain nodes that need back-fetching to find their roots
+        // NOTE: We only back-fetch, NOT forward-fetch, because:
+        // - hasChildren=true includes cross-flow calls, but we filter by same-flow
+        // - Forward-fetching causes excessive API calls (49 calls returning empty for cross-flow)
+        // - Same-flow children within date filter are already in results
         let pendingRoots = new Map();
         for (const exec of executions) {
             if (!exec) continue;
@@ -615,18 +607,11 @@ const InstancesPage = (() => {
             const parentRef = exec.lineage?.invokedBy?.execution;
             const hasChildren = exec.lineage?.hasChildren;
 
+            // Only fetch for mid-chain nodes: has parent outside results AND has children
+            // This back-fetches to find the true root of the chain
             if (parentRef?.id && parentRef?.startedAt && hasChildren) {
-                // Mid-chain node: has parent outside results AND has children
-                // Back-fetch to find the root (fetching parent's chain returns entire chain)
                 if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
-                }
-            } else if (hasChildren && !parentRef) {
-                // True root with children - check if children are missing from results
-                // If no execution references this as parent, children might be outside date filter
-                if (!referencedAsParent.has(exec.id) && !processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
-                    // Forward-fetch: children are outside results, fetch this root's chain
-                    pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
             }
         }
