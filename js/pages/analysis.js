@@ -71,6 +71,15 @@ const AnalysisPage = (() => {
 
         setupEventListeners();
         initializeDateRange();
+
+        // Register cleanup on navigation away
+        Router.beforeNavigate((path) => {
+            if (path !== 'analysis') {
+                cleanup();
+            }
+            return true; // Allow navigation
+        });
+
         state.initialized = true;
     }
 
@@ -277,21 +286,28 @@ const AnalysisPage = (() => {
                 });
                 metricsData = result?.nodes || [];
             } else if (state.level === 'customer' && state.selectedCustomerId) {
-                // Customer level: fetch metrics for all instances and filter by customer
-                // The API doesn't support filtering by customer, so we fetch all and filter client-side
-                const result = await API.fetchInstanceDailyUsageMetrics({
-                    first: 500, // Fetch more to ensure we get all customer data
-                    snapshotDateGte: state.dateFrom,
-                    snapshotDateLte: state.dateTo
-                });
-
-                // Filter to only include metrics for instances belonging to this customer
-                const customerMetrics = (result?.nodes || []).filter(m =>
-                    m.instance?.customer?.id === state.selectedCustomerId
-                );
-
-                // Aggregate by date (multiple instances for one customer)
-                metricsData = aggregateMetricsByDate(customerMetrics);
+                // Customer level: fetch metrics for each instance belonging to the customer
+                // Use the already-loaded customer instances list
+                const instances = state.data.customerInstances;
+                if (instances.length > 0) {
+                    // Fetch metrics for each instance in parallel (max 10 concurrent)
+                    const allMetrics = [];
+                    for (let i = 0; i < instances.length; i += 10) {
+                        const batch = instances.slice(i, i + 10);
+                        const results = await Promise.all(
+                            batch.map(inst => API.fetchInstanceDailyUsageMetrics({
+                                first: 100,
+                                instanceId: inst.id,
+                                snapshotDateGte: state.dateFrom,
+                                snapshotDateLte: state.dateTo
+                            }))
+                        );
+                        results.forEach(r => allMetrics.push(...(r?.nodes || [])));
+                    }
+                    metricsData = aggregateMetricsByDate(allMetrics);
+                } else {
+                    metricsData = [];
+                }
             } else {
                 metricsData = [];
             }
@@ -304,7 +320,20 @@ const AnalysisPage = (() => {
 
         } catch (error) {
             console.error('Error loading daily metrics:', error);
+            showError('Failed to load metrics: ' + error.message);
         }
+    }
+
+    // Calculate totals from daily metrics (shared helper)
+    function calculateTotals(metrics) {
+        let totalSuccess = 0, totalFailed = 0, totalSteps = 0, totalSpend = 0;
+        metrics.forEach(m => {
+            totalSuccess += Number(m.successfulExecutionCount) || 0;
+            totalFailed += Number(m.failedExecutionCount) || 0;
+            totalSteps += Number(m.stepCount) || 0;
+            totalSpend += Number(m.spendMbSecs) || 0;
+        });
+        return { totalSuccess, totalFailed, totalSteps, totalSpend, total: totalSuccess + totalFailed };
     }
 
     // Aggregate metrics by date (for customer-level view)
@@ -333,21 +362,7 @@ const AnalysisPage = (() => {
 
     // Update KPI cards
     function updateKPIs() {
-        const metrics = state.data.dailyMetrics;
-
-        let totalSuccess = 0;
-        let totalFailed = 0;
-        let totalSteps = 0;
-        let totalSpend = 0;
-
-        metrics.forEach(m => {
-            totalSuccess += Number(m.successfulExecutionCount) || 0;
-            totalFailed += Number(m.failedExecutionCount) || 0;
-            totalSteps += Number(m.stepCount) || 0;
-            totalSpend += Number(m.spendMbSecs) || 0;
-        });
-
-        const total = totalSuccess + totalFailed;
+        const { totalSuccess, totalFailed, totalSteps, total } = calculateTotals(state.data.dailyMetrics);
         const successRate = total > 0 ? ((totalSuccess / total) * 100).toFixed(1) : 0;
 
         document.getElementById('kpiTotalExecutions').textContent = formatLargeNumber(total);
@@ -433,14 +448,7 @@ const AnalysisPage = (() => {
         const ctx = document.getElementById('outcomeChart');
         if (!ctx) return;
 
-        const metrics = state.data.dailyMetrics;
-        let totalSuccess = 0;
-        let totalFailed = 0;
-
-        metrics.forEach(m => {
-            totalSuccess += Number(m.successfulExecutionCount) || 0;
-            totalFailed += Number(m.failedExecutionCount) || 0;
-        });
+        const { totalSuccess, totalFailed } = calculateTotals(state.data.dailyMetrics);
 
         if (charts.outcome) {
             charts.outcome.destroy();
@@ -769,6 +777,7 @@ const AnalysisPage = (() => {
             }
         } catch (error) {
             console.error('Error loading customers:', error);
+            showError('Failed to load customers: ' + error.message);
         }
     }
 
@@ -878,6 +887,7 @@ const AnalysisPage = (() => {
             }
         } catch (error) {
             console.error('Error loading instances:', error);
+            showError('Failed to load instances: ' + error.message);
         }
     }
 
@@ -1005,6 +1015,7 @@ const AnalysisPage = (() => {
 
         } catch (error) {
             console.error('Error loading recent executions:', error);
+            showError('Failed to load executions: ' + error.message);
         }
     }
 
@@ -1110,10 +1121,30 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Show error message
+    // Show error message with toast
     function showError(message) {
         console.error(message);
-        // Could add a toast notification here
+        // Create toast container if not exists
+        let container = document.getElementById('analysisToastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'analysisToastContainer';
+            container.className = 'position-fixed bottom-0 end-0 p-3';
+            container.style.zIndex = '1050';
+            document.body.appendChild(container);
+        }
+        // Create toast
+        const toastId = 'toast-' + Date.now();
+        container.innerHTML = `
+            <div id="${toastId}" class="toast align-items-center text-bg-danger border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body"><i class="bi bi-exclamation-triangle me-2"></i>${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `;
+        const toast = new bootstrap.Toast(document.getElementById(toastId), { delay: 5000 });
+        toast.show();
     }
 
     // Route handler
