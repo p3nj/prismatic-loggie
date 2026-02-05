@@ -21,12 +21,20 @@ const AnalysisPage = (() => {
             dailyMetrics: [],
             customers: [],
             customerInstances: [],
-            recentExecutions: []
+            recentExecutions: [],
+            allInstanceMetrics: [],  // All instances' daily metrics for top performers
+            aggregatedByCustomer: [], // Customer-level aggregated metrics
+            aggregatedByInstance: []  // Instance-level aggregated metrics
         },
+        // Loading states for progressive fetch
+        instanceMetricsLoading: false,
+        instanceMetricsTotal: 0,
+        instanceMetricsLoaded: 0,
         // Pagination
         pagination: {
             customers: { cursor: null, hasMore: true },
-            instances: { cursor: null, hasMore: true }
+            instances: { cursor: null, hasMore: true },
+            executions: { cursor: null, hasMore: true, totalCount: 0 }
         }
     };
 
@@ -251,12 +259,16 @@ const AnalysisPage = (() => {
         try {
             updateLastUpdated();
 
-            // Load data in parallel where possible
+            // Load core data in parallel
             await Promise.all([
                 loadDailyMetrics(),
                 loadCustomers(true),
                 loadRecentExecutions()
             ]);
+
+            // Load instance metrics separately (can be large, progressive loading)
+            // This is non-blocking - charts will update when data arrives
+            loadAllInstanceMetrics();
 
         } catch (error) {
             console.error('Error loading analysis data:', error);
@@ -359,6 +371,150 @@ const AnalysisPage = (() => {
         });
 
         return Object.values(byDate).sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+    }
+
+    // Load all instances' daily metrics for top performers (with pagination)
+    async function loadAllInstanceMetrics() {
+        // Only load at org level - customer/instance levels use filtered data
+        if (state.level !== 'org') {
+            state.data.allInstanceMetrics = [];
+            state.data.aggregatedByCustomer = [];
+            state.data.aggregatedByInstance = [];
+            return;
+        }
+
+        try {
+            state.instanceMetricsLoading = true;
+            state.instanceMetricsLoaded = 0;
+            state.instanceMetricsTotal = 0;
+            updateInstanceMetricsLoadingUI();
+
+            let lastProgress = null;
+            const generator = API.fetchAllInstancesDailyUsageMetricsFull({
+                batchSize: 500,
+                snapshotDateGte: state.dateFrom,
+                snapshotDateLte: state.dateTo
+            });
+
+            for await (const progress of generator) {
+                state.instanceMetricsLoaded = progress.loadedCount;
+                state.instanceMetricsTotal = progress.totalCount;
+                lastProgress = progress;
+                updateInstanceMetricsLoadingUI();
+
+                // Update aggregations progressively for better UX
+                if (progress.metrics && progress.metrics.length > 0) {
+                    state.data.allInstanceMetrics = progress.metrics;
+                    state.data.aggregatedByCustomer = aggregateMetricsByCustomer(progress.metrics);
+                    state.data.aggregatedByInstance = aggregateMetricsByInstance(progress.metrics);
+
+                    // Update charts with partial data
+                    updateTopVolumeChart();
+                    updateTopErrorsChart();
+                }
+            }
+
+            // Ensure final state is set
+            if (lastProgress && lastProgress.metrics) {
+                state.data.allInstanceMetrics = lastProgress.metrics;
+                state.data.aggregatedByCustomer = aggregateMetricsByCustomer(lastProgress.metrics);
+                state.data.aggregatedByInstance = aggregateMetricsByInstance(lastProgress.metrics);
+            }
+
+            state.instanceMetricsLoading = false;
+            updateInstanceMetricsLoadingUI();
+
+            // Final chart update
+            updateTopVolumeChart();
+            updateTopErrorsChart();
+
+        } catch (error) {
+            console.error('Error loading all instance metrics:', error);
+            state.instanceMetricsLoading = false;
+            updateInstanceMetricsLoadingUI();
+        }
+    }
+
+    // Aggregate metrics by customer (sum all instances per customer)
+    function aggregateMetricsByCustomer(metrics) {
+        const byCustomer = {};
+
+        metrics.forEach(m => {
+            const customerId = m.instance?.customer?.id;
+            const customerName = m.instance?.customer?.name || 'Unknown';
+            if (!customerId) return;
+
+            if (!byCustomer[customerId]) {
+                byCustomer[customerId] = {
+                    id: customerId,
+                    name: customerName,
+                    successfulExecutionCount: 0,
+                    failedExecutionCount: 0,
+                    totalExecutionCount: 0,
+                    stepCount: 0,
+                    spendMbSecs: 0
+                };
+            }
+            byCustomer[customerId].successfulExecutionCount += Number(m.successfulExecutionCount) || 0;
+            byCustomer[customerId].failedExecutionCount += Number(m.failedExecutionCount) || 0;
+            byCustomer[customerId].totalExecutionCount += (Number(m.successfulExecutionCount) || 0) + (Number(m.failedExecutionCount) || 0);
+            byCustomer[customerId].stepCount += Number(m.stepCount) || 0;
+            byCustomer[customerId].spendMbSecs += Number(m.spendMbSecs) || 0;
+        });
+
+        return Object.values(byCustomer);
+    }
+
+    // Aggregate metrics by instance (sum all days per instance)
+    function aggregateMetricsByInstance(metrics) {
+        const byInstance = {};
+
+        metrics.forEach(m => {
+            const instanceId = m.instance?.id;
+            const instanceName = m.instance?.name || 'Unknown';
+            const customerName = m.instance?.customer?.name || 'Unknown';
+            const integrationName = m.instance?.integration?.name || '';
+            if (!instanceId) return;
+
+            if (!byInstance[instanceId]) {
+                byInstance[instanceId] = {
+                    id: instanceId,
+                    name: instanceName,
+                    customerName: customerName,
+                    integrationName: integrationName,
+                    successfulExecutionCount: 0,
+                    failedExecutionCount: 0,
+                    totalExecutionCount: 0,
+                    stepCount: 0,
+                    spendMbSecs: 0
+                };
+            }
+            byInstance[instanceId].successfulExecutionCount += Number(m.successfulExecutionCount) || 0;
+            byInstance[instanceId].failedExecutionCount += Number(m.failedExecutionCount) || 0;
+            byInstance[instanceId].totalExecutionCount += (Number(m.successfulExecutionCount) || 0) + (Number(m.failedExecutionCount) || 0);
+            byInstance[instanceId].stepCount += Number(m.stepCount) || 0;
+            byInstance[instanceId].spendMbSecs += Number(m.spendMbSecs) || 0;
+        });
+
+        return Object.values(byInstance);
+    }
+
+    // Update loading UI for instance metrics
+    function updateInstanceMetricsLoadingUI() {
+        const loadingIndicator = document.getElementById('instanceMetricsLoading');
+        if (!loadingIndicator) return;
+
+        if (state.instanceMetricsLoading) {
+            loadingIndicator.classList.remove('d-none');
+            loadingIndicator.innerHTML = `
+                <small class="text-muted">
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    Loading metrics: ${formatNumber(state.instanceMetricsLoaded)} / ${formatNumber(state.instanceMetricsTotal)}
+                </small>
+            `;
+        } else {
+            loadingIndicator.classList.add('d-none');
+        }
     }
 
     // Update KPI cards
@@ -687,8 +843,49 @@ const AnalysisPage = (() => {
         });
     }
 
-    // Get top performers data
+    // Get top performers data - uses aggregated metrics for accurate counts
     function getTopPerformersData(metric, type) {
+        // For org level, use pre-aggregated data from instanceDailyUsageMetrics
+        if (state.level === 'org' && (metric === 'customers' || metric === 'instances')) {
+            return getTopPerformersFromAggregatedData(metric, type);
+        }
+
+        // For customer/instance level or flows, fall back to execution sampling
+        return getTopPerformersFromExecutions(metric, type);
+    }
+
+    // Get top performers from pre-aggregated instance metrics (accurate, full data)
+    function getTopPerformersFromAggregatedData(metric, type) {
+        let data = [];
+
+        if (metric === 'customers') {
+            data = state.data.aggregatedByCustomer || [];
+        } else if (metric === 'instances') {
+            data = state.data.aggregatedByInstance || [];
+        }
+
+        if (data.length === 0) {
+            return { labels: [], values: [], isComplete: false };
+        }
+
+        // Sort by volume or errors
+        const sorted = [...data].sort((a, b) => {
+            if (type === 'errors') {
+                return b.failedExecutionCount - a.failedExecutionCount;
+            }
+            return b.totalExecutionCount - a.totalExecutionCount;
+        }).slice(0, 10);
+
+        return {
+            labels: sorted.map(s => truncateString(s.name, 20)),
+            values: sorted.map(s => type === 'errors' ? s.failedExecutionCount : s.totalExecutionCount),
+            isComplete: true,
+            totalRecords: data.length
+        };
+    }
+
+    // Get top performers from execution samples (for flows or drill-down levels)
+    function getTopPerformersFromExecutions(metric, type) {
         const executions = state.data.recentExecutions;
         const counts = {};
 
@@ -729,7 +926,9 @@ const AnalysisPage = (() => {
 
         return {
             labels: sorted.map(s => truncateString(s.name, 20)),
-            values: sorted.map(s => type === 'errors' ? s.errors : s.total)
+            values: sorted.map(s => type === 'errors' ? s.errors : s.total),
+            isComplete: false,
+            sampleSize: executions.length
         };
     }
 
@@ -986,14 +1185,28 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Load recent executions
-    async function loadRecentExecutions() {
+    // Load recent executions with lazy loading support
+    async function loadRecentExecutions(reset = true, loadMore = false) {
         try {
+            // Reset pagination state if requested
+            if (reset) {
+                state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
+                state.data.recentExecutions = [];
+            }
+
+            // Don't load more if no more data
+            if (loadMore && !state.pagination.executions?.hasMore) return;
+
             const options = {
-                first: 100,
+                first: 500,  // Increased from 100 for better trigger distribution sampling
                 startedAtGte: state.dateFrom + 'T00:00:00Z',
                 startedAtLte: state.dateTo + 'T23:59:59Z'
             };
+
+            // Add cursor for pagination
+            if (loadMore && state.pagination.executions?.cursor) {
+                options.after = state.pagination.executions.cursor;
+            }
 
             if (state.selectedInstanceId) {
                 options.instanceId = state.selectedInstanceId;
@@ -1003,16 +1216,33 @@ const AnalysisPage = (() => {
             }
 
             const result = await API.fetchRecentExecutionsAnalysis(options);
-            state.data.recentExecutions = result?.nodes || [];
+            const newExecutions = result?.nodes || [];
+
+            // Append or replace executions
+            if (loadMore) {
+                state.data.recentExecutions = [...state.data.recentExecutions, ...newExecutions];
+            } else {
+                state.data.recentExecutions = newExecutions;
+            }
+
+            // Update pagination state
+            state.pagination.executions = {
+                cursor: result?.pageInfo?.endCursor || null,
+                hasMore: result?.pageInfo?.hasNextPage || false,
+                totalCount: result?.totalCount || state.data.recentExecutions.length
+            };
 
             renderRecentExecutions();
             updateTriggerChart();
-            updateTopVolumeChart();
-            updateTopErrorsChart();
 
-            // Show displayed count (max 50) not fetched count
-            const displayedCount = Math.min(state.data.recentExecutions.length, 50);
-            document.getElementById('recentExecutionsCount').textContent = displayedCount;
+            // Only update top charts from executions if not at org level (org level uses aggregated data)
+            if (state.level !== 'org') {
+                updateTopVolumeChart();
+                updateTopErrorsChart();
+            }
+
+            // Update count badge to show loaded vs total
+            updateRecentExecutionsCount();
 
         } catch (error) {
             console.error('Error loading recent executions:', error);
@@ -1020,12 +1250,30 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Render recent executions list
+    // Update recent executions count badge
+    function updateRecentExecutionsCount() {
+        const countEl = document.getElementById('recentExecutionsCount');
+        const totalCount = state.pagination.executions?.totalCount || state.data.recentExecutions.length;
+        const loadedCount = state.data.recentExecutions.length;
+
+        if (countEl) {
+            if (totalCount > loadedCount) {
+                countEl.textContent = `${formatNumber(loadedCount)} / ${formatNumber(totalCount)}`;
+            } else {
+                countEl.textContent = formatNumber(loadedCount);
+            }
+        }
+    }
+
+    // Render recent executions list with lazy loading
     function renderRecentExecutions() {
         const container = document.getElementById('recentExecutionsList');
         if (!container) return;
 
-        const executions = state.data.recentExecutions.slice(0, 50); // Show last 50
+        const displayLimit = 100; // Increased from 50
+        const executions = state.data.recentExecutions.slice(0, displayLimit);
+        const hasMoreToDisplay = state.data.recentExecutions.length > displayLimit;
+        const hasMoreToLoad = state.pagination.executions?.hasMore || false;
 
         if (executions.length === 0) {
             container.innerHTML = `
@@ -1037,7 +1285,7 @@ const AnalysisPage = (() => {
             return;
         }
 
-        container.innerHTML = executions.map(exec => {
+        let html = executions.map(exec => {
             const startTime = new Date(exec.startedAt);
             const statusClass = exec.status === 'SUCCEEDED' || exec.status === 'SUCCESS' ? 'success' :
                                exec.status === 'FAILED' || exec.status === 'ERROR' ? 'danger' : 'secondary';
@@ -1068,6 +1316,39 @@ const AnalysisPage = (() => {
                 </div>
             `;
         }).join('');
+
+        // Add "Load More" button if there's more data
+        if (hasMoreToLoad) {
+            const totalCount = state.pagination.executions?.totalCount || 0;
+            const loadedCount = state.data.recentExecutions.length;
+            html += `
+                <div class="text-center py-3 border-top">
+                    <button id="loadMoreExecutionsBtn" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-arrow-down-circle me-1"></i>
+                        Load More (${formatNumber(loadedCount)} of ${formatNumber(totalCount)})
+                    </button>
+                </div>
+            `;
+        } else if (hasMoreToDisplay) {
+            // All data loaded but showing limited - just informational
+            html += `
+                <div class="text-center py-2 text-muted">
+                    <small>Showing ${displayLimit} of ${state.data.recentExecutions.length} loaded executions</small>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+
+        // Attach event listener for Load More button
+        const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', async () => {
+                loadMoreBtn.disabled = true;
+                loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
+                await loadRecentExecutions(false, true);
+            });
+        }
     }
 
     // Escape HTML
