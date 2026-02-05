@@ -6,13 +6,44 @@ const IntegrationsPage = (() => {
     let selectedVersion = null;
     let searchTimeout = null;
     let yamlEditor = null;
+    let themeObserver = null;
+
+    // Get current theme
+    function getCurrentTheme() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs';
+    }
+
+    // Update Monaco editor theme
+    function updateEditorTheme() {
+        if (yamlEditor && typeof monaco !== 'undefined') {
+            monaco.editor.setTheme(getCurrentTheme());
+        }
+    }
 
     // Initialize the integrations page
     function init() {
         if (initialized) return;
 
         setupEventListeners();
+        setupThemeObserver();
         initialized = true;
+    }
+
+    // Setup theme observer to follow website theme
+    function setupThemeObserver() {
+        // Watch for theme changes on document element
+        themeObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.attributeName === 'data-theme') {
+                    updateEditorTheme();
+                }
+            });
+        });
+
+        themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-theme']
+        });
     }
 
     // Setup event listeners
@@ -45,8 +76,17 @@ const IntegrationsPage = (() => {
         if (versionSelect) {
             versionSelect.addEventListener('change', (e) => {
                 const versionId = e.target.value;
-                if (versionId) {
-                    loadVersionDefinition(versionId);
+                if (versionId && selectedIntegration) {
+                    // Check if this is the current version (uses integration ID)
+                    if (versionId === selectedIntegration.id) {
+                        // Current version - we already have the definition
+                        if (selectedIntegration.definition) {
+                            showYamlInEditor(selectedIntegration.definition);
+                        }
+                    } else {
+                        // Historical version - need to fetch
+                        loadVersionDefinition(versionId);
+                    }
                 }
             });
         }
@@ -326,14 +366,27 @@ const IntegrationsPage = (() => {
         const select = document.getElementById('versionSelect');
         if (!select) return;
 
-        const versions = integration.versions?.nodes || [];
+        const versions = [...(integration.versions?.nodes || [])];
+
+        // Check if current version is in the list
+        const currentVersionInList = versions.some(v => v.versionNumber === integration.versionNumber);
+
+        // If current version is not in the list, add it (it might be a draft/unpublished version)
+        if (!currentVersionInList && integration.versionNumber) {
+            versions.unshift({
+                id: integration.id, // Use integration ID for current version
+                versionNumber: integration.versionNumber,
+                isAvailable: true,
+                isCurrent: true
+            });
+        }
 
         // Sort versions by version number descending
         versions.sort((a, b) => b.versionNumber - a.versionNumber);
 
         select.innerHTML = versions.map(v => {
             const isCurrent = v.versionNumber === integration.versionNumber;
-            const availableTag = v.isAvailable ? '' : ' [Unavailable]';
+            const availableTag = v.isAvailable === false ? ' [Unavailable]' : '';
             return `<option value="${v.id}" ${isCurrent ? 'selected' : ''}>
                 v${v.versionNumber}${isCurrent ? ' [Current]' : ''}${availableTag}
             </option>`;
@@ -358,7 +411,20 @@ const IntegrationsPage = (() => {
             }
         } catch (error) {
             console.error('Error loading version definition:', error);
-            showEditorError(error.message);
+            // Show helpful message for historical versions
+            const container = document.getElementById('yamlEditorContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="d-flex justify-content-center align-items-center h-100 text-muted">
+                        <div class="text-center p-4">
+                            <i class="bi bi-clock-history display-4 mb-3 d-block"></i>
+                            <p class="mb-2">Historical version definitions are not directly accessible via API.</p>
+                            <p class="small">To view this version's definition, please use the Prismatic web interface or CLI.</p>
+                            <p class="small text-muted mt-3">Select the current version to view its definition here.</p>
+                        </div>
+                    </div>
+                `;
+            }
         }
     }
 
@@ -388,7 +454,7 @@ const IntegrationsPage = (() => {
         yamlEditor = monaco.editor.create(container, {
             value: yamlContent,
             language: 'yaml',
-            theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+            theme: getCurrentTheme(),
             automaticLayout: true,
             minimap: { enabled: true },
             readOnly: false,
