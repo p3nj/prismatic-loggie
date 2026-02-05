@@ -117,6 +117,45 @@ const IntegrationsPage = (() => {
         if (editModeBtn) {
             editModeBtn.addEventListener('click', toggleEditMode);
         }
+
+        // Open in Designer button
+        const openDesignerBtn = document.getElementById('openDesignerBtn');
+        if (openDesignerBtn) {
+            openDesignerBtn.addEventListener('click', openInDesigner);
+        }
+    }
+
+    // Open the integration in Prismatic Designer
+    function openInDesigner() {
+        if (!selectedIntegration) {
+            showToast('No integration selected', 'error');
+            return;
+        }
+
+        // Extract the actual ID from the base64-encoded GraphQL ID
+        // The ID format is typically: SW50ZWdyYXRpb246YTJhNjE2YTEtOTZiNi00MjViLTgwMTAtZGMzNzVmMTQ2OTdk
+        // Which decodes to: Integration:a2a616a1-96b6-425b-8010-dc375f14697d
+        let integrationId = selectedIntegration.id;
+
+        try {
+            // Try to decode the base64 ID to get the actual UUID
+            const decoded = atob(integrationId);
+            if (decoded.includes(':')) {
+                integrationId = decoded.split(':')[1];
+            }
+        } catch (e) {
+            // If decoding fails, use the ID as-is
+            console.log('Using integration ID as-is:', integrationId);
+        }
+
+        // Get the current endpoint (e.g., https://app.prismatic.io)
+        const endpoint = API.getEndpoint();
+
+        // Construct the designer URL
+        const designerUrl = `${endpoint}/designer/${integrationId}/`;
+
+        // Open in a new tab
+        window.open(designerUrl, '_blank');
     }
 
     // Handle version change
@@ -288,15 +327,26 @@ const IntegrationsPage = (() => {
         }
     }
 
-    // Show/hide edit mode button based on version type
+    // Show/hide edit mode section based on version type
     function updateEditModeButton(canEdit) {
+        const editModeSection = document.getElementById('editModeSection');
         const editModeBtn = document.getElementById('enableEditModeBtn');
-        if (!editModeBtn) return;
 
-        if (canEdit) {
-            editModeBtn.classList.remove('d-none');
-        } else {
-            editModeBtn.classList.add('d-none');
+        if (editModeSection) {
+            if (canEdit) {
+                editModeSection.classList.remove('d-none');
+            } else {
+                editModeSection.classList.add('d-none');
+            }
+        }
+
+        // Also update button visibility for legacy support
+        if (editModeBtn) {
+            if (canEdit) {
+                editModeBtn.classList.remove('d-none');
+            } else {
+                editModeBtn.classList.add('d-none');
+            }
         }
 
         // Reset button state when showing
@@ -614,8 +664,33 @@ const IntegrationsPage = (() => {
     // Update integration name display
     function updateIntegrationName(integration) {
         const nameEl = document.getElementById('selectedIntegrationName');
+        const templateIdEl = document.getElementById('templateIdDisplay');
+        const openDesignerBtn = document.getElementById('openDesignerBtn');
+
         if (nameEl) {
             nameEl.textContent = integration.name;
+            nameEl.title = integration.name; // Full name on hover
+        }
+
+        // Show template ID (extract UUID from base64 encoded ID)
+        if (templateIdEl) {
+            let displayId = integration.id;
+            try {
+                const decoded = atob(integration.id);
+                if (decoded.includes(':')) {
+                    displayId = decoded.split(':')[1];
+                }
+            } catch (e) {
+                // Use original ID if decode fails
+            }
+            // Show truncated ID
+            templateIdEl.textContent = displayId.length > 12 ? displayId.substring(0, 12) + '...' : displayId;
+            templateIdEl.title = displayId; // Full ID on hover
+        }
+
+        // Enable the Open in Designer button
+        if (openDesignerBtn) {
+            openDesignerBtn.disabled = false;
         }
     }
 
