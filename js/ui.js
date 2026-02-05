@@ -1325,7 +1325,7 @@ const UI = (() => {
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'jsonModal';
-            modal.className = 'modal';
+            modal.className = 'json-modal';
             modal.innerHTML = `
                 <div class="modal-content modal-lg">
                     <span class="close-modal">&times;</span>
@@ -2306,11 +2306,13 @@ const UI = (() => {
             return;
         }
 
-        try {
-            // Fetch the step output from the resultsUrl
-            const response = await fetch(step.resultsUrl);
+        // Helper function to fetch and parse step output data
+        async function fetchStepOutputData(url) {
+            const response = await fetch(url);
             if (!response.ok) {
-                throw new Error(`Failed to fetch step output: ${response.status}`);
+                const error = new Error(`Failed to fetch step output: ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
 
             // Get the response as array buffer first to check if it's binary
@@ -2354,10 +2356,38 @@ const UI = (() => {
                 outputData = JSON.parse(text);
             }
 
-            // Show in JSON modal
+            return outputData;
+        }
+
+        try {
+            // First attempt: try with the existing URL
+            const outputData = await fetchStepOutputData(step.resultsUrl);
             showStepOutputModal(step, outputData);
         } catch (error) {
             console.error('Error fetching step output:', error);
+
+            // If we got a 403 error and have a step ID, try to refresh the URL
+            if (error.status === 403 && step.id) {
+                console.log('Presigned URL expired, attempting to refresh...');
+                try {
+                    // Fetch fresh step result with new presigned URL
+                    const freshStepResult = await API.fetchSingleStepResult(step.id);
+                    if (freshStepResult && freshStepResult.resultsUrl) {
+                        console.log('Got fresh URL, retrying fetch...');
+                        // Update the step's URL for future use
+                        step.resultsUrl = freshStepResult.resultsUrl;
+                        // Retry with the new URL
+                        const outputData = await fetchStepOutputData(freshStepResult.resultsUrl);
+                        showStepOutputModal(step, outputData);
+                        return;
+                    }
+                } catch (refreshError) {
+                    console.error('Error refreshing step result URL:', refreshError);
+                    showStepOutputErrorModal(step, 'The output URL has expired and could not be refreshed. Please reload the execution.');
+                    return;
+                }
+            }
+
             // Show a more user-friendly modal for errors
             showStepOutputErrorModal(step, error.message);
         }
