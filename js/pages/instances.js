@@ -743,14 +743,31 @@ const InstancesPage = (() => {
 
     // Helper: Get status badge HTML
     function getStatusBadge(status) {
-        const badges = {
-            'SUCCEEDED': '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Succeeded</span>',
-            'FAILED': '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>',
-            'RUNNING': '<span class="badge bg-primary"><i class="bi bi-play-circle me-1"></i>Running</span>',
-            'PENDING': '<span class="badge bg-warning text-dark"><i class="bi bi-hourglass me-1"></i>Pending</span>',
-            'CANCELED': '<span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Canceled</span>'
-        };
-        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+        // Normalize status to handle API variations
+        const normalizedStatus = status ? status.toUpperCase() : '';
+
+        // Success states (green)
+        if (normalizedStatus === 'SUCCEEDED' || normalizedStatus === 'SUCCESS') {
+            return '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Succeeded</span>';
+        }
+        // Failed/Error states (red)
+        if (normalizedStatus === 'FAILED' || normalizedStatus === 'FAILURE' || normalizedStatus === 'ERROR') {
+            return '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>';
+        }
+        // Running states (blue)
+        if (normalizedStatus === 'RUNNING' || normalizedStatus === 'IN_PROGRESS') {
+            return '<span class="badge bg-primary"><i class="bi bi-play-circle me-1"></i>Running</span>';
+        }
+        // Pending states (yellow)
+        if (normalizedStatus === 'PENDING' || normalizedStatus === 'QUEUED') {
+            return '<span class="badge bg-warning text-dark"><i class="bi bi-hourglass me-1"></i>Pending</span>';
+        }
+        // Canceled state (gray)
+        if (normalizedStatus === 'CANCELED' || normalizedStatus === 'CANCELLED') {
+            return '<span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Canceled</span>';
+        }
+        // Unknown status (gray)
+        return `<span class="badge bg-secondary">${status || 'Unknown'}</span>`;
     }
 
     // Helper: Format date
