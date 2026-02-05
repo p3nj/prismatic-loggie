@@ -104,6 +104,12 @@ const IntegrationsPage = (() => {
         if (saveBtn) {
             saveBtn.addEventListener('click', saveYamlChanges);
         }
+
+        // Version Swap button
+        const versionSwapBtn = document.getElementById('versionSwapBtn');
+        if (versionSwapBtn) {
+            versionSwapBtn.addEventListener('click', showVersionSwapConfirmation);
+        }
     }
 
     // Handle version change
@@ -118,7 +124,12 @@ const IntegrationsPage = (() => {
 
         if (versionNumber && selectedIntegration) {
             // Check if this is the current version
-            if (versionNumber === selectedIntegration.versionNumber) {
+            const isHistoricalVersion = versionNumber !== selectedIntegration.versionNumber;
+
+            // Update Version Swap button visibility
+            updateVersionSwapButton(isHistoricalVersion);
+
+            if (!isHistoricalVersion) {
                 // Current version - we already have the definition
                 isCurrentVersionUnpublished = isUnpublished;
                 if (selectedIntegration.definition) {
@@ -131,6 +142,20 @@ const IntegrationsPage = (() => {
                 isCurrentVersionUnpublished = false;
                 loadVersionDefinition(selectedIntegration.versionSequenceId, versionNumber);
             }
+        }
+    }
+
+    // Update Version Swap button visibility
+    function updateVersionSwapButton(isHistoricalVersion) {
+        const versionSwapBtn = document.getElementById('versionSwapBtn');
+        if (!versionSwapBtn) return;
+
+        if (isHistoricalVersion && selectedIntegration) {
+            versionSwapBtn.classList.remove('d-none');
+            versionSwapBtn.disabled = false;
+        } else {
+            versionSwapBtn.classList.add('d-none');
+            versionSwapBtn.disabled = true;
         }
     }
 
@@ -786,6 +811,9 @@ const IntegrationsPage = (() => {
 
         if (exportBtn) exportBtn.disabled = false;
         if (importBtn) importBtn.disabled = false;
+
+        // Hide Version Swap button (only shown for historical versions)
+        updateVersionSwapButton(false);
     }
 
     // Save YAML changes
@@ -960,6 +988,156 @@ const IntegrationsPage = (() => {
         } catch (error) {
             console.error('Error importing integration:', error);
             showToast('Import failed: ' + error.message, 'error');
+        }
+    }
+
+    // Show Version Swap confirmation dialog
+    function showVersionSwapConfirmation() {
+        if (!selectedIntegration || !selectedVersion) {
+            showToast('No version selected', 'error');
+            return;
+        }
+
+        // Check if viewing historical version
+        if (selectedVersion.versionNumber === selectedIntegration.versionNumber) {
+            showToast('Version swap is only available for historical versions', 'error');
+            return;
+        }
+
+        const templateName = selectedIntegration.name.replace(/[^a-z0-9]/gi, '_');
+        const viewingVersionNum = selectedVersion.versionNumber;
+        const currentVersionNum = selectedIntegration.versionNumber;
+
+        // Create modal if it doesn't exist
+        let modal = document.getElementById('versionSwapModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'versionSwapModal';
+            modal.className = 'modal fade';
+            modal.setAttribute('tabindex', '-1');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header bg-warning text-dark">
+                            <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Confirm Version Swap</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle me-2"></i>
+                                <strong>What will happen:</strong>
+                            </div>
+                            <ol class="mb-3">
+                                <li class="mb-2">
+                                    <strong>Backup:</strong> Your current unpublished version (v<span id="swapCurrentVersion"></span>) will be downloaded as:
+                                    <code id="swapBackupFilename" class="d-block mt-1 p-2 bg-light rounded"></code>
+                                </li>
+                                <li class="mb-2">
+                                    <strong>Import:</strong> The historical version (v<span id="swapHistoricalVersion"></span>) you are viewing will be imported as the new unpublished version.
+                                </li>
+                                <li>
+                                    <strong>Reload:</strong> The page will reload to show the latest version.
+                                </li>
+                            </ol>
+                            <div class="alert alert-warning mb-0">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                <small>This creates a new version based on the historical definition. The backup file allows you to restore if needed.</small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-warning" id="confirmVersionSwapBtn">
+                                <i class="bi bi-arrow-left-right me-1"></i>Swap Version
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        // Update modal content with current values
+        document.getElementById('swapCurrentVersion').textContent = currentVersionNum;
+        document.getElementById('swapHistoricalVersion').textContent = viewingVersionNum;
+        document.getElementById('swapBackupFilename').textContent = `${templateName}-unpublished.yaml`;
+
+        // Setup confirm button
+        const confirmBtn = document.getElementById('confirmVersionSwapBtn');
+        confirmBtn.onclick = async () => {
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            bsModal.hide();
+            await performVersionSwap();
+        };
+
+        // Show modal
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+    }
+
+    // Perform the version swap
+    async function performVersionSwap() {
+        if (!selectedIntegration || !selectedVersion || !yamlEditor) {
+            showToast('Unable to perform version swap', 'error');
+            return;
+        }
+
+        const templateName = selectedIntegration.name.replace(/[^a-z0-9]/gi, '_');
+        const versionSwapBtn = document.getElementById('versionSwapBtn');
+
+        try {
+            // Disable button and show loading state
+            if (versionSwapBtn) {
+                versionSwapBtn.disabled = true;
+                versionSwapBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Swapping...';
+            }
+
+            // Step 1: Download current unpublished version as backup
+            showToast('Downloading current version as backup...', 'info');
+
+            // We need to get the current unpublished version definition
+            // It's stored in selectedIntegration.definition
+            const currentDefinition = selectedIntegration.definition;
+            if (currentDefinition) {
+                const backupFilename = `${templateName}-unpublished.yaml`;
+                const blob = new Blob([currentDefinition], { type: 'text/yaml' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = backupFilename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showToast('Backup downloaded successfully', 'success');
+
+                // Small delay to ensure download starts before continuing
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } else {
+                showToast('Warning: No current definition to backup', 'info');
+            }
+
+            // Step 2: Import the historical version (currently in the editor)
+            showToast('Importing historical version...', 'info');
+            const historicalContent = yamlEditor.getValue();
+
+            const result = await API.importIntegration(historicalContent, selectedIntegration.id);
+
+            showToast(`Version swap complete! New version: v${result.versionNumber}`, 'success');
+
+            // Step 3: Reload to show the latest version
+            await selectIntegration(selectedIntegration.id);
+
+        } catch (error) {
+            console.error('Error during version swap:', error);
+            showToast('Version swap failed: ' + error.message, 'error');
+        } finally {
+            // Reset button state (though selectIntegration will hide it)
+            if (versionSwapBtn) {
+                versionSwapBtn.disabled = false;
+                versionSwapBtn.innerHTML = '<i class="bi bi-arrow-left-right me-1"></i>Swap to This Version';
+            }
         }
     }
 
