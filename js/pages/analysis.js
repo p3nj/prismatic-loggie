@@ -9,6 +9,7 @@ const AnalysisPage = (() => {
         selectedInstanceId: null,
         selectedInstanceName: null,
         timeRange: '7d',
+        chartType: 'line',
         dateFrom: null,
         dateTo: null,
         autoRefresh: true,
@@ -70,6 +71,15 @@ const AnalysisPage = (() => {
 
         setupEventListeners();
         initializeDateRange();
+
+        // Register cleanup on navigation away
+        Router.beforeNavigate((path) => {
+            if (path !== 'analysis') {
+                cleanup();
+            }
+            return true; // Allow navigation
+        });
+
         state.initialized = true;
     }
 
@@ -78,9 +88,10 @@ const AnalysisPage = (() => {
         // Time range buttons
         document.querySelectorAll('#timeRangeButtons button').forEach(btn => {
             btn.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
                 document.querySelectorAll('#timeRangeButtons button').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-                state.timeRange = e.target.dataset.range;
+                button.classList.add('active');
+                state.timeRange = button.dataset.range;
                 updateDateRange();
                 loadAllData();
             });
@@ -157,7 +168,8 @@ const AnalysisPage = (() => {
                 const button = e.target.closest('button');
                 document.querySelectorAll('#chartTypeButtons button').forEach(b => b.classList.remove('active'));
                 button.classList.add('active');
-                updateExecutionsTimeChart(button.dataset.chartType);
+                state.chartType = button.dataset.chartType;
+                updateExecutionsTimeChart();
             });
         });
 
@@ -265,28 +277,40 @@ const AnalysisPage = (() => {
                     snapshotDateLte: state.dateTo
                 });
                 metricsData = result?.nodes || [];
-            } else {
-                // Fetch instance-level metrics (filtered by customer or instance)
-                const options = {
+            } else if (state.level === 'instance' && state.selectedInstanceId) {
+                // Fetch instance-level metrics for specific instance
+                const result = await API.fetchInstanceDailyUsageMetrics({
                     first: 100,
+                    instanceId: state.selectedInstanceId,
                     snapshotDateGte: state.dateFrom,
                     snapshotDateLte: state.dateTo
-                };
-
-                if (state.level === 'instance' && state.selectedInstanceId) {
-                    options.instanceId = state.selectedInstanceId;
-                } else if (state.level === 'customer' && state.selectedCustomerId) {
-                    options.customerId = state.selectedCustomerId;
-                }
-
-                const result = await API.fetchInstanceDailyUsageMetrics(options);
-
-                // Aggregate by date if customer level (multiple instances)
-                if (state.level === 'customer') {
-                    metricsData = aggregateMetricsByDate(result?.nodes || []);
+                });
+                metricsData = result?.nodes || [];
+            } else if (state.level === 'customer' && state.selectedCustomerId) {
+                // Customer level: fetch metrics for each instance belonging to the customer
+                // Use the already-loaded customer instances list
+                const instances = state.data.customerInstances;
+                if (instances.length > 0) {
+                    // Fetch metrics for each instance in parallel (max 10 concurrent)
+                    const allMetrics = [];
+                    for (let i = 0; i < instances.length; i += 10) {
+                        const batch = instances.slice(i, i + 10);
+                        const results = await Promise.all(
+                            batch.map(inst => API.fetchInstanceDailyUsageMetrics({
+                                first: 100,
+                                instanceId: inst.id,
+                                snapshotDateGte: state.dateFrom,
+                                snapshotDateLte: state.dateTo
+                            }))
+                        );
+                        results.forEach(r => allMetrics.push(...(r?.nodes || [])));
+                    }
+                    metricsData = aggregateMetricsByDate(allMetrics);
                 } else {
-                    metricsData = result?.nodes || [];
+                    metricsData = [];
                 }
+            } else {
+                metricsData = [];
             }
 
             state.data.dailyMetrics = metricsData;
@@ -297,7 +321,20 @@ const AnalysisPage = (() => {
 
         } catch (error) {
             console.error('Error loading daily metrics:', error);
+            showError('Failed to load metrics: ' + error.message);
         }
+    }
+
+    // Calculate totals from daily metrics (shared helper)
+    function calculateTotals(metrics) {
+        let totalSuccess = 0, totalFailed = 0, totalSteps = 0, totalSpend = 0;
+        metrics.forEach(m => {
+            totalSuccess += Number(m.successfulExecutionCount) || 0;
+            totalFailed += Number(m.failedExecutionCount) || 0;
+            totalSteps += Number(m.stepCount) || 0;
+            totalSpend += Number(m.spendMbSecs) || 0;
+        });
+        return { totalSuccess, totalFailed, totalSteps, totalSpend, total: totalSuccess + totalFailed };
     }
 
     // Aggregate metrics by date (for customer-level view)
@@ -326,21 +363,7 @@ const AnalysisPage = (() => {
 
     // Update KPI cards
     function updateKPIs() {
-        const metrics = state.data.dailyMetrics;
-
-        let totalSuccess = 0;
-        let totalFailed = 0;
-        let totalSteps = 0;
-        let totalSpend = 0;
-
-        metrics.forEach(m => {
-            totalSuccess += Number(m.successfulExecutionCount) || 0;
-            totalFailed += Number(m.failedExecutionCount) || 0;
-            totalSteps += Number(m.stepCount) || 0;
-            totalSpend += Number(m.spendMbSecs) || 0;
-        });
-
-        const total = totalSuccess + totalFailed;
+        const { totalSuccess, totalFailed, totalSteps, total } = calculateTotals(state.data.dailyMetrics);
         const successRate = total > 0 ? ((totalSuccess / total) * 100).toFixed(1) : 0;
 
         document.getElementById('kpiTotalExecutions').textContent = formatLargeNumber(total);
@@ -352,7 +375,7 @@ const AnalysisPage = (() => {
     }
 
     // Update executions over time chart
-    function updateExecutionsTimeChart(chartType = 'line') {
+    function updateExecutionsTimeChart() {
         const ctx = document.getElementById('executionsTimeChart');
         if (!ctx) return;
 
@@ -366,8 +389,8 @@ const AnalysisPage = (() => {
             charts.executionsTime.destroy();
         }
 
-        const isArea = chartType === 'area';
-        const type = chartType === 'bar' ? 'bar' : 'line';
+        const isArea = state.chartType === 'area';
+        const type = state.chartType === 'bar' ? 'bar' : 'line';
 
         charts.executionsTime = new Chart(ctx, {
             type: type,
@@ -426,14 +449,7 @@ const AnalysisPage = (() => {
         const ctx = document.getElementById('outcomeChart');
         if (!ctx) return;
 
-        const metrics = state.data.dailyMetrics;
-        let totalSuccess = 0;
-        let totalFailed = 0;
-
-        metrics.forEach(m => {
-            totalSuccess += Number(m.successfulExecutionCount) || 0;
-            totalFailed += Number(m.failedExecutionCount) || 0;
-        });
+        const { totalSuccess, totalFailed } = calculateTotals(state.data.dailyMetrics);
 
         if (charts.outcome) {
             charts.outcome.destroy();
@@ -460,7 +476,7 @@ const AnalysisPage = (() => {
                         callbacks: {
                             label: (context) => {
                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((context.raw / total) * 100).toFixed(1);
+                                const percentage = total > 0 ? ((context.raw / total) * 100).toFixed(1) : '0.0';
                                 return `${context.label}: ${formatNumber(context.raw)} (${percentage}%)`;
                             }
                         }
@@ -584,12 +600,12 @@ const AnalysisPage = (() => {
     }
 
     // Update top volume chart
-    async function updateTopVolumeChart() {
+    function updateTopVolumeChart() {
         const ctx = document.getElementById('topVolumeChart');
         if (!ctx) return;
 
         const metric = document.getElementById('topVolumeMetric')?.value || 'customers';
-        let data = await getTopPerformersData(metric, 'volume');
+        const data = getTopPerformersData(metric, 'volume');
 
         if (charts.topVolume) {
             charts.topVolume.destroy();
@@ -628,12 +644,12 @@ const AnalysisPage = (() => {
     }
 
     // Update top errors chart
-    async function updateTopErrorsChart() {
+    function updateTopErrorsChart() {
         const ctx = document.getElementById('topErrorsChart');
         if (!ctx) return;
 
         const metric = document.getElementById('topErrorsMetric')?.value || 'customers';
-        let data = await getTopPerformersData(metric, 'errors');
+        const data = getTopPerformersData(metric, 'errors');
 
         if (charts.topErrors) {
             charts.topErrors.destroy();
@@ -672,7 +688,7 @@ const AnalysisPage = (() => {
     }
 
     // Get top performers data
-    async function getTopPerformersData(metric, type) {
+    function getTopPerformersData(metric, type) {
         const executions = state.data.recentExecutions;
         const counts = {};
 
@@ -736,7 +752,7 @@ const AnalysisPage = (() => {
             const result = await API.fetchCustomers({
                 first: 30,
                 after: state.pagination.customers.cursor,
-                searchTerm: searchTerm || null
+                searchTerm: searchTerm?.trim() || null
             });
 
             if (result) {
@@ -762,6 +778,7 @@ const AnalysisPage = (() => {
             }
         } catch (error) {
             console.error('Error loading customers:', error);
+            showError('Failed to load customers: ' + error.message);
         }
     }
 
@@ -871,6 +888,7 @@ const AnalysisPage = (() => {
             }
         } catch (error) {
             console.error('Error loading instances:', error);
+            showError('Failed to load instances: ' + error.message);
         }
     }
 
@@ -980,6 +998,7 @@ const AnalysisPage = (() => {
             if (state.selectedInstanceId) {
                 options.instanceId = state.selectedInstanceId;
             } else if (state.selectedCustomerId) {
+                // Filter by customer if at customer level (API supports instance_Customer filter)
                 options.customerId = state.selectedCustomerId;
             }
 
@@ -991,10 +1010,13 @@ const AnalysisPage = (() => {
             updateTopVolumeChart();
             updateTopErrorsChart();
 
-            document.getElementById('recentExecutionsCount').textContent = state.data.recentExecutions.length;
+            // Show displayed count (max 50) not fetched count
+            const displayedCount = Math.min(state.data.recentExecutions.length, 50);
+            document.getElementById('recentExecutionsCount').textContent = displayedCount;
 
         } catch (error) {
             console.error('Error loading recent executions:', error);
+            showError('Failed to load executions: ' + error.message);
         }
     }
 
@@ -1069,8 +1091,7 @@ const AnalysisPage = (() => {
     function startAutoRefresh() {
         stopAutoRefresh();
         state.refreshTimer = setInterval(() => {
-            loadAllData();
-            updateLastUpdatedTime();
+            loadAllData(); // This already calls updateLastUpdated()
         }, state.refreshInterval);
     }
 
@@ -1082,29 +1103,30 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Update the "last updated" time display
-    function updateLastUpdatedTime() {
-        if (!state.lastUpdated) return;
-
-        const seconds = Math.floor((Date.now() - state.lastUpdated.getTime()) / 1000);
-        const text = document.getElementById('lastUpdatedText');
-
-        if (text) {
-            if (seconds < 60) {
-                text.textContent = 'Updated just now';
-            } else if (seconds < 3600) {
-                const mins = Math.floor(seconds / 60);
-                text.textContent = `Updated ${mins}m ago`;
-            } else {
-                text.textContent = `Updated ${state.lastUpdated.toLocaleTimeString()}`;
-            }
-        }
-    }
-
-    // Show error message
+    // Show error message with toast
     function showError(message) {
         console.error(message);
-        // Could add a toast notification here
+        // Create toast container if not exists
+        let container = document.getElementById('analysisToastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'analysisToastContainer';
+            container.className = 'position-fixed bottom-0 end-0 p-3';
+            container.style.zIndex = '1050';
+            document.body.appendChild(container);
+        }
+        // Create toast with escaped message to prevent XSS
+        const toastId = 'toast-' + Date.now();
+        container.innerHTML = `
+            <div id="${toastId}" class="toast align-items-center text-bg-danger border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body"><i class="bi bi-exclamation-triangle me-2"></i>${escapeHtml(message)}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `;
+        const toast = new bootstrap.Toast(document.getElementById(toastId), { delay: 5000 });
+        toast.show();
     }
 
     // Route handler

@@ -62,7 +62,7 @@ const Router = (() => {
 
     // Handle route change
     function handleRouteChange() {
-        const hash = window.location.hash.slice(1) || 'instances'; // Default to instances
+        const hash = window.location.hash.slice(1) || 'analysis'; // Default to analysis
         const path = hash.split('?')[0]; // Remove query string if present
 
         // Hide all pages first
@@ -89,9 +89,9 @@ const Router = (() => {
             }
             routes[path](getParams());
         } else {
-            // Default to instances page if route not found
-            console.warn(`Route not found: ${path}, redirecting to instances`);
-            navigate('instances');
+            // Default to analysis page if route not found
+            console.warn(`Route not found: ${path}, redirecting to analysis`);
+            navigate('analysis');
         }
     }
 

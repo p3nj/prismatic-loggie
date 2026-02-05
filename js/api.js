@@ -615,12 +615,11 @@ const API = (() => {
 
     // GraphQL query for instance daily usage metrics
     const instanceDailyUsageMetricsQuery = `
-        query GetInstanceDailyUsageMetrics($first: Int, $after: String, $instanceId: ID, $customerId: ID, $snapshotDateGte: Date, $snapshotDateLte: Date) {
+        query GetInstanceDailyUsageMetrics($first: Int, $after: String, $instanceId: ID, $snapshotDateGte: Date, $snapshotDateLte: Date) {
             instanceDailyUsageMetrics(
                 first: $first,
                 after: $after,
                 instance: $instanceId,
-                instance_Customer: $customerId,
                 snapshotDate_Gte: $snapshotDateGte,
                 snapshotDate_Lte: $snapshotDateLte,
                 sortBy: [{field: SNAPSHOT_DATE, direction: ASC}]
@@ -1133,14 +1132,14 @@ const API = (() => {
     }
 
     // Fetch instance daily usage metrics
+    // Note: Customer filtering is not supported by the API - filter client-side if needed
     async function fetchInstanceDailyUsageMetrics(options = {}) {
-        const { first = 100, after = null, instanceId = null, customerId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        const { first = 100, after = null, instanceId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
         console.log('Fetching instance daily usage metrics');
 
         const variables = { first };
         if (after) variables.after = after;
         if (instanceId) variables.instanceId = instanceId;
-        if (customerId) variables.customerId = customerId;
         if (snapshotDateGte) variables.snapshotDateGte = snapshotDateGte;
         if (snapshotDateLte) variables.snapshotDateLte = snapshotDateLte;
 
@@ -1150,7 +1149,7 @@ const API = (() => {
 
     // Fetch all instance daily usage metrics with pagination
     async function* fetchAllInstanceDailyUsageMetrics(options = {}) {
-        const { batchSize = 100, instanceId = null, customerId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        const { batchSize = 100, instanceId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
         let allMetrics = [];
         let cursor = null;
         let hasMore = true;
@@ -1160,7 +1159,6 @@ const API = (() => {
                 first: batchSize,
                 after: cursor,
                 instanceId,
-                customerId,
                 snapshotDateGte,
                 snapshotDateLte
             });
