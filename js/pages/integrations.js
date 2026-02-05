@@ -1,4 +1,4 @@
-// Integrations Page Handler - Template Version Management
+// Integrations Page Handler - Template Version Management with Three-Column Layout
 const IntegrationsPage = (() => {
     let initialized = false;
     let integrationsData = null;
@@ -7,6 +7,10 @@ const IntegrationsPage = (() => {
     let searchTimeout = null;
     let yamlEditor = null;
     let themeObserver = null;
+    let originalYamlContent = ''; // Track original content for change detection
+    let hasUnsavedChanges = false;
+    let isCurrentVersionUnpublished = false;
+    let yamlValidationTimeout = null;
 
     // Get current theme
     function getCurrentTheme() {
@@ -74,28 +78,7 @@ const IntegrationsPage = (() => {
         // Version selector
         const versionSelect = document.getElementById('versionSelect');
         if (versionSelect) {
-            versionSelect.addEventListener('change', (e) => {
-                const versionNumber = parseInt(e.target.value, 10);
-                const selectedOption = e.target.selectedOptions[0];
-                const isUnpublished = selectedOption?.dataset.unpublished === 'true';
-                const comment = selectedOption?.dataset.comment || '';
-
-                if (versionNumber && selectedIntegration) {
-                    // Check if this is the current version
-                    if (versionNumber === selectedIntegration.versionNumber) {
-                        // Current version - we already have the definition
-                        if (selectedIntegration.definition) {
-                            showYamlInEditor(selectedIntegration.definition, {
-                                readOnly: !isUnpublished,
-                                comment: isUnpublished ? '' : comment
-                            });
-                        }
-                    } else {
-                        // Historical version - need to fetch using versionSequenceId and versionNumber
-                        loadVersionDefinition(selectedIntegration.versionSequenceId, versionNumber);
-                    }
-                }
-            });
+            versionSelect.addEventListener('change', handleVersionChange);
         }
 
         // Export button
@@ -114,6 +97,40 @@ const IntegrationsPage = (() => {
         const importFileInput = document.getElementById('importYamlFile');
         if (importFileInput) {
             importFileInput.addEventListener('change', handleFileImport);
+        }
+
+        // Save button
+        const saveBtn = document.getElementById('saveYamlBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', saveYamlChanges);
+        }
+    }
+
+    // Handle version change
+    function handleVersionChange(e) {
+        const versionNumber = parseInt(e.target.value, 10);
+        const selectedOption = e.target.selectedOptions[0];
+        const isUnpublished = selectedOption?.dataset.unpublished === 'true';
+        const comment = selectedOption?.dataset.comment || '';
+
+        // Update version comment display
+        updateVersionComment(comment);
+
+        if (versionNumber && selectedIntegration) {
+            // Check if this is the current version
+            if (versionNumber === selectedIntegration.versionNumber) {
+                // Current version - we already have the definition
+                isCurrentVersionUnpublished = isUnpublished;
+                if (selectedIntegration.definition) {
+                    showYamlInEditor(selectedIntegration.definition, {
+                        readOnly: !isUnpublished
+                    });
+                }
+            } else {
+                // Historical version - need to fetch using versionSequenceId and versionNumber
+                isCurrentVersionUnpublished = false;
+                loadVersionDefinition(selectedIntegration.versionSequenceId, versionNumber);
+            }
         }
     }
 
@@ -283,6 +300,13 @@ const IntegrationsPage = (() => {
         const integration = integrationsData?.nodes?.find(i => i.id === integrationId);
         if (!integration) return;
 
+        // Check for unsaved changes before switching
+        if (hasUnsavedChanges) {
+            if (!confirm('You have unsaved changes. Are you sure you want to switch integrations? Your changes will be lost.')) {
+                return;
+            }
+        }
+
         // Update UI to show selected
         document.querySelectorAll('.integration-item').forEach(item => {
             item.classList.remove('active');
@@ -292,31 +316,37 @@ const IntegrationsPage = (() => {
         });
 
         selectedIntegration = integration;
+        hasUnsavedChanges = false;
 
-        // Show loading state in editor panel
-        showEditorLoading();
+        // Show loading state in panels
+        showPanelsLoading();
 
         try {
             // Fetch integration with versions
             const fullIntegration = await API.fetchIntegrationWithVersions(integrationId);
             selectedIntegration = fullIntegration;
 
+            // Show the panels
+            showVersionControlPanel();
+
             // Update header
-            updateEditorHeader(fullIntegration);
+            updateIntegrationName(fullIntegration);
 
             // Populate version selector
             populateVersionSelector(fullIntegration);
 
             // Check if current version is unpublished (not in published versions list)
             const publishedVersions = fullIntegration.versions?.nodes || [];
-            const isCurrentUnpublished = !publishedVersions.some(v => v.versionNumber === fullIntegration.versionNumber);
+            isCurrentVersionUnpublished = !publishedVersions.some(v => v.versionNumber === fullIntegration.versionNumber);
+
+            // Update version comment for current version
+            updateVersionComment(fullIntegration.versionComment || '');
 
             // Show current version's definition in editor
             // Unpublished version is editable, published versions are readonly
             if (fullIntegration.definition) {
                 showYamlInEditor(fullIntegration.definition, {
-                    readOnly: !isCurrentUnpublished,
-                    comment: '' // Current version comment is not shown initially
+                    readOnly: !isCurrentVersionUnpublished
                 });
             }
 
@@ -326,6 +356,45 @@ const IntegrationsPage = (() => {
             console.error('Error loading integration details:', error);
             showEditorError(error.message);
         }
+    }
+
+    // Show panels in loading state
+    function showPanelsLoading() {
+        // Show version control panel
+        const versionControlPanel = document.getElementById('versionControlPanel');
+        const versionControlPlaceholder = document.getElementById('versionControlPlaceholder');
+        if (versionControlPanel) versionControlPanel.classList.remove('d-none');
+        if (versionControlPlaceholder) versionControlPlaceholder.classList.add('d-none');
+
+        // Show editor panel
+        const editorPanel = document.getElementById('yamlEditorPanel');
+        const placeholder = document.getElementById('yamlEditorPlaceholder');
+
+        if (editorPanel) {
+            editorPanel.classList.remove('d-none');
+        }
+        if (placeholder) {
+            placeholder.classList.add('d-none');
+        }
+
+        const container = document.getElementById('yamlEditorContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="d-flex justify-content-center align-items-center h-100">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Show version control panel
+    function showVersionControlPanel() {
+        const versionControlPanel = document.getElementById('versionControlPanel');
+        const versionControlPlaceholder = document.getElementById('versionControlPlaceholder');
+        if (versionControlPanel) versionControlPanel.classList.remove('d-none');
+        if (versionControlPlaceholder) versionControlPlaceholder.classList.add('d-none');
     }
 
     // Show loading state in editor
@@ -368,8 +437,8 @@ const IntegrationsPage = (() => {
         }
     }
 
-    // Update editor header
-    function updateEditorHeader(integration) {
+    // Update integration name display
+    function updateIntegrationName(integration) {
         const nameEl = document.getElementById('selectedIntegrationName');
         if (nameEl) {
             nameEl.textContent = integration.name;
@@ -427,21 +496,24 @@ const IntegrationsPage = (() => {
     // Load specific version definition
     async function loadVersionDefinition(versionSequenceId, versionNumber) {
         showEditorLoading();
+        hideYamlValidation();
+        hideSaveButton();
 
         try {
             const version = await API.fetchIntegrationVersionDefinition(versionSequenceId, versionNumber);
             selectedVersion = version;
 
             if (version && version.definition) {
+                // Update comment display
+                updateVersionComment(version.versionComment || '');
                 // Historical versions are always readonly
                 showYamlInEditor(version.definition, {
-                    readOnly: true,
-                    comment: version.versionComment || ''
+                    readOnly: true
                 });
             } else {
+                updateVersionComment('');
                 showYamlInEditor('# No definition available for this version', {
-                    readOnly: true,
-                    comment: ''
+                    readOnly: true
                 });
             }
         } catch (error) {
@@ -467,39 +539,31 @@ const IntegrationsPage = (() => {
 
     // Update version comment display
     function updateVersionComment(comment) {
-        let commentEl = document.getElementById('versionCommentDisplay');
+        const commentSection = document.getElementById('versionCommentSection');
+        const commentEl = document.getElementById('versionCommentDisplay');
 
-        if (comment) {
-            if (!commentEl) {
-                // Create comment display element
-                const cardBody = document.querySelector('#yamlEditorPanel .card-body');
-                if (cardBody) {
-                    commentEl = document.createElement('div');
-                    commentEl.id = 'versionCommentDisplay';
-                    commentEl.className = 'alert alert-info mb-0 rounded-0 border-start-0 border-end-0 py-2';
-                    cardBody.insertBefore(commentEl, cardBody.firstChild);
-                }
-            }
-            if (commentEl) {
-                commentEl.innerHTML = `<i class="bi bi-chat-left-text me-2"></i><strong>Version Comment:</strong> ${escapeHtml(comment)}`;
-                commentEl.classList.remove('d-none');
-            }
+        if (comment && comment.trim()) {
+            if (commentSection) commentSection.classList.remove('d-none');
+            if (commentEl) commentEl.textContent = comment;
         } else {
-            if (commentEl) {
-                commentEl.classList.add('d-none');
-            }
+            if (commentSection) commentSection.classList.add('d-none');
+            if (commentEl) commentEl.textContent = '-';
         }
     }
 
     // Show YAML in Monaco editor
     function showYamlInEditor(yamlContent, options = {}) {
-        const { readOnly = false, comment = '' } = options;
+        const { readOnly = false } = options;
 
         const container = document.getElementById('yamlEditorContainer');
         if (!container) return;
 
-        // Update version comment display
-        updateVersionComment(comment);
+        // Store original content for change detection
+        originalYamlContent = yamlContent;
+        hasUnsavedChanges = false;
+
+        // Update editor mode badges
+        updateEditorModeBadges(readOnly);
 
         // Clear previous content
         container.innerHTML = '';
@@ -534,6 +598,185 @@ const IntegrationsPage = (() => {
             renderLineHighlight: 'line',
             folding: true
         });
+
+        // Setup change detection for editable versions
+        if (!readOnly) {
+            yamlEditor.onDidChangeModelContent(() => {
+                const currentContent = yamlEditor.getValue();
+                const changed = currentContent !== originalYamlContent;
+                updateUnsavedChangesState(changed);
+
+                // Debounced YAML validation
+                clearTimeout(yamlValidationTimeout);
+                yamlValidationTimeout = setTimeout(() => {
+                    validateYaml(currentContent);
+                }, 500);
+            });
+
+            // Show save button and validation for unpublished versions
+            showSaveButton();
+            showYamlValidation();
+            validateYaml(yamlContent);
+        } else {
+            hideSaveButton();
+            hideYamlValidation();
+        }
+
+        // Hide unsaved changes badge initially
+        updateUnsavedChangesState(false);
+    }
+
+    // Update editor mode badges
+    function updateEditorModeBadges(readOnly) {
+        const readOnlyBadge = document.getElementById('editorReadOnlyBadge');
+        const editableBadge = document.getElementById('editorEditableBadge');
+        const editorModeIndicator = document.getElementById('editorModeIndicator');
+
+        if (readOnly) {
+            if (readOnlyBadge) readOnlyBadge.classList.remove('d-none');
+            if (editableBadge) editableBadge.classList.add('d-none');
+            if (editorModeIndicator) editorModeIndicator.classList.add('d-none');
+        } else {
+            if (readOnlyBadge) readOnlyBadge.classList.add('d-none');
+            if (editableBadge) editableBadge.classList.remove('d-none');
+            if (editorModeIndicator) editorModeIndicator.classList.remove('d-none');
+        }
+    }
+
+    // Update unsaved changes state
+    function updateUnsavedChangesState(hasChanges) {
+        hasUnsavedChanges = hasChanges;
+
+        const badge = document.getElementById('unsavedChangesBadge');
+        const saveBtn = document.getElementById('saveYamlBtn');
+
+        if (hasChanges) {
+            if (badge) badge.classList.remove('d-none');
+            if (saveBtn) saveBtn.disabled = false;
+        } else {
+            if (badge) badge.classList.add('d-none');
+            if (saveBtn) saveBtn.disabled = true;
+        }
+    }
+
+    // Show save button
+    function showSaveButton() {
+        const saveBtn = document.getElementById('saveYamlBtn');
+        if (saveBtn) {
+            saveBtn.classList.remove('d-none');
+            saveBtn.disabled = true; // Disabled until changes are made
+        }
+    }
+
+    // Hide save button
+    function hideSaveButton() {
+        const saveBtn = document.getElementById('saveYamlBtn');
+        if (saveBtn) {
+            saveBtn.classList.add('d-none');
+        }
+    }
+
+    // Show YAML validation section
+    function showYamlValidation() {
+        const section = document.getElementById('yamlValidationSection');
+        if (section) section.classList.remove('d-none');
+    }
+
+    // Hide YAML validation section
+    function hideYamlValidation() {
+        const section = document.getElementById('yamlValidationSection');
+        if (section) section.classList.add('d-none');
+    }
+
+    // Validate YAML content
+    function validateYaml(content) {
+        const statusEl = document.getElementById('yamlValidationStatus');
+        if (!statusEl) return;
+
+        try {
+            // Basic YAML validation using a simple parser check
+            // Check for common YAML issues
+            const errors = [];
+
+            // Check for tabs (YAML prefers spaces)
+            if (content.includes('\t')) {
+                errors.push('Contains tab characters (use spaces instead)');
+            }
+
+            // Check for trailing spaces that might cause issues
+            const lines = content.split('\n');
+            let hasIndentIssues = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                // Check for inconsistent indentation (basic check)
+                if (line.match(/^[ ]+[^ ]/)) {
+                    const indent = line.match(/^([ ]+)/)[1].length;
+                    if (indent % 2 !== 0) {
+                        hasIndentIssues = true;
+                    }
+                }
+            }
+
+            if (hasIndentIssues) {
+                errors.push('Inconsistent indentation detected');
+            }
+
+            // Check for unclosed quotes
+            let inSingleQuote = false;
+            let inDoubleQuote = false;
+            for (const line of lines) {
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    const prevChar = i > 0 ? line[i-1] : '';
+                    if (char === "'" && prevChar !== '\\' && !inDoubleQuote) {
+                        inSingleQuote = !inSingleQuote;
+                    } else if (char === '"' && prevChar !== '\\' && !inSingleQuote) {
+                        inDoubleQuote = !inDoubleQuote;
+                    }
+                }
+            }
+
+            if (inSingleQuote || inDoubleQuote) {
+                errors.push('Unclosed quote detected');
+            }
+
+            // Update Monaco editor markers if available
+            if (yamlEditor && typeof monaco !== 'undefined') {
+                const model = yamlEditor.getModel();
+                if (model) {
+                    const markers = [];
+
+                    // Add markers for tabs
+                    for (let i = 0; i < lines.length; i++) {
+                        const tabIndex = lines[i].indexOf('\t');
+                        if (tabIndex !== -1) {
+                            markers.push({
+                                severity: monaco.MarkerSeverity.Warning,
+                                message: 'Tab character detected - use spaces instead',
+                                startLineNumber: i + 1,
+                                startColumn: tabIndex + 1,
+                                endLineNumber: i + 1,
+                                endColumn: tabIndex + 2
+                            });
+                        }
+                    }
+
+                    monaco.editor.setModelMarkers(model, 'yaml-lint', markers);
+                }
+            }
+
+            if (errors.length > 0) {
+                statusEl.innerHTML = `<span class="text-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>${errors[0]}</span>`;
+                statusEl.className = 'small p-2 rounded border invalid';
+            } else {
+                statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Valid YAML</span>`;
+                statusEl.className = 'small p-2 rounded border valid';
+            }
+        } catch (error) {
+            statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${escapeHtml(error.message)}</span>`;
+            statusEl.className = 'small p-2 rounded border invalid';
+        }
     }
 
     // Enable editor buttons
@@ -543,6 +786,50 @@ const IntegrationsPage = (() => {
 
         if (exportBtn) exportBtn.disabled = false;
         if (importBtn) importBtn.disabled = false;
+    }
+
+    // Save YAML changes
+    async function saveYamlChanges() {
+        if (!yamlEditor || !selectedIntegration || !hasUnsavedChanges) return;
+
+        const content = yamlEditor.getValue();
+        const saveBtn = document.getElementById('saveYamlBtn');
+
+        // Show confirmation dialog
+        if (!confirm(`Save changes to "${selectedIntegration.name}"?\n\nThis will update the unpublished version of the integration.`)) {
+            return;
+        }
+
+        try {
+            // Disable button and show loading state
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+            }
+
+            showToast('Saving changes...', 'info');
+
+            // Call import API to save the updated YAML
+            const result = await API.importIntegration(content, selectedIntegration.id);
+
+            showToast(`Changes saved successfully (v${result.versionNumber})`, 'success');
+
+            // Update original content to reflect saved state
+            originalYamlContent = content;
+            hasUnsavedChanges = false;
+            updateUnsavedChangesState(false);
+
+            // Reload the integration to show updated versions
+            await selectIntegration(selectedIntegration.id);
+        } catch (error) {
+            console.error('Error saving changes:', error);
+            showToast('Save failed: ' + error.message, 'error');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = !hasUnsavedChanges;
+                saveBtn.innerHTML = '<i class="bi bi-save me-1"></i>Save Changes';
+            }
+        }
     }
 
     // Export YAML to file
@@ -583,15 +870,8 @@ const IntegrationsPage = (() => {
         try {
             const content = await file.text();
 
-            // Show in editor first for review
-            if (yamlEditor) {
-                yamlEditor.setValue(content);
-            }
-
-            // Ask for confirmation
-            if (confirm(`Import this YAML as a new version of "${selectedIntegration?.name}"?\n\nThis will create a new version of the integration.`)) {
-                await performImport(content);
-            }
+            // Show confirmation modal with preview
+            showImportConfirmation(content, file.name);
         } catch (error) {
             console.error('Error reading file:', error);
             showToast('Error reading file: ' + error.message, 'error');
@@ -599,6 +879,66 @@ const IntegrationsPage = (() => {
 
         // Reset file input
         event.target.value = '';
+    }
+
+    // Show import confirmation dialog
+    function showImportConfirmation(content, filename) {
+        // Create modal if it doesn't exist
+        let modal = document.getElementById('importConfirmModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'importConfirmModal';
+            modal.className = 'modal fade';
+            modal.setAttribute('tabindex', '-1');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content import-confirm-modal">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Confirm Import</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>You are about to import <strong id="importFileName"></strong> as a new version of <strong id="importIntegrationName"></strong>.</p>
+                            <p class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>This will create a new version of the integration.</p>
+                            <div class="mb-3">
+                                <label class="form-label small text-muted">Preview (first 50 lines):</label>
+                                <div id="importPreviewContainer" class="import-preview-container">
+                                    <pre id="importPreviewContent"></pre>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="confirmImportBtn">
+                                <i class="bi bi-upload me-1"></i>Import
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        // Update modal content
+        document.getElementById('importFileName').textContent = filename;
+        document.getElementById('importIntegrationName').textContent = selectedIntegration?.name || 'Unknown';
+
+        // Show preview (first 50 lines)
+        const previewLines = content.split('\n').slice(0, 50).join('\n');
+        const hasMore = content.split('\n').length > 50;
+        document.getElementById('importPreviewContent').textContent = previewLines + (hasMore ? '\n... (truncated)' : '');
+
+        // Setup confirm button
+        const confirmBtn = document.getElementById('confirmImportBtn');
+        confirmBtn.onclick = async () => {
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            bsModal.hide();
+            await performImport(content);
+        };
+
+        // Show modal
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
     }
 
     // Perform the import

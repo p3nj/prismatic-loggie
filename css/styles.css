@@ -1434,7 +1434,7 @@ pre[class*="language-"] {
 }
 
 /* ============================================
-   Integrations Page Styles
+   Integrations Page Styles (Three-Column Layout)
    ============================================ */
 
 .integrations-list {
@@ -1471,25 +1471,69 @@ pre[class*="language-"] {
   background-color: rgba(61, 139, 253, 0.2);
 }
 
-/* YAML Editor Panel */
-#yamlEditorPanel .card-header {
-  flex-wrap: wrap;
-  gap: 0.5rem;
+/* Version Control Panel (Middle Column) */
+#versionControlPanel {
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
 }
 
-#yamlEditorPanel .card-header > div {
-  flex-wrap: wrap;
-  gap: 0.5rem;
+#versionControlPanel .card-body {
+  padding: 1rem;
 }
 
 #versionSelect {
-  min-width: 250px;
-  max-width: 400px;
+  width: 100%;
+}
+
+/* Version Comment Display */
+#versionCommentSection #versionCommentDisplay {
+  font-size: 0.8rem;
+  max-height: 100px;
+  overflow-y: auto;
+  word-wrap: break-word;
+}
+
+[data-theme="dark"] #versionCommentDisplay {
+  background-color: #2a2a2a !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-color);
+}
+
+/* YAML Validation Status */
+#yamlValidationStatus {
+  transition: all 0.3s ease;
+}
+
+#yamlValidationStatus.valid {
+  background-color: rgba(25, 135, 84, 0.1);
+  border-color: var(--success-color) !important;
+}
+
+#yamlValidationStatus.invalid {
+  background-color: rgba(220, 53, 69, 0.1);
+  border-color: var(--danger-color) !important;
+}
+
+[data-theme="dark"] #yamlValidationStatus {
+  background-color: #2a2a2a;
+}
+
+[data-theme="dark"] #yamlValidationStatus.valid {
+  background-color: rgba(46, 168, 104, 0.15);
+}
+
+[data-theme="dark"] #yamlValidationStatus.invalid {
+  background-color: rgba(227, 93, 106, 0.15);
+}
+
+/* YAML Editor Panel */
+#yamlEditorPanel .card-header {
+  padding: 0.75rem 1rem;
 }
 
 #yamlEditorContainer {
   background-color: var(--card-background);
-  height: calc(100vh - 180px) !important;
+  height: calc(100vh - 160px) !important;
   min-height: 400px;
 }
 
@@ -1497,7 +1541,7 @@ pre[class*="language-"] {
 #yamlEditorPanel {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 100px);
 }
 
 #yamlEditorPanel .card-body {
@@ -1510,16 +1554,69 @@ pre[class*="language-"] {
   z-index: 1100;
 }
 
-/* Responsive adjustments for integrations page */
+/* Editor mode badges */
+#editorReadOnlyBadge, #editorEditableBadge {
+  font-size: 0.7rem;
+  font-weight: normal;
+}
+
+#unsavedChangesBadge {
+  font-size: 0.75rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Save button styling */
+#saveYamlBtn:not(:disabled) {
+  animation: glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 3px rgba(25, 135, 84, 0.4); }
+  to { box-shadow: 0 0 8px rgba(25, 135, 84, 0.6); }
+}
+
+/* Import confirmation modal */
+.import-confirm-modal .modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.import-preview-container {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1rem;
+  max-height: 200px;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+/* Responsive adjustments for integrations page (Three-Column) */
+@media (min-width: 992px) {
+  #page-integrations .row {
+    flex-wrap: nowrap;
+  }
+}
+
 @media (max-width: 991.98px) {
   #page-integrations .sticky-sidebar {
     position: static;
     max-height: none;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
   }
 
   .integrations-list {
-    max-height: 300px;
+    max-height: 250px;
+  }
+
+  #versionControlColumn {
+    order: 2;
   }
 
   #yamlEditorContainer {
@@ -1527,34 +1624,24 @@ pre[class*="language-"] {
     min-height: 300px !important;
   }
 
-  #versionSelect {
-    min-width: 150px;
-    width: 100%;
+  #yamlEditorPanel {
+    height: auto;
   }
 
-  #yamlEditorPanel .card-header {
-    flex-direction: column;
-    align-items: flex-start !important;
-  }
-
-  #yamlEditorPanel .card-header > div {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  #yamlEditorPanel .btn-group {
-    width: 100%;
-    margin-top: 0.5rem;
-  }
-
-  #yamlEditorPanel .btn-group .btn {
-    flex: 1;
+  #versionControlPanel {
+    max-height: none;
   }
 }
 
-/* Version comment display */
-#versionCommentDisplay {
-  font-size: 0.875rem;
+@media (max-width: 767.98px) {
+  .integrations-list {
+    max-height: 200px;
+  }
+
+  #yamlEditorContainer {
+    height: 40vh !important;
+    min-height: 250px !important;
+  }
 }
 
 /* Ensure Monaco editor line numbers have enough width for 5+ digits */
@@ -1562,4 +1649,13 @@ pre[class*="language-"] {
   min-width: 50px;
   text-align: right;
   padding-right: 10px;
+}
+
+/* YAML error markers in editor */
+.yaml-error-marker {
+  background-color: rgba(220, 53, 69, 0.3);
+}
+
+.yaml-warning-marker {
+  background-color: rgba(255, 193, 7, 0.3);
 }
