@@ -1185,26 +1185,34 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Load recent executions with lazy loading support
-    async function loadRecentExecutions(reset = true, loadMore = false) {
+    // Load recent executions (initial load - resets state)
+    async function loadRecentExecutions() {
+        // Reset pagination state
+        state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
+        state.data.recentExecutions = [];
+
+        await fetchExecutions(false);
+    }
+
+    // Load more executions (pagination - appends to existing data)
+    async function loadMoreExecutions() {
+        // Don't load more if no more data available
+        if (!state.pagination.executions?.hasMore) return;
+
+        await fetchExecutions(true);
+    }
+
+    // Shared execution fetching logic
+    async function fetchExecutions(append) {
         try {
-            // Reset pagination state if requested
-            if (reset) {
-                state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
-                state.data.recentExecutions = [];
-            }
-
-            // Don't load more if no more data
-            if (loadMore && !state.pagination.executions?.hasMore) return;
-
             const options = {
                 first: 100,  // Keep at 100 - higher values may cause API errors
                 startedAtGte: state.dateFrom + 'T00:00:00Z',
                 startedAtLte: state.dateTo + 'T23:59:59Z'
             };
 
-            // Add cursor for pagination
-            if (loadMore && state.pagination.executions?.cursor) {
+            // Add cursor for pagination when appending
+            if (append && state.pagination.executions?.cursor) {
                 options.after = state.pagination.executions.cursor;
             }
 
@@ -1219,7 +1227,7 @@ const AnalysisPage = (() => {
             const newExecutions = result?.nodes || [];
 
             // Append or replace executions
-            if (loadMore) {
+            if (append) {
                 state.data.recentExecutions = [...state.data.recentExecutions, ...newExecutions];
             } else {
                 state.data.recentExecutions = newExecutions;
@@ -1235,9 +1243,15 @@ const AnalysisPage = (() => {
             renderRecentExecutions();
             updateTriggerChart();
 
-            // Only update top charts from executions if not at org level (org level uses aggregated data)
-            if (state.level !== 'org') {
+            // Update top charts - at org level, only update if 'flows' is selected (which needs execution data)
+            // At customer/instance level, always update since we use execution data for all metrics
+            const volumeMetric = document.getElementById('topVolumeMetric')?.value || 'customers';
+            const errorsMetric = document.getElementById('topErrorsMetric')?.value || 'customers';
+
+            if (state.level !== 'org' || volumeMetric === 'flows') {
                 updateTopVolumeChart();
+            }
+            if (state.level !== 'org' || errorsMetric === 'flows') {
                 updateTopErrorsChart();
             }
 
@@ -1245,7 +1259,7 @@ const AnalysisPage = (() => {
             updateRecentExecutionsCount();
 
         } catch (error) {
-            console.error('Error loading recent executions:', error);
+            console.error('Error loading executions:', error);
             showError('Failed to load executions: ' + error.message);
         }
     }
@@ -1270,9 +1284,8 @@ const AnalysisPage = (() => {
         const container = document.getElementById('recentExecutionsList');
         if (!container) return;
 
-        const displayLimit = 100; // Increased from 50
-        const executions = state.data.recentExecutions.slice(0, displayLimit);
-        const hasMoreToDisplay = state.data.recentExecutions.length > displayLimit;
+        // Display all loaded executions - the Load More button handles pagination
+        const executions = state.data.recentExecutions;
         const hasMoreToLoad = state.pagination.executions?.hasMore || false;
 
         if (executions.length === 0) {
@@ -1317,7 +1330,7 @@ const AnalysisPage = (() => {
             `;
         }).join('');
 
-        // Add "Load More" button if there's more data
+        // Add "Load More" button if there's more data to fetch from API
         if (hasMoreToLoad) {
             const totalCount = state.pagination.executions?.totalCount || 0;
             const loadedCount = state.data.recentExecutions.length;
@@ -1329,16 +1342,20 @@ const AnalysisPage = (() => {
                     </button>
                 </div>
             `;
-        } else if (hasMoreToDisplay) {
-            // All data loaded but showing limited - just informational
-            html += `
-                <div class="text-center py-2 text-muted">
-                    <small>Showing ${displayLimit} of ${state.data.recentExecutions.length} loaded executions</small>
-                </div>
-            `;
         }
 
+        // Preserve scroll position before updating
+        const scrollTop = container.scrollTop;
+        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+
         container.innerHTML = html;
+
+        // Restore scroll position after update
+        // If user was near bottom (loading more), scroll to show new content
+        if (wasAtBottom && scrollTop > 0) {
+            // Scroll to approximately where new content starts
+            container.scrollTop = scrollTop;
+        }
 
         // Attach event listener for Load More button
         const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
@@ -1346,7 +1363,7 @@ const AnalysisPage = (() => {
             loadMoreBtn.addEventListener('click', async () => {
                 loadMoreBtn.disabled = true;
                 loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
-                await loadRecentExecutions(false, true);
+                await loadMoreExecutions();
             });
         }
     }
