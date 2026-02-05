@@ -417,9 +417,9 @@ const API = (() => {
                     nodes {
                         id
                         versionNumber
-                        versionComment
-                        versionCreatedAt
-                        versionIsAvailable
+                        comment
+                        createdAt
+                        isAvailable
                     }
                 }
             }
