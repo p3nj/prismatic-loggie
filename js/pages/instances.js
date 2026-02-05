@@ -627,7 +627,237 @@ const InstancesPage = (() => {
         return parts.length > 0 ? ` (${parts.join(', ')})` : '';
     }
 
-    // Render executions table
+    // Group executions by their execution chain
+    function groupExecutionsByChain(executions) {
+        const chains = new Map(); // Map of root execution ID -> array of executions
+        const executionMap = new Map(); // Map of execution ID -> execution
+
+        // First pass: build execution map
+        executions.forEach(exec => {
+            if (exec) {
+                executionMap.set(exec.id, exec);
+            }
+        });
+
+        // Second pass: group by chain
+        executions.forEach(exec => {
+            if (!exec) return;
+
+            // Find the root of this chain
+            let rootId = exec.id;
+            let rootExec = exec;
+
+            // If this execution was invoked by another, find the root
+            if (exec.lineage?.invokedBy?.execution?.id) {
+                const parentId = exec.lineage.invokedBy.execution.id;
+                // Check if parent is in our list (same filter/time range)
+                if (executionMap.has(parentId)) {
+                    rootId = parentId;
+                    rootExec = executionMap.get(parentId);
+                    // Keep traversing up to find the actual root
+                    while (rootExec.lineage?.invokedBy?.execution?.id &&
+                           executionMap.has(rootExec.lineage.invokedBy.execution.id)) {
+                        rootId = rootExec.lineage.invokedBy.execution.id;
+                        rootExec = executionMap.get(rootId);
+                    }
+                }
+            }
+
+            // Add to chain group
+            if (!chains.has(rootId)) {
+                chains.set(rootId, []);
+            }
+            chains.get(rootId).push(exec);
+        });
+
+        // Sort executions within each chain by startedAt (ascending - oldest first)
+        chains.forEach((chainExecutions, rootId) => {
+            chainExecutions.sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+        });
+
+        // Convert to array and sort by first execution's startedAt (descending - newest chains first)
+        return Array.from(chains.values()).sort((a, b) => {
+            const aFirst = new Date(a[0].startedAt);
+            const bFirst = new Date(b[0].startedAt);
+            return bFirst - aFirst;
+        });
+    }
+
+    // Get the final status of a chain (status of the last execution)
+    function getChainFinalStatus(chainExecutions) {
+        if (!chainExecutions || chainExecutions.length === 0) return 'UNKNOWN';
+        const lastExec = chainExecutions[chainExecutions.length - 1];
+        return lastExec.status;
+    }
+
+    // Calculate total duration of a chain
+    function calculateChainDuration(chainExecutions) {
+        if (!chainExecutions || chainExecutions.length === 0) return 'N/A';
+
+        const firstStart = new Date(chainExecutions[0].startedAt);
+        const lastExec = chainExecutions[chainExecutions.length - 1];
+
+        // If the last execution hasn't ended, show as running
+        if (!lastExec.endedAt) {
+            const diff = Date.now() - firstStart.getTime();
+            return formatDurationMs(diff) + ' (running)';
+        }
+
+        const lastEnd = new Date(lastExec.endedAt);
+        const diff = lastEnd - firstStart;
+        return formatDurationMs(diff);
+    }
+
+    // Format milliseconds to duration string
+    function formatDurationMs(diff) {
+        if (diff < 1000) return `${diff}ms`;
+        if (diff < 60000) return `${(diff / 1000).toFixed(1)}s`;
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`;
+        return `${Math.floor(diff / 3600000)}h ${Math.floor((diff % 3600000) / 60000)}m`;
+    }
+
+    // Render execution chain card
+    function renderExecutionChainCard(chainExecutions, chainIndex) {
+        const firstExec = chainExecutions[0];
+        const lastExec = chainExecutions[chainExecutions.length - 1];
+        const finalStatus = getChainFinalStatus(chainExecutions);
+        const statusBadge = getStatusBadge(finalStatus);
+        const totalDuration = calculateChainDuration(chainExecutions);
+        const isMultiExecution = chainExecutions.length > 1;
+        const chainId = `chain-${chainIndex}`;
+
+        let html = `
+            <div class="execution-chain-card card mb-2" data-chain-id="${chainId}">
+                <div class="card-header p-2 ${isMultiExecution ? 'cursor-pointer chain-header-toggle' : ''}"
+                     ${isMultiExecution ? `data-bs-toggle="collapse" data-bs-target="#${chainId}-body"` : ''}>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center flex-grow-1 min-width-0">
+                            ${isMultiExecution ? `
+                                <i class="bi bi-chevron-right chain-toggle-icon me-2"></i>
+                            ` : ''}
+                            ${statusBadge}
+                            <span class="ms-2 text-truncate" title="${firstExec.flow?.name || 'Unknown'}">
+                                ${firstExec.flow?.name || 'Unknown'}
+                            </span>
+                            ${isMultiExecution ? `
+                                <span class="badge bg-secondary ms-2" title="Execution chain with ${chainExecutions.length} runs">
+                                    <i class="bi bi-link-45deg"></i> ${chainExecutions.length}
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div class="d-flex align-items-center ms-2 flex-shrink-0">
+                            <small class="text-muted me-2 d-none d-md-inline">
+                                <i class="bi bi-clock me-1"></i>${totalDuration}
+                            </small>
+                            <small class="text-muted me-3 d-none d-lg-inline">
+                                ${formatDate(firstExec.startedAt)}
+                            </small>
+                            <button class="btn btn-sm btn-outline-primary view-execution-btn"
+                                    data-execution-id="${firstExec.id}"
+                                    title="View First Execution"
+                                    onclick="event.stopPropagation();">
+                                <i class="bi bi-journal-text"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+
+        // Add collapsible body for multi-execution chains
+        if (isMultiExecution) {
+            html += `
+                <div id="${chainId}-body" class="collapse">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0 chain-executions-table">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3" style="width: 40px;">#</th>
+                                        <th>Status</th>
+                                        <th>Started</th>
+                                        <th>Duration</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+
+            chainExecutions.forEach((exec, index) => {
+                const execStatusBadge = getStatusBadge(exec.status);
+                const execDuration = calculateDuration(exec.startedAt, exec.endedAt);
+
+                html += `
+                    <tr class="chain-execution-row">
+                        <td class="ps-3 text-muted">${index + 1}</td>
+                        <td>${execStatusBadge}</td>
+                        <td><small>${formatDate(exec.startedAt)}</small></td>
+                        <td><small>${execDuration}</small></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary view-execution-btn"
+                                    data-execution-id="${exec.id}"
+                                    title="View Execution">
+                                <i class="bi bi-journal-text"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+
+            html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    // Render executions table (standard view without chain grouping)
+    function renderExecutionsTable(executions) {
+        let html = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Flow</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        executions.forEach(exec => {
+            if (!exec) return;
+            const statusBadge = getStatusBadge(exec.status);
+            const duration = calculateDuration(exec.startedAt, exec.endedAt);
+
+            html += `
+                <tr>
+                    <td>${statusBadge}</td>
+                    <td>${exec.flow?.name || 'Unknown'}</td>
+                    <td><small>${formatDate(exec.startedAt)}</small></td>
+                    <td><small>${duration}</small></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary view-execution-btn" data-execution-id="${exec.id}" title="View Logs">
+                            <i class="bi bi-journal-text"></i> View
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        return html;
+    }
+
+    // Render executions with chain grouping
     function renderExecutions(reset = false) {
         const contentDiv = document.getElementById('executionsContent');
 
@@ -656,46 +886,33 @@ const InstancesPage = (() => {
             return;
         }
 
-        let html = `
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Status</th>
-                            <th>Flow</th>
-                            <th>Started</th>
-                            <th>Duration</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
+        let html = '';
 
-        executions.forEach(exec => {
-            if (!exec) return; // Skip invalid entries
-            const statusBadge = getStatusBadge(exec.status);
-            const duration = calculateDuration(exec.startedAt, exec.endedAt);
+        // Check if flow filter is active - use chain grouping view
+        if (currentFilters.flowId) {
+            // Group executions by chain
+            const chains = groupExecutionsByChain(executions);
 
-            html += `
-                <tr>
-                    <td>${statusBadge}</td>
-                    <td>${exec.flow?.name || 'Unknown'}</td>
-                    <td><small>${formatDate(exec.startedAt)}</small></td>
-                    <td><small>${duration}</small></td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary view-execution-btn" data-execution-id="${exec.id}" title="View Logs">
-                            <i class="bi bi-journal-text"></i> View
-                        </button>
-                    </td>
-                </tr>
-            `;
-        });
+            // Check if there are any actual chains (groups with more than 1 execution)
+            const hasChains = chains.some(chain => chain.length > 1);
+
+            if (hasChains) {
+                html += `<div class="execution-chains-container">`;
+                chains.forEach((chain, index) => {
+                    html += renderExecutionChainCard(chain, index);
+                });
+                html += `</div>`;
+            } else {
+                // No chains found, use standard table view
+                html = renderExecutionsTable(executions);
+            }
+        } else {
+            // Standard table view when no flow filter
+            html = renderExecutionsTable(executions);
+        }
 
         html += `
-                    </tbody>
-                </table>
-            </div>
-            <div class="text-muted small">
+            <div class="text-muted small mt-2">
                 Showing: ${executions.length} executions${getFilterSummary()}
                 ${executionsData.totalCount ? ` | Total: ${executionsData.totalCount}` : ''}
             </div>
@@ -713,10 +930,30 @@ const InstancesPage = (() => {
 
         // Add click handlers for view buttons
         contentDiv.querySelectorAll('.view-execution-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const executionId = btn.dataset.executionId;
                 Router.navigate('execution', { executionId });
             });
+        });
+
+        // Add toggle icon animation for chain cards
+        contentDiv.querySelectorAll('.chain-header-toggle').forEach(header => {
+            const chainCard = header.closest('.execution-chain-card');
+            const chainId = chainCard.dataset.chainId;
+            const collapseEl = document.getElementById(`${chainId}-body`);
+            const toggleIcon = header.querySelector('.chain-toggle-icon');
+
+            if (collapseEl && toggleIcon) {
+                collapseEl.addEventListener('show.bs.collapse', () => {
+                    toggleIcon.classList.remove('bi-chevron-right');
+                    toggleIcon.classList.add('bi-chevron-down');
+                });
+                collapseEl.addEventListener('hide.bs.collapse', () => {
+                    toggleIcon.classList.remove('bi-chevron-down');
+                    toggleIcon.classList.add('bi-chevron-right');
+                });
+            }
         });
     }
 

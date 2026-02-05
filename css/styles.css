@@ -1785,3 +1785,136 @@ pre[class*="language-"] {
 .yaml-warning-marker {
   background-color: rgba(255, 193, 7, 0.3);
 }
+
+/* ============================================
+   Execution Chain Card Styles
+   ============================================ */
+
+.execution-chains-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.execution-chain-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.execution-chain-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.execution-chain-card .card-header {
+  background-color: var(--card-background);
+  border-bottom: none;
+  transition: background-color 0.15s ease;
+}
+
+.execution-chain-card .card-header.chain-header-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.execution-chain-card .chain-toggle-icon {
+  transition: transform 0.2s ease;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.execution-chain-card .card-body {
+  background-color: rgba(0, 0, 0, 0.02);
+  border-top: 1px solid var(--border-color);
+}
+
+.chain-executions-table {
+  font-size: 0.85rem;
+}
+
+.chain-executions-table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-color);
+  opacity: 0.7;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chain-execution-row {
+  transition: background-color 0.15s ease;
+}
+
+.chain-execution-row:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.chain-execution-row td {
+  vertical-align: middle;
+  padding: 0.5rem 0.75rem;
+}
+
+/* Cursor helper */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Dark theme for execution chain cards */
+[data-theme="dark"] .execution-chain-card {
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .execution-chain-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .execution-chain-card .card-header {
+  background-color: var(--card-background);
+}
+
+[data-theme="dark"] .execution-chain-card .card-header.chain-header-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .execution-chain-card .card-body {
+  background-color: rgba(255, 255, 255, 0.02);
+  border-top-color: var(--border-color);
+}
+
+[data-theme="dark"] .chain-executions-table thead th {
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .chain-execution-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .chain-executions-table thead.table-light {
+  background-color: #343a40 !important;
+}
+
+[data-theme="dark"] .chain-executions-table thead.table-light th {
+  background-color: #343a40 !important;
+  color: var(--text-color);
+}
+
+/* Responsive adjustments for chain cards */
+@media (max-width: 767.98px) {
+  .execution-chain-card .card-header {
+    padding: 0.5rem;
+  }
+
+  .chain-executions-table {
+    font-size: 0.8rem;
+  }
+
+  .chain-execution-row td {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .execution-chain-card .badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.4rem;
+  }
+}
