@@ -120,28 +120,28 @@
     <div class="main-content">
         <!-- Auth Page -->
         <div id="page-auth" class="page-container d-none">
-            <div class="container py-4">
+            <div class="container py-4 auth-page-container">
                 <div class="row justify-content-center">
-                    <div class="col-md-6 col-lg-5">
-                        <div class="card shadow-sm">
-                            <div class="card-body p-4">
-                                <h5 class="mb-3"><i class="bi bi-key me-2"></i>Connect to Prismatic</h5>
+                    <div class="col-12 col-sm-10 col-md-6 col-lg-5">
+                        <div class="card shadow-sm auth-card">
+                            <div class="card-body p-3 p-sm-4">
+                                <h5 class="mb-3 text-center text-sm-start"><i class="bi bi-key me-2"></i>Connect to Prismatic</h5>
 
                                 <div class="mb-3">
                                     <label class="form-label small text-muted mb-1" for="authEndpointSelect">Region</label>
-                                    <select class="form-select form-select-sm" id="authEndpointSelect">
+                                    <select class="form-select" id="authEndpointSelect">
                                         <!-- Options populated by JS -->
                                     </select>
                                 </div>
 
                                 <div class="mb-3">
                                     <label class="form-label small text-muted mb-1" for="authApiToken">API Token</label>
-                                    <div class="input-group input-group-sm">
-                                        <input type="password" id="authApiToken" class="form-control" placeholder="Paste your token">
-                                        <button class="btn btn-outline-secondary" type="button" id="toggleTokenVisibility" title="Show/hide token">
+                                    <input type="password" id="authApiToken" class="form-control mb-2" placeholder="Paste your token">
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-secondary flex-shrink-0" type="button" id="toggleTokenVisibility" title="Show/hide token">
                                             <i class="bi bi-eye"></i>
                                         </button>
-                                        <button class="btn btn-primary" id="saveAuthButton">
+                                        <button class="btn btn-primary flex-grow-1" id="saveAuthButton">
                                             <i class="bi bi-check-lg me-1"></i>Connect
                                         </button>
                                     </div>
@@ -272,10 +272,10 @@
 
         <!-- Integrations Page -->
         <div id="page-integrations" class="page-container d-none">
-            <div class="container-fluid py-4">
+            <div class="container-fluid py-3 py-lg-4">
                 <div class="row">
                     <!-- Left Column: Integrations List -->
-                    <div class="col-12 col-lg-3 col-xl-2">
+                    <div class="col-12 col-lg-3 col-xl-2 mb-3 mb-lg-0">
                         <div class="card sticky-sidebar">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Integrations</h5>
@@ -284,7 +284,7 @@
                                 </button>
                             </div>
                             <div class="card-body p-0">
-                                <div class="p-3 border-bottom">
+                                <div class="p-2 p-sm-3 border-bottom">
                                     <input type="text" class="form-control form-control-sm" id="integrationSearchInput" placeholder="Search integrations...">
                                 </div>
                                 <div id="integrationsList" class="integrations-list">
@@ -300,7 +300,7 @@
                     </div>
 
                     <!-- Middle Column: Template Information -->
-                    <div class="col-12 col-lg-3 col-xl-2" id="versionControlColumn">
+                    <div class="col-12 col-lg-3 col-xl-2 mb-3 mb-lg-0" id="versionControlColumn">
                         <div id="versionControlPanel" class="card sticky-sidebar d-none">
                             <div class="card-header">
                                 <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Template Information</h6>
@@ -486,37 +486,29 @@
                     <div class="col-12">
                         <div class="card">
                             <div class="card-body py-2">
-                                <div class="row g-2 align-items-center">
-                                    <div class="col-auto">
-                                        <label class="form-label small mb-0 me-2">Time Range:</label>
-                                        <div class="btn-group btn-group-sm" role="group" id="timeRangeButtons">
+                                <div class="d-flex flex-wrap align-items-center gap-2 analysis-controls">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 analysis-controls-left">
+                                        <label class="form-label small mb-0 d-none d-sm-inline">Time Range:</label>
+                                        <div class="btn-group btn-group-sm flex-wrap" role="group" id="timeRangeButtons">
                                             <button type="button" class="btn btn-outline-primary" data-range="1d">Today</button>
                                             <button type="button" class="btn btn-outline-primary active" data-range="7d">7 Days</button>
                                             <button type="button" class="btn btn-outline-primary" data-range="30d">30 Days</button>
                                             <button type="button" class="btn btn-outline-primary" data-range="90d">90 Days</button>
                                         </div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <input type="date" class="form-control form-control-sm" id="analysisDateFrom" style="width: 140px;">
-                                    </div>
-                                    <div class="col-auto">
-                                        <span class="text-muted">to</span>
-                                    </div>
-                                    <div class="col-auto">
-                                        <input type="date" class="form-control form-control-sm" id="analysisDateTo" style="width: 140px;">
-                                    </div>
-                                    <div class="col-auto ms-auto">
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked>
-                                            <label class="form-check-label small" for="autoRefreshToggle">
-                                                <i class="bi bi-arrow-repeat me-1"></i>Auto-refresh
-                                            </label>
+                                        <div class="d-flex align-items-center gap-1 analysis-date-inputs">
+                                            <input type="date" class="form-control form-control-sm" id="analysisDateFrom">
+                                            <span class="text-muted small">to</span>
+                                            <input type="date" class="form-control form-control-sm" id="analysisDateTo">
                                         </div>
                                     </div>
-                                    <div class="col-auto">
-                                        <small class="text-muted" id="lastUpdatedText">Updated just now</small>
-                                    </div>
-                                    <div class="col-auto">
+                                    <div class="d-flex align-items-center gap-2 ms-sm-auto analysis-controls-right">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked>
+                                            <label class="form-check-label small" for="autoRefreshToggle">
+                                                <i class="bi bi-arrow-repeat me-1"></i><span class="d-none d-md-inline">Auto-refresh</span>
+                                            </label>
+                                        </div>
+                                        <small class="text-muted d-none d-md-inline" id="lastUpdatedText">Updated just now</small>
                                         <button class="btn btn-sm btn-outline-primary" id="refreshAnalysisBtn" title="Refresh now">
                                             <i class="bi bi-arrow-clockwise"></i>
                                         </button>
