@@ -9,6 +9,7 @@ const AnalysisPage = (() => {
         selectedInstanceId: null,
         selectedInstanceName: null,
         timeRange: '7d',
+        chartType: 'line',
         dateFrom: null,
         dateTo: null,
         autoRefresh: true,
@@ -157,7 +158,8 @@ const AnalysisPage = (() => {
                 const button = e.target.closest('button');
                 document.querySelectorAll('#chartTypeButtons button').forEach(b => b.classList.remove('active'));
                 button.classList.add('active');
-                updateExecutionsTimeChart(button.dataset.chartType);
+                state.chartType = button.dataset.chartType;
+                updateExecutionsTimeChart();
             });
         });
 
@@ -357,7 +359,7 @@ const AnalysisPage = (() => {
     }
 
     // Update executions over time chart
-    function updateExecutionsTimeChart(chartType = 'line') {
+    function updateExecutionsTimeChart() {
         const ctx = document.getElementById('executionsTimeChart');
         if (!ctx) return;
 
@@ -371,8 +373,8 @@ const AnalysisPage = (() => {
             charts.executionsTime.destroy();
         }
 
-        const isArea = chartType === 'area';
-        const type = chartType === 'bar' ? 'bar' : 'line';
+        const isArea = state.chartType === 'area';
+        const type = state.chartType === 'bar' ? 'bar' : 'line';
 
         charts.executionsTime = new Chart(ctx, {
             type: type,
@@ -589,12 +591,12 @@ const AnalysisPage = (() => {
     }
 
     // Update top volume chart
-    async function updateTopVolumeChart() {
+    function updateTopVolumeChart() {
         const ctx = document.getElementById('topVolumeChart');
         if (!ctx) return;
 
         const metric = document.getElementById('topVolumeMetric')?.value || 'customers';
-        let data = await getTopPerformersData(metric, 'volume');
+        const data = getTopPerformersData(metric, 'volume');
 
         if (charts.topVolume) {
             charts.topVolume.destroy();
@@ -633,12 +635,12 @@ const AnalysisPage = (() => {
     }
 
     // Update top errors chart
-    async function updateTopErrorsChart() {
+    function updateTopErrorsChart() {
         const ctx = document.getElementById('topErrorsChart');
         if (!ctx) return;
 
         const metric = document.getElementById('topErrorsMetric')?.value || 'customers';
-        let data = await getTopPerformersData(metric, 'errors');
+        const data = getTopPerformersData(metric, 'errors');
 
         if (charts.topErrors) {
             charts.topErrors.destroy();
@@ -677,7 +679,7 @@ const AnalysisPage = (() => {
     }
 
     // Get top performers data
-    async function getTopPerformersData(metric, type) {
+    function getTopPerformersData(metric, type) {
         const executions = state.data.recentExecutions;
         const counts = {};
 
@@ -741,7 +743,7 @@ const AnalysisPage = (() => {
             const result = await API.fetchCustomers({
                 first: 30,
                 after: state.pagination.customers.cursor,
-                searchTerm: searchTerm || null
+                searchTerm: searchTerm?.trim() || null
             });
 
             if (result) {
@@ -997,7 +999,9 @@ const AnalysisPage = (() => {
             updateTopVolumeChart();
             updateTopErrorsChart();
 
-            document.getElementById('recentExecutionsCount').textContent = state.data.recentExecutions.length;
+            // Show displayed count (max 50) not fetched count
+            const displayedCount = Math.min(state.data.recentExecutions.length, 50);
+            document.getElementById('recentExecutionsCount').textContent = displayedCount;
 
         } catch (error) {
             console.error('Error loading recent executions:', error);
@@ -1075,8 +1079,7 @@ const AnalysisPage = (() => {
     function startAutoRefresh() {
         stopAutoRefresh();
         state.refreshTimer = setInterval(() => {
-            loadAllData();
-            updateLastUpdatedTime();
+            loadAllData(); // This already calls updateLastUpdated()
         }, state.refreshInterval);
     }
 
