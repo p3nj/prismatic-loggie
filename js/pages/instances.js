@@ -577,7 +577,8 @@ const InstancesPage = (() => {
     // Fetch complete execution chains for executions that have lineage data
     // Uses server-side flowId filter to only get same-flow recursive calls (excludes cross-flow)
     // Back-fetches until true root is found (handles parents outside date filter)
-    async function fetchCompleteChains(executions, targetFlowId) {
+    // onProgress callback for live UI updates: (executions, remaining, fetched) => void
+    async function fetchCompleteChains(executions, targetFlowId, onProgress) {
         const allExecutions = new Map(); // Final map of all executions
         const processedRoots = new Set(); // Track which roots we've already fetched
 
@@ -587,6 +588,7 @@ const InstancesPage = (() => {
         }
 
         // Find initial chain roots from current executions
+        // Only fetch for parents that are OUTSIDE our current results (outside date filter)
         let pendingRoots = new Map();
         for (const exec of executions) {
             if (!exec) continue;
@@ -595,17 +597,23 @@ const InstancesPage = (() => {
             const hasChildren = exec.lineage?.hasChildren;
 
             if (parentRef?.id && parentRef?.startedAt) {
-                // Has parent - add parent as potential root
-                if (!processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
+                // Has parent - only add if parent is NOT already in our results
+                if (!allExecutions.has(parentRef.id) && !processedRoots.has(parentRef.id) && !pendingRoots.has(parentRef.id)) {
                     pendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
                 }
             } else if (hasChildren) {
-                // Is a root with children - fetch its descendants
+                // Is a root with children - fetch descendants that might be outside date filter
                 if (!processedRoots.has(exec.id) && !pendingRoots.has(exec.id)) {
                     pendingRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
                 }
             }
         }
+
+        if (pendingRoots.size === 0) {
+            return executions; // No chains to fetch
+        }
+
+        let fetchedCount = 0;
 
         // Keep fetching until no more pending roots (back-fetch to true root)
         while (pendingRoots.size > 0) {
@@ -616,6 +624,7 @@ const InstancesPage = (() => {
             // Fetch chains sequentially to respect API rate limits
             for (const root of pendingRoots.values()) {
                 processedRoots.add(root.id);
+                fetchedCount++;
 
                 try {
                     const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt, targetFlowId);
@@ -632,12 +641,19 @@ const InstancesPage = (() => {
                             newPendingRoots.set(parentRef.id, { id: parentRef.id, startedAt: parentRef.startedAt });
                         }
                     }
+
+                    // Live update UI after each fetch
+                    if (onProgress) {
+                        const remaining = pendingRoots.size - fetchedCount + newPendingRoots.size;
+                        onProgress(Array.from(allExecutions.values()), remaining, fetchedCount);
+                    }
                 } catch (error) {
                     console.error(`Error fetching chain for ${root.id}:`, error);
                 }
             }
 
             pendingRoots = newPendingRoots;
+            fetchedCount = 0; // Reset for next round
         }
 
         return Array.from(allExecutions.values());
@@ -680,8 +696,24 @@ const InstancesPage = (() => {
             // When flow filter is active, fetch complete chains to include executions outside date range
             // Uses server-side flowId filter to exclude cross-flow calls
             if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
-                contentDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading execution chains...</div></div>';
-                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId);
+                // Live update callback - render progressively as chains are fetched
+                const onProgress = (executions, remaining, fetched) => {
+                    executionsData = { ...data, nodes: executions };
+                    renderExecutions(true);
+
+                    // Show progress indicator
+                    const progressDiv = document.getElementById('chainLoadingProgress');
+                    if (progressDiv) {
+                        if (remaining > 0) {
+                            progressDiv.innerHTML = `<small class="text-muted"><i class="bi bi-arrow-repeat spin me-1"></i>Loading chains... ${remaining} remaining</small>`;
+                            progressDiv.classList.remove('d-none');
+                        } else {
+                            progressDiv.classList.add('d-none');
+                        }
+                    }
+                };
+
+                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId, onProgress);
             }
 
             if (reset) {
