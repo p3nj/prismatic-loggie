@@ -785,6 +785,12 @@ const AnalysisPage = (() => {
                 plugins: {
                     legend: {
                         display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => data.fullNames ? data.fullNames[items[0].dataIndex] : items[0].label,
+                            label: (context) => `Executions: ${formatNumber(context.raw)}`
+                        }
                     }
                 },
                 scales: {
@@ -792,6 +798,12 @@ const AnalysisPage = (() => {
                         beginAtZero: true,
                         ticks: {
                             callback: (value) => formatLargeNumber(value)
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            autoSkip: false,
+                            font: { size: 11 }
                         }
                     }
                 }
@@ -829,6 +841,12 @@ const AnalysisPage = (() => {
                 plugins: {
                     legend: {
                         display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => data.fullNames ? data.fullNames[items[0].dataIndex] : items[0].label,
+                            label: (context) => `Errors: ${formatNumber(context.raw)}`
+                        }
                     }
                 },
                 scales: {
@@ -836,6 +854,12 @@ const AnalysisPage = (() => {
                         beginAtZero: true,
                         ticks: {
                             callback: (value) => formatLargeNumber(value)
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            autoSkip: false,
+                            font: { size: 11 }
                         }
                     }
                 }
@@ -865,7 +889,7 @@ const AnalysisPage = (() => {
         }
 
         if (data.length === 0) {
-            return { labels: [], values: [], isComplete: false };
+            return { labels: [], values: [], fullNames: [], isComplete: false };
         }
 
         // Sort by volume or errors
@@ -877,7 +901,8 @@ const AnalysisPage = (() => {
         }).slice(0, 10);
 
         return {
-            labels: sorted.map(s => truncateString(s.name, 20)),
+            labels: sorted.map(s => truncateString(s.name, 30)),
+            fullNames: sorted.map(s => s.name),
             values: sorted.map(s => type === 'errors' ? s.failedExecutionCount : s.totalExecutionCount),
             isComplete: true,
             totalRecords: data.length
@@ -925,7 +950,8 @@ const AnalysisPage = (() => {
             .slice(0, 10);
 
         return {
-            labels: sorted.map(s => truncateString(s.name, 20)),
+            labels: sorted.map(s => truncateString(s.name, 30)),
+            fullNames: sorted.map(s => s.name),
             values: sorted.map(s => type === 'errors' ? s.errors : s.total),
             isComplete: false,
             sampleSize: executions.length
@@ -949,7 +975,7 @@ const AnalysisPage = (() => {
             if (!state.pagination.customers.hasMore && !reset) return;
 
             const result = await API.fetchCustomers({
-                first: 30,
+                first: 100,
                 after: state.pagination.customers.cursor,
                 searchTerm: searchTerm?.trim() || null
             });
@@ -1279,6 +1305,9 @@ const AnalysisPage = (() => {
         }
     }
 
+    // Track if we're currently loading more executions (prevent duplicate requests)
+    let isLoadingMoreExecutions = false;
+
     // Render recent executions list with lazy loading
     function renderRecentExecutions() {
         const container = document.getElementById('recentExecutionsList');
@@ -1335,7 +1364,7 @@ const AnalysisPage = (() => {
             const totalCount = state.pagination.executions?.totalCount || 0;
             const loadedCount = state.data.recentExecutions.length;
             html += `
-                <div class="text-center py-3 border-top">
+                <div id="loadMoreExecutionsContainer" class="text-center py-3 border-top">
                     <button id="loadMoreExecutionsBtn" class="btn btn-outline-secondary btn-sm">
                         <i class="bi bi-arrow-down-circle me-1"></i>
                         Load More (${formatNumber(loadedCount)} of ${formatNumber(totalCount)})
@@ -1346,25 +1375,52 @@ const AnalysisPage = (() => {
 
         // Preserve scroll position before updating
         const scrollTop = container.scrollTop;
-        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
 
         container.innerHTML = html;
 
         // Restore scroll position after update
-        // If user was near bottom (loading more), scroll to show new content
-        if (wasAtBottom && scrollTop > 0) {
-            // Scroll to approximately where new content starts
+        if (scrollTop > 0) {
             container.scrollTop = scrollTop;
         }
 
         // Attach event listener for Load More button
         const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
         if (loadMoreBtn) {
-            loadMoreBtn.addEventListener('click', async () => {
-                loadMoreBtn.disabled = true;
-                loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
-                await loadMoreExecutions();
-            });
+            loadMoreBtn.addEventListener('click', handleLoadMoreClick);
+        }
+
+        // Attach scroll event listener for lazy loading
+        container.removeEventListener('scroll', handleExecutionsScroll);
+        container.addEventListener('scroll', handleExecutionsScroll);
+    }
+
+    // Handle Load More button click
+    async function handleLoadMoreClick() {
+        if (isLoadingMoreExecutions) return;
+
+        const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.disabled = true;
+            loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
+        }
+
+        isLoadingMoreExecutions = true;
+        try {
+            await loadMoreExecutions();
+        } finally {
+            isLoadingMoreExecutions = false;
+        }
+    }
+
+    // Handle scroll event for lazy loading executions
+    function handleExecutionsScroll(e) {
+        const container = e.target;
+        if (!container || isLoadingMoreExecutions) return;
+
+        // Check if user has scrolled near the bottom (within 100px)
+        const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (scrollBottom < 100 && state.pagination.executions?.hasMore) {
+            handleLoadMoreClick();
         }
     }
 
