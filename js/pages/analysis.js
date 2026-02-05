@@ -1235,9 +1235,15 @@ const AnalysisPage = (() => {
             renderRecentExecutions();
             updateTriggerChart();
 
-            // Only update top charts from executions if not at org level (org level uses aggregated data)
-            if (state.level !== 'org') {
+            // Update top charts - at org level, only update if 'flows' is selected (which needs execution data)
+            // At customer/instance level, always update since we use execution data for all metrics
+            const volumeMetric = document.getElementById('topVolumeMetric')?.value || 'customers';
+            const errorsMetric = document.getElementById('topErrorsMetric')?.value || 'customers';
+
+            if (state.level !== 'org' || volumeMetric === 'flows') {
                 updateTopVolumeChart();
+            }
+            if (state.level !== 'org' || errorsMetric === 'flows') {
                 updateTopErrorsChart();
             }
 
@@ -1270,9 +1276,8 @@ const AnalysisPage = (() => {
         const container = document.getElementById('recentExecutionsList');
         if (!container) return;
 
-        const displayLimit = 100; // Increased from 50
-        const executions = state.data.recentExecutions.slice(0, displayLimit);
-        const hasMoreToDisplay = state.data.recentExecutions.length > displayLimit;
+        // Display all loaded executions - the Load More button handles pagination
+        const executions = state.data.recentExecutions;
         const hasMoreToLoad = state.pagination.executions?.hasMore || false;
 
         if (executions.length === 0) {
@@ -1317,7 +1322,7 @@ const AnalysisPage = (() => {
             `;
         }).join('');
 
-        // Add "Load More" button if there's more data
+        // Add "Load More" button if there's more data to fetch from API
         if (hasMoreToLoad) {
             const totalCount = state.pagination.executions?.totalCount || 0;
             const loadedCount = state.data.recentExecutions.length;
@@ -1329,16 +1334,20 @@ const AnalysisPage = (() => {
                     </button>
                 </div>
             `;
-        } else if (hasMoreToDisplay) {
-            // All data loaded but showing limited - just informational
-            html += `
-                <div class="text-center py-2 text-muted">
-                    <small>Showing ${displayLimit} of ${state.data.recentExecutions.length} loaded executions</small>
-                </div>
-            `;
         }
 
+        // Preserve scroll position before updating
+        const scrollTop = container.scrollTop;
+        const wasAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+
         container.innerHTML = html;
+
+        // Restore scroll position after update
+        // If user was near bottom (loading more), scroll to show new content
+        if (wasAtBottom && scrollTop > 0) {
+            // Scroll to approximately where new content starts
+            container.scrollTop = scrollTop;
+        }
 
         // Attach event listener for Load More button
         const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
