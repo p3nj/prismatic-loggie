@@ -1221,7 +1221,7 @@ const API = (() => {
 
     // Fetch ALL instances' daily usage metrics (no instance filter - for top performers aggregation)
     async function fetchAllInstancesDailyUsageMetrics(options = {}) {
-        const { first = 500, after = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        const { first = 100, after = null, snapshotDateGte = null, snapshotDateLte = null } = options;
         console.log('Fetching all instances daily usage metrics');
 
         const variables = { first };
@@ -1235,7 +1235,7 @@ const API = (() => {
 
     // Generator to fetch ALL instances' daily metrics with full pagination
     async function* fetchAllInstancesDailyUsageMetricsFull(options = {}) {
-        const { batchSize = 500, snapshotDateGte = null, snapshotDateLte = null } = options;
+        const { batchSize = 100, snapshotDateGte = null, snapshotDateLte = null } = options;
         let allMetrics = [];
         let cursor = null;
         let hasMore = true;
