@@ -428,8 +428,16 @@ const API = (() => {
                 versionCreatedAt
                 versionComment
                 versionSequenceId
+                createdAt
+                updatedAt
+                hasUnpublishedChanges
                 category
                 labels
+                versionCreatedBy {
+                    id
+                    name
+                    email
+                }
                 customer {
                     id
                     name
@@ -440,6 +448,12 @@ const API = (() => {
                         versionNumber
                         comment
                         isAvailable
+                        publishedAt
+                        publishedBy {
+                            id
+                            name
+                            email
+                        }
                     }
                 }
             }

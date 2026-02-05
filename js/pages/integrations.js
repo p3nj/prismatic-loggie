@@ -173,6 +173,9 @@ const IntegrationsPage = (() => {
         updateVersionComment(comment);
 
         if (versionNumber && selectedIntegration) {
+            // Update version metadata for the selected version
+            updateVersionMetadata(selectedIntegration, versionNumber);
+
             // Check if this is the current version
             const isHistoricalVersion = versionNumber !== selectedIntegration.versionNumber;
 
@@ -563,6 +566,12 @@ const IntegrationsPage = (() => {
             // Update version comment for current version
             updateVersionComment(fullIntegration.versionComment || '');
 
+            // Update template metadata (created/updated dates)
+            updateTemplateMetadata(fullIntegration);
+
+            // Update version metadata (published by, published at, status)
+            updateVersionMetadata(fullIntegration);
+
             // Show/hide edit mode button based on whether current version is unpublished
             updateEditModeButton(isCurrentVersionUnpublished);
 
@@ -797,6 +806,137 @@ const IntegrationsPage = (() => {
         } else {
             if (commentSection) commentSection.classList.add('d-none');
             if (commentEl) commentEl.textContent = '-';
+        }
+    }
+
+    // Format relative time (e.g., "2 hours ago") with full datetime available
+    function formatRelativeTime(dateString) {
+        if (!dateString) return { relative: '-', full: '' };
+
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        // Full date format for tooltip
+        const fullDate = date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        let relative;
+        if (diffMins < 1) {
+            relative = 'Just now';
+        } else if (diffMins < 60) {
+            relative = `${diffMins}m ago`;
+        } else if (diffHours < 24) {
+            relative = `${diffHours}h ago`;
+        } else if (diffDays < 7) {
+            relative = `${diffDays}d ago`;
+        } else if (diffDays < 30) {
+            const weeks = Math.floor(diffDays / 7);
+            relative = `${weeks}w ago`;
+        } else if (diffDays < 365) {
+            const months = Math.floor(diffDays / 30);
+            relative = `${months}mo ago`;
+        } else {
+            const years = Math.floor(diffDays / 365);
+            relative = `${years}y ago`;
+        }
+
+        return { relative, full: fullDate };
+    }
+
+    // Get user display name from user object
+    function getUserDisplayName(user) {
+        if (!user) return '-';
+        return user.name || user.email || '-';
+    }
+
+    // Update template metadata display (createdAt, updatedAt)
+    function updateTemplateMetadata(integration) {
+        const createdAtEl = document.getElementById('templateCreatedAtDisplay');
+        const updatedAtEl = document.getElementById('templateUpdatedAtDisplay');
+
+        if (createdAtEl) {
+            const created = formatRelativeTime(integration.createdAt);
+            createdAtEl.textContent = created.relative;
+            createdAtEl.title = created.full;
+        }
+
+        if (updatedAtEl) {
+            const updated = formatRelativeTime(integration.updatedAt);
+            updatedAtEl.textContent = updated.relative;
+            updatedAtEl.title = updated.full;
+        }
+    }
+
+    // Update version metadata display (publishedBy, publishedAt, latest version, status)
+    function updateVersionMetadata(integration, currentVersionNumber = null) {
+        const publishedByEl = document.getElementById('publishedByDisplay');
+        const publishedAtEl = document.getElementById('publishedAtDisplay');
+        const latestPublishedEl = document.getElementById('latestPublishedDisplay');
+        const unpublishedChangesEl = document.getElementById('unpublishedChangesDisplay');
+        const publishedByRow = document.getElementById('publishedByRow');
+        const publishedAtRow = document.getElementById('publishedAtRow');
+
+        const versions = integration.versions?.nodes || [];
+        const versionNum = currentVersionNumber || integration.versionNumber;
+
+        // Find the selected version in the versions array
+        const selectedVersionData = versions.find(v => v.versionNumber === versionNum);
+
+        // Check if current version is unpublished
+        const isUnpublished = !versions.some(v => v.versionNumber === versionNum);
+
+        // Update published by
+        if (publishedByEl && publishedByRow) {
+            if (isUnpublished) {
+                publishedByRow.classList.add('d-none');
+            } else {
+                publishedByRow.classList.remove('d-none');
+                publishedByEl.textContent = getUserDisplayName(selectedVersionData?.publishedBy);
+            }
+        }
+
+        // Update published at
+        if (publishedAtEl && publishedAtRow) {
+            if (isUnpublished) {
+                publishedAtRow.classList.add('d-none');
+            } else {
+                publishedAtRow.classList.remove('d-none');
+                const published = formatRelativeTime(selectedVersionData?.publishedAt);
+                publishedAtEl.textContent = published.relative;
+                publishedAtEl.title = published.full;
+            }
+        }
+
+        // Find latest published version
+        if (latestPublishedEl) {
+            if (versions.length > 0) {
+                // Sort by version number descending to find the latest
+                const sortedVersions = [...versions].sort((a, b) => b.versionNumber - a.versionNumber);
+                const latestPublished = sortedVersions[0];
+                latestPublishedEl.textContent = `v${latestPublished.versionNumber}`;
+            } else {
+                latestPublishedEl.textContent = '-';
+            }
+        }
+
+        // Update status indicator
+        if (unpublishedChangesEl) {
+            if (isUnpublished) {
+                unpublishedChangesEl.innerHTML = '<span class="badge bg-warning text-dark">Unpublished</span>';
+            } else if (integration.hasUnpublishedChanges) {
+                unpublishedChangesEl.innerHTML = '<span class="badge bg-info">Has unpublished changes</span>';
+            } else {
+                unpublishedChangesEl.innerHTML = '<span class="badge bg-success">Published</span>';
+            }
         }
     }
 
