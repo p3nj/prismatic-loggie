@@ -531,6 +531,168 @@ const API = (() => {
         }
     `;
 
+    // ============================================
+    // Analysis Page Queries
+    // ============================================
+
+    // GraphQL query for organization daily usage metrics
+    const orgDailyUsageMetricsQuery = `
+        query GetOrgDailyUsageMetrics($first: Int, $after: String, $snapshotDateGte: Date, $snapshotDateLte: Date) {
+            orgDailyUsageMetrics(
+                first: $first,
+                after: $after,
+                snapshotDate_Gte: $snapshotDateGte,
+                snapshotDate_Lte: $snapshotDateLte,
+                sortBy: [{field: SNAPSHOT_DATE, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    snapshotDate
+                    successfulExecutionCount
+                    failedExecutionCount
+                    stepCount
+                    spendMbSecs
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for customers list
+    const customersQuery = `
+        query GetCustomers($first: Int, $after: String, $searchTerm: String) {
+            customers(
+                first: $first,
+                after: $after,
+                name_Icontains: $searchTerm,
+                sortBy: [{field: NAME, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    name
+                    externalId
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for instances by customer
+    const instancesByCustomerQuery = `
+        query GetInstancesByCustomer($customerId: ID!, $first: Int, $after: String) {
+            instances(
+                customer: $customerId,
+                first: $first,
+                after: $after,
+                sortBy: [{field: NAME, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    name
+                    enabled
+                    lastExecutedAt
+                    integration {
+                        id
+                        name
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for instance daily usage metrics
+    const instanceDailyUsageMetricsQuery = `
+        query GetInstanceDailyUsageMetrics($first: Int, $after: String, $instanceId: ID, $customerId: ID, $snapshotDateGte: Date, $snapshotDateLte: Date) {
+            instanceDailyUsageMetrics(
+                first: $first,
+                after: $after,
+                instance: $instanceId,
+                instance_Customer: $customerId,
+                snapshotDate_Gte: $snapshotDateGte,
+                snapshotDate_Lte: $snapshotDateLte,
+                sortBy: [{field: SNAPSHOT_DATE, direction: ASC}]
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    snapshotDate
+                    successfulExecutionCount
+                    failedExecutionCount
+                    stepCount
+                    spendMbSecs
+                    instance {
+                        id
+                        name
+                        customer {
+                            id
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    // GraphQL query for recent executions with more details for analysis
+    const recentExecutionsAnalysisQuery = `
+        query GetRecentExecutionsAnalysis($first: Int, $after: String, $instanceId: ID, $customerId: ID, $startedAtGte: DateTime, $startedAtLte: DateTime) {
+            executionResults(
+                first: $first,
+                after: $after,
+                instance: $instanceId,
+                instance_Customer: $customerId,
+                startedAt_Gte: $startedAtGte,
+                startedAt_Lte: $startedAtLte,
+                orderBy: {field: STARTED_AT, direction: DESC}
+            ) {
+                totalCount
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    startedAt
+                    endedAt
+                    status
+                    invokeType
+                    stepCount
+                    spendMbSecs
+                    error
+                    flow {
+                        id
+                        name
+                    }
+                    instance {
+                        id
+                        name
+                        customer {
+                            id
+                            name
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
     // Generic GraphQL request helper (with rate limiting)
     async function graphqlRequest(query, variables = {}, useRateLimiter = true) {
         const token = getToken();
@@ -895,6 +1057,147 @@ const API = (() => {
         return data.publishIntegration.integration;
     }
 
+    // ============================================
+    // Analysis Page API Functions
+    // ============================================
+
+    // Fetch organization daily usage metrics
+    async function fetchOrgDailyUsageMetrics(options = {}) {
+        const { first = 100, after = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        console.log('Fetching org daily usage metrics');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (snapshotDateGte) variables.snapshotDateGte = snapshotDateGte;
+        if (snapshotDateLte) variables.snapshotDateLte = snapshotDateLte;
+
+        const data = await graphqlRequest(orgDailyUsageMetricsQuery, variables);
+        return data.orgDailyUsageMetrics;
+    }
+
+    // Fetch all org daily usage metrics with pagination
+    async function* fetchAllOrgDailyUsageMetrics(options = {}) {
+        const { batchSize = 100, snapshotDateGte = null, snapshotDateLte = null } = options;
+        let allMetrics = [];
+        let cursor = null;
+        let hasMore = true;
+
+        while (hasMore) {
+            const metricsData = await fetchOrgDailyUsageMetrics({
+                first: batchSize,
+                after: cursor,
+                snapshotDateGte,
+                snapshotDateLte
+            });
+
+            if (!metricsData || !metricsData.nodes) break;
+
+            allMetrics = allMetrics.concat(metricsData.nodes);
+            hasMore = metricsData.pageInfo?.hasNextPage || false;
+            cursor = metricsData.pageInfo?.endCursor || null;
+
+            yield {
+                metrics: allMetrics,
+                loadedCount: allMetrics.length,
+                totalCount: metricsData.totalCount,
+                isComplete: !hasMore
+            };
+        }
+
+        return allMetrics;
+    }
+
+    // Fetch customers list
+    async function fetchCustomers(options = {}) {
+        const { first = 50, after = null, searchTerm = null } = options;
+        console.log('Fetching customers list');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (searchTerm) variables.searchTerm = searchTerm;
+
+        const data = await graphqlRequest(customersQuery, variables);
+        return data.customers;
+    }
+
+    // Fetch instances by customer
+    async function fetchInstancesByCustomer(customerId, options = {}) {
+        const { first = 50, after = null } = options;
+        console.log(`Fetching instances for customer: ${customerId}`);
+
+        const variables = { customerId, first };
+        if (after) variables.after = after;
+
+        const data = await graphqlRequest(instancesByCustomerQuery, variables);
+        return data.instances;
+    }
+
+    // Fetch instance daily usage metrics
+    async function fetchInstanceDailyUsageMetrics(options = {}) {
+        const { first = 100, after = null, instanceId = null, customerId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        console.log('Fetching instance daily usage metrics');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (instanceId) variables.instanceId = instanceId;
+        if (customerId) variables.customerId = customerId;
+        if (snapshotDateGte) variables.snapshotDateGte = snapshotDateGte;
+        if (snapshotDateLte) variables.snapshotDateLte = snapshotDateLte;
+
+        const data = await graphqlRequest(instanceDailyUsageMetricsQuery, variables);
+        return data.instanceDailyUsageMetrics;
+    }
+
+    // Fetch all instance daily usage metrics with pagination
+    async function* fetchAllInstanceDailyUsageMetrics(options = {}) {
+        const { batchSize = 100, instanceId = null, customerId = null, snapshotDateGte = null, snapshotDateLte = null } = options;
+        let allMetrics = [];
+        let cursor = null;
+        let hasMore = true;
+
+        while (hasMore) {
+            const metricsData = await fetchInstanceDailyUsageMetrics({
+                first: batchSize,
+                after: cursor,
+                instanceId,
+                customerId,
+                snapshotDateGte,
+                snapshotDateLte
+            });
+
+            if (!metricsData || !metricsData.nodes) break;
+
+            allMetrics = allMetrics.concat(metricsData.nodes);
+            hasMore = metricsData.pageInfo?.hasNextPage || false;
+            cursor = metricsData.pageInfo?.endCursor || null;
+
+            yield {
+                metrics: allMetrics,
+                loadedCount: allMetrics.length,
+                totalCount: metricsData.totalCount,
+                isComplete: !hasMore
+            };
+        }
+
+        return allMetrics;
+    }
+
+    // Fetch recent executions for analysis
+    async function fetchRecentExecutionsAnalysis(options = {}) {
+        const { first = 50, after = null, instanceId = null, customerId = null, startedAtGte = null, startedAtLte = null } = options;
+        console.log('Fetching recent executions for analysis');
+
+        const variables = { first };
+        if (after) variables.after = after;
+        if (instanceId) variables.instanceId = instanceId;
+        if (customerId) variables.customerId = customerId;
+        if (startedAtGte) variables.startedAtGte = startedAtGte;
+        if (startedAtLte) variables.startedAtLte = startedAtLte;
+
+        const data = await graphqlRequest(recentExecutionsAnalysisQuery, variables);
+        return data.executionResults;
+    }
+
     // Legacy support - update config from DOM elements (for backward compatibility)
     function updateConfig() {
         const endpointSelect = document.getElementById('endpointSelect');
@@ -968,6 +1271,14 @@ const API = (() => {
         fetchIntegrationVersionDefinition,
         importIntegration,
         publishIntegration,
+        // Analysis methods
+        fetchOrgDailyUsageMetrics,
+        fetchAllOrgDailyUsageMetrics,
+        fetchCustomers,
+        fetchInstancesByCustomer,
+        fetchInstanceDailyUsageMetrics,
+        fetchAllInstanceDailyUsageMetrics,
+        fetchRecentExecutionsAnalysis,
         // Legacy methods for backward compatibility
         loadSavedConfig,
         updateConfig

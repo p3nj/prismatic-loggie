@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.register('auth', AuthPage.onRoute);
     Router.register('instances', InstancesPage.onRoute);
     Router.register('integrations', IntegrationsPage.onRoute);
+    Router.register('analysis', AnalysisPage.onRoute);
     Router.register('execution', ExecutionPage.onRoute);
 
     // Add before navigate callback to check authentication for protected routes

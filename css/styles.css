@@ -1918,3 +1918,278 @@ pre[class*="language-"] {
     padding: 0.2rem 0.4rem;
   }
 }
+
+/* ============================================
+   Analysis Page Styles
+   ============================================ */
+
+#page-analysis {
+  background-color: var(--background-color);
+}
+
+/* KPI Cards */
+.kpi-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.kpi-card .display-6 {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .kpi-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Time Range Buttons */
+#timeRangeButtons .btn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+}
+
+#timeRangeButtons .btn.active {
+  font-weight: 600;
+}
+
+/* Analysis Selection Lists */
+.analysis-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.analysis-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.analysis-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.analysis-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 3px;
+}
+
+.analysis-list-item {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.analysis-list-item:hover {
+  background-color: rgba(13, 110, 253, 0.08);
+}
+
+.analysis-list-item.active {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+}
+
+.analysis-list-item.active .text-muted {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.analysis-list-item.active .badge {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+}
+
+.analysis-list-item.active i {
+  color: white !important;
+}
+
+[data-theme="dark"] .analysis-list-item:hover {
+  background-color: rgba(61, 139, 253, 0.15);
+}
+
+[data-theme="dark"] .analysis-selection-header {
+  background-color: #2a2a2a !important;
+}
+
+/* Chart Containers */
+.chart-container {
+  position: relative;
+}
+
+.chart-container canvas {
+  max-width: 100%;
+}
+
+/* Chart Type Buttons */
+#chartTypeButtons .btn {
+  padding: 0.25rem 0.5rem;
+}
+
+#chartTypeButtons .btn i {
+  font-size: 0.875rem;
+}
+
+/* Recent Executions List */
+.recent-executions-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.recent-executions-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.recent-executions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recent-executions-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 3px;
+}
+
+.recent-execution-item {
+  transition: background-color 0.15s ease;
+}
+
+.recent-execution-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .recent-execution-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Breadcrumb Styles */
+#page-analysis .breadcrumb {
+  background-color: transparent;
+  padding: 0;
+  margin: 0;
+}
+
+#page-analysis .breadcrumb-item a {
+  color: var(--primary-color);
+}
+
+#page-analysis .breadcrumb-item a:hover {
+  text-decoration: underline;
+}
+
+#page-analysis .breadcrumb-item.active {
+  color: var(--text-color);
+}
+
+/* Auto-refresh Toggle */
+#page-analysis .form-switch .form-check-input {
+  cursor: pointer;
+}
+
+#page-analysis .form-switch .form-check-input:checked {
+  background-color: var(--success-color);
+  border-color: var(--success-color);
+}
+
+/* Responsive Adjustments for Analysis Page */
+@media (max-width: 1199.98px) {
+  #page-analysis .col-xl-2 {
+    flex: 0 0 auto;
+    width: 25%;
+  }
+
+  #page-analysis .col-xl-10 {
+    flex: 0 0 auto;
+    width: 75%;
+  }
+}
+
+@media (max-width: 991.98px) {
+  #page-analysis .sticky-sidebar {
+    position: static;
+    max-height: none;
+    margin-bottom: 1rem;
+  }
+
+  #page-analysis #kpiCardsRow {
+    flex-wrap: wrap;
+  }
+
+  #page-analysis #kpiCardsRow > .col {
+    flex: 0 0 50%;
+    max-width: 50%;
+    margin-bottom: 1rem;
+  }
+
+  #page-analysis .chart-container {
+    height: 250px !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  #page-analysis #kpiCardsRow > .col {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  #page-analysis .kpi-card .display-6 {
+    font-size: 1.5rem;
+  }
+
+  #page-analysis #timeRangeButtons {
+    flex-wrap: wrap;
+  }
+
+  #page-analysis #timeRangeButtons .btn {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+  }
+
+  #page-analysis .row.g-2 > .col-auto {
+    width: 100%;
+  }
+
+  #page-analysis .ms-auto {
+    margin-left: 0 !important;
+    margin-top: 0.5rem;
+  }
+}
+
+/* Dark Theme Chart.js Adjustments */
+[data-theme="dark"] .chart-container {
+  color: var(--text-color);
+}
+
+/* Analysis Page Card Headers */
+#page-analysis .card-header h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+#page-analysis .card-header h6 i {
+  opacity: 0.7;
+}
+
+/* Metric Selectors in Chart Headers */
+#page-analysis .card-header .form-select {
+  font-size: 0.75rem;
+  padding: 0.2rem 1.5rem 0.2rem 0.5rem;
+  background-position: right 0.3rem center;
+}
+
+/* Loading States */
+#page-analysis .spinner-border-sm {
+  width: 1rem;
+  height: 1rem;
+  border-width: 0.15em;
+}
+
+/* Analysis Drill Down Panel */
+#page-analysis #clearDrilldownBtn {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+}
+
+#page-analysis #clearDrilldownBtn:hover {
+  background-color: var(--danger-color);
+  border-color: var(--danger-color);
+  color: white;
+}

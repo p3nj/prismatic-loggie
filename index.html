@@ -14,6 +14,9 @@
     <script src="https://cdn.jsdelivr.net/npm/jsoneditor@9.10.0/dist/jsoneditor.min.js"></script>
     <!-- MessagePack decoder for binary step outputs -->
     <script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack@2.8.0/dist.es5+umd/msgpack.min.js"></script>
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
     <!-- Top Navbar -->
@@ -35,6 +38,11 @@
                     <li class="nav-item">
                         <a class="nav-link" href="#integrations">
                             <i class="bi bi-diagram-3 me-1"></i>Integrations
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#analysis">
+                            <i class="bi bi-graph-up me-1"></i>Analysis
                         </a>
                     </li>
                     <li class="nav-item">
@@ -449,6 +457,299 @@
             </div>
         </div>
 
+        <!-- Analysis Page -->
+        <div id="page-analysis" class="page-container d-none">
+            <div class="container-fluid py-4">
+                <!-- Breadcrumb Navigation -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <nav aria-label="breadcrumb" id="analysisBreadcrumb">
+                            <ol class="breadcrumb mb-0">
+                                <li class="breadcrumb-item">
+                                    <a href="#" id="breadcrumbOrg" class="text-decoration-none">
+                                        <i class="bi bi-building me-1"></i>Organization
+                                    </a>
+                                </li>
+                                <li class="breadcrumb-item d-none" id="breadcrumbCustomerItem">
+                                    <a href="#" id="breadcrumbCustomer" class="text-decoration-none"></a>
+                                </li>
+                                <li class="breadcrumb-item d-none" id="breadcrumbInstanceItem">
+                                    <span id="breadcrumbInstance"></span>
+                                </li>
+                            </ol>
+                        </nav>
+                    </div>
+                </div>
+
+                <!-- Time Range & Auto-refresh Controls -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body py-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-auto">
+                                        <label class="form-label small mb-0 me-2">Time Range:</label>
+                                        <div class="btn-group btn-group-sm" role="group" id="timeRangeButtons">
+                                            <button type="button" class="btn btn-outline-primary" data-range="1d">Today</button>
+                                            <button type="button" class="btn btn-outline-primary active" data-range="7d">7 Days</button>
+                                            <button type="button" class="btn btn-outline-primary" data-range="30d">30 Days</button>
+                                            <button type="button" class="btn btn-outline-primary" data-range="90d">90 Days</button>
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <input type="date" class="form-control form-control-sm" id="analysisDateFrom" style="width: 140px;">
+                                    </div>
+                                    <div class="col-auto">
+                                        <span class="text-muted">to</span>
+                                    </div>
+                                    <div class="col-auto">
+                                        <input type="date" class="form-control form-control-sm" id="analysisDateTo" style="width: 140px;">
+                                    </div>
+                                    <div class="col-auto ms-auto">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked>
+                                            <label class="form-check-label small" for="autoRefreshToggle">
+                                                <i class="bi bi-arrow-repeat me-1"></i>Auto-refresh
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <small class="text-muted" id="lastUpdatedText">Updated just now</small>
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-sm btn-outline-primary" id="refreshAnalysisBtn" title="Refresh now">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KPI Cards Row -->
+                <div class="row mb-4" id="kpiCardsRow">
+                    <div class="col">
+                        <div class="card h-100 kpi-card">
+                            <div class="card-body text-center">
+                                <div class="text-muted small mb-1">Total Executions</div>
+                                <div class="display-6 fw-bold" id="kpiTotalExecutions">-</div>
+                                <small class="text-muted" id="kpiTotalExecutionsTrend"></small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100 kpi-card">
+                            <div class="card-body text-center">
+                                <div class="text-muted small mb-1">Successful</div>
+                                <div class="display-6 fw-bold text-success" id="kpiSuccessful">-</div>
+                                <small class="text-muted" id="kpiSuccessfulTrend"></small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100 kpi-card">
+                            <div class="card-body text-center">
+                                <div class="text-muted small mb-1">Failed</div>
+                                <div class="display-6 fw-bold text-danger" id="kpiFailed">-</div>
+                                <small class="text-muted" id="kpiFailedTrend"></small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100 kpi-card">
+                            <div class="card-body text-center">
+                                <div class="text-muted small mb-1">Success Rate</div>
+                                <div class="display-6 fw-bold" id="kpiSuccessRate">-</div>
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar bg-success" id="kpiSuccessRateBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100 kpi-card">
+                            <div class="card-body text-center">
+                                <div class="text-muted small mb-1">Total Steps</div>
+                                <div class="display-6 fw-bold" id="kpiTotalSteps">-</div>
+                                <small class="text-muted" id="kpiTotalStepsTrend"></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Area -->
+                <div class="row">
+                    <!-- Left Sidebar - Selection Panel -->
+                    <div class="col-lg-3 col-xl-2">
+                        <div class="card sticky-sidebar">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-funnel me-2"></i>Drill Down</h6>
+                                <button class="btn btn-sm btn-outline-secondary" id="clearDrilldownBtn" title="Clear selection">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <!-- Customer Search & List -->
+                                <div class="p-2 border-bottom">
+                                    <input type="text" class="form-control form-control-sm" id="analysisCustomerSearch" placeholder="Search customers...">
+                                </div>
+                                <div class="analysis-selection-header px-3 py-2 bg-light border-bottom">
+                                    <small class="fw-bold text-muted">CUSTOMERS</small>
+                                    <span class="badge bg-secondary ms-1" id="customerCountBadge">0</span>
+                                </div>
+                                <div id="analysisCustomerList" class="analysis-list" style="max-height: 200px; overflow-y: auto;">
+                                    <div class="text-center text-muted py-3">
+                                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                                        <small class="d-block mt-1">Loading customers...</small>
+                                    </div>
+                                </div>
+                                <div id="customerLoadMore" class="p-2 text-center d-none border-bottom">
+                                    <button class="btn btn-sm btn-link" id="loadMoreCustomersBtn">Load more...</button>
+                                </div>
+
+                                <!-- Instance List (shown when customer selected) -->
+                                <div id="instanceSelectionPanel" class="d-none">
+                                    <div class="analysis-selection-header px-3 py-2 bg-light border-bottom">
+                                        <small class="fw-bold text-muted">INSTANCES</small>
+                                        <span class="badge bg-secondary ms-1" id="instanceCountBadge">0</span>
+                                    </div>
+                                    <div id="analysisInstanceList" class="analysis-list" style="max-height: 200px; overflow-y: auto;">
+                                        <div class="text-center text-muted py-3">
+                                            <small>Select a customer first</small>
+                                        </div>
+                                    </div>
+                                    <div id="instanceLoadMore" class="p-2 text-center d-none">
+                                        <button class="btn btn-sm btn-link" id="loadMoreInstancesAnalysisBtn">Load more...</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Chart Area -->
+                    <div class="col-lg-9 col-xl-10">
+                        <!-- Executions Over Time Chart -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Executions Over Time</h6>
+                                <div class="btn-group btn-group-sm" role="group" id="chartTypeButtons">
+                                    <button type="button" class="btn btn-outline-secondary active" data-chart-type="line">
+                                        <i class="bi bi-graph-up"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" data-chart-type="bar">
+                                        <i class="bi bi-bar-chart"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" data-chart-type="area">
+                                        <i class="bi bi-graph-up-arrow"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container" style="position: relative; height: 300px;">
+                                    <canvas id="executionsTimeChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Distribution Charts Row -->
+                        <div class="row mb-4">
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>By Outcome</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="chart-container" style="position: relative; height: 220px;">
+                                            <canvas id="outcomeChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>By Trigger Type</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="chart-container" style="position: relative; height: 220px;">
+                                            <canvas id="triggerChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="bi bi-speedometer2 me-2"></i>Spend (MB-secs)</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="chart-container" style="position: relative; height: 220px;">
+                                            <canvas id="spendChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Performers / Errors Chart -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="card h-100">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <h6 class="mb-0"><i class="bi bi-trophy me-2"></i>Top by Volume</h6>
+                                        <select class="form-select form-select-sm" id="topVolumeMetric" style="width: auto;">
+                                            <option value="customers">Customers</option>
+                                            <option value="instances">Instances</option>
+                                            <option value="flows">Flows</option>
+                                        </select>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="chart-container" style="position: relative; height: 250px;">
+                                            <canvas id="topVolumeChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card h-100">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <h6 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Top by Errors</h6>
+                                        <select class="form-select form-select-sm" id="topErrorsMetric" style="width: auto;">
+                                            <option value="customers">Customers</option>
+                                            <option value="instances">Instances</option>
+                                            <option value="flows">Flows</option>
+                                        </select>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="chart-container" style="position: relative; height: 250px;">
+                                            <canvas id="topErrorsChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Stream -->
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-activity me-2"></i>Recent Executions</h6>
+                                <span class="badge bg-primary" id="recentExecutionsCount">0</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="recentExecutionsList" class="recent-executions-list" style="max-height: 300px; overflow-y: auto;">
+                                    <div class="text-center text-muted py-4">
+                                        <i class="bi bi-clock-history display-6 mb-2 d-block"></i>
+                                        <small>Recent executions will appear here</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Execution Page (Original functionality) -->
         <div id="page-execution" class="page-container d-none">
             <div class="container-fluid py-4">
@@ -519,6 +820,7 @@
     <script src="js/pages/instances.js"></script>
     <script src="js/pages/integrations.js"></script>
     <script src="js/pages/execution.js"></script>
+    <script src="js/pages/analysis.js"></script>
     <script src="js/app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.36.1/min/vs/loader.js"></script>
     <script>
