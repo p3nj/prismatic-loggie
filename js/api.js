@@ -418,6 +418,7 @@ const API = (() => {
                     nodes {
                         id
                         versionNumber
+                        versionComment
                         isAvailable
                     }
                 }

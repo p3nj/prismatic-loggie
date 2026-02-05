@@ -76,12 +76,19 @@ const IntegrationsPage = (() => {
         if (versionSelect) {
             versionSelect.addEventListener('change', (e) => {
                 const versionNumber = parseInt(e.target.value, 10);
+                const selectedOption = e.target.selectedOptions[0];
+                const isUnpublished = selectedOption?.dataset.unpublished === 'true';
+                const comment = selectedOption?.dataset.comment || '';
+
                 if (versionNumber && selectedIntegration) {
                     // Check if this is the current version
                     if (versionNumber === selectedIntegration.versionNumber) {
                         // Current version - we already have the definition
                         if (selectedIntegration.definition) {
-                            showYamlInEditor(selectedIntegration.definition);
+                            showYamlInEditor(selectedIntegration.definition, {
+                                readOnly: !isUnpublished,
+                                comment: isUnpublished ? '' : comment
+                            });
                         }
                     } else {
                         // Historical version - need to fetch using versionSequenceId and versionNumber
@@ -300,9 +307,17 @@ const IntegrationsPage = (() => {
             // Populate version selector
             populateVersionSelector(fullIntegration);
 
+            // Check if current version is unpublished (not in published versions list)
+            const publishedVersions = fullIntegration.versions?.nodes || [];
+            const isCurrentUnpublished = !publishedVersions.some(v => v.versionNumber === fullIntegration.versionNumber);
+
             // Show current version's definition in editor
+            // Unpublished version is editable, published versions are readonly
             if (fullIntegration.definition) {
-                showYamlInEditor(fullIntegration.definition);
+                showYamlInEditor(fullIntegration.definition, {
+                    readOnly: !isCurrentUnpublished,
+                    comment: '' // Current version comment is not shown initially
+                });
             }
 
             // Enable buttons
@@ -368,15 +383,19 @@ const IntegrationsPage = (() => {
 
         const versions = [...(integration.versions?.nodes || [])];
 
-        // Check if current version is in the list
+        // Check if current version is in the list of published versions
         const currentVersionInList = versions.some(v => v.versionNumber === integration.versionNumber);
 
-        // If current version is not in the list, add it (it might be a draft/unpublished version)
-        if (!currentVersionInList && integration.versionNumber) {
+        // If current version is not in the published versions list, it's unpublished
+        const isCurrentUnpublished = !currentVersionInList && integration.versionNumber;
+
+        // If current version is not in the list, add it (it's a draft/unpublished version)
+        if (isCurrentUnpublished) {
             versions.unshift({
                 versionNumber: integration.versionNumber,
+                versionComment: integration.versionComment,
                 isAvailable: true,
-                isCurrent: true
+                isUnpublished: true
             });
         }
 
@@ -386,13 +405,23 @@ const IntegrationsPage = (() => {
         select.innerHTML = versions.map(v => {
             const isCurrent = v.versionNumber === integration.versionNumber;
             const availableTag = v.isAvailable === false ? ' [Unavailable]' : '';
-            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''}>
-                v${v.versionNumber}${isCurrent ? ' [Current]' : ''}${availableTag}
+            // Show "Unpublished" for the current unpublished version, otherwise show version number
+            let label;
+            if (v.isUnpublished) {
+                label = `v${v.versionNumber} (Unpublished)`;
+            } else {
+                label = `v${v.versionNumber}${availableTag}`;
+            }
+            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''} data-unpublished="${v.isUnpublished || false}" data-comment="${escapeHtml(v.versionComment || '')}">
+                ${label}
             </option>`;
         }).join('');
 
-        // Store current version as selected
+        // Store current version as selected with unpublished flag
         selectedVersion = versions.find(v => v.versionNumber === integration.versionNumber);
+        if (selectedVersion) {
+            selectedVersion.isUnpublished = isCurrentUnpublished;
+        }
     }
 
     // Load specific version definition
@@ -404,12 +433,21 @@ const IntegrationsPage = (() => {
             selectedVersion = version;
 
             if (version && version.definition) {
-                showYamlInEditor(version.definition);
+                // Historical versions are always readonly
+                showYamlInEditor(version.definition, {
+                    readOnly: true,
+                    comment: version.versionComment || ''
+                });
             } else {
-                showYamlInEditor('# No definition available for this version');
+                showYamlInEditor('# No definition available for this version', {
+                    readOnly: true,
+                    comment: ''
+                });
             }
         } catch (error) {
             console.error('Error loading version definition:', error);
+            // Clear the comment display on error
+            updateVersionComment('');
             // Show helpful message for historical versions
             const container = document.getElementById('yamlEditorContainer');
             if (container) {
@@ -427,10 +465,41 @@ const IntegrationsPage = (() => {
         }
     }
 
+    // Update version comment display
+    function updateVersionComment(comment) {
+        let commentEl = document.getElementById('versionCommentDisplay');
+
+        if (comment) {
+            if (!commentEl) {
+                // Create comment display element
+                const cardBody = document.querySelector('#yamlEditorPanel .card-body');
+                if (cardBody) {
+                    commentEl = document.createElement('div');
+                    commentEl.id = 'versionCommentDisplay';
+                    commentEl.className = 'alert alert-info mb-0 rounded-0 border-start-0 border-end-0 py-2';
+                    cardBody.insertBefore(commentEl, cardBody.firstChild);
+                }
+            }
+            if (commentEl) {
+                commentEl.innerHTML = `<i class="bi bi-chat-left-text me-2"></i><strong>Version Comment:</strong> ${escapeHtml(comment)}`;
+                commentEl.classList.remove('d-none');
+            }
+        } else {
+            if (commentEl) {
+                commentEl.classList.add('d-none');
+            }
+        }
+    }
+
     // Show YAML in Monaco editor
-    function showYamlInEditor(yamlContent) {
+    function showYamlInEditor(yamlContent, options = {}) {
+        const { readOnly = false, comment = '' } = options;
+
         const container = document.getElementById('yamlEditorContainer');
         if (!container) return;
+
+        // Update version comment display
+        updateVersionComment(comment);
 
         // Clear previous content
         container.innerHTML = '';
@@ -456,11 +525,12 @@ const IntegrationsPage = (() => {
             theme: getCurrentTheme(),
             automaticLayout: true,
             minimap: { enabled: true },
-            readOnly: false,
+            readOnly: readOnly,
             wordWrap: 'on',
             scrollBeyondLastLine: false,
             fontSize: 13,
             lineNumbers: 'on',
+            lineNumbersMinChars: 5,
             renderLineHighlight: 'line',
             folding: true
         });
