@@ -984,19 +984,13 @@ const AnalysisPage = (() => {
 
             if (state.selectedInstanceId) {
                 options.instanceId = state.selectedInstanceId;
+            } else if (state.selectedCustomerId) {
+                // Filter by customer if at customer level (API supports instance_Customer filter)
+                options.customerId = state.selectedCustomerId;
             }
 
             const result = await API.fetchRecentExecutionsAnalysis(options);
-            let executions = result?.nodes || [];
-
-            // If at customer level (without specific instance), filter by customer client-side
-            if (state.level === 'customer' && state.selectedCustomerId && !state.selectedInstanceId) {
-                executions = executions.filter(e =>
-                    e.instance?.customer?.id === state.selectedCustomerId
-                );
-            }
-
-            state.data.recentExecutions = executions;
+            state.data.recentExecutions = result?.nodes || [];
 
             renderRecentExecutions();
             updateTriggerChart();

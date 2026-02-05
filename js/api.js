@@ -651,11 +651,12 @@ const API = (() => {
 
     // GraphQL query for recent executions with more details for analysis
     const recentExecutionsAnalysisQuery = `
-        query GetRecentExecutionsAnalysis($first: Int, $after: String, $instanceId: ID, $startedAtGte: DateTime, $startedAtLte: DateTime) {
+        query GetRecentExecutionsAnalysis($first: Int, $after: String, $instanceId: ID, $customerId: ID, $startedAtGte: DateTime, $startedAtLte: DateTime) {
             executionResults(
                 first: $first,
                 after: $after,
                 instance: $instanceId,
+                instance_Customer: $customerId,
                 startedAt_Gte: $startedAtGte,
                 startedAt_Lte: $startedAtLte,
                 orderBy: {field: STARTED_AT, direction: DESC}
@@ -1180,14 +1181,14 @@ const API = (() => {
     }
 
     // Fetch recent executions for analysis
-    // Note: Customer filtering is not supported by the API - filter client-side if needed
     async function fetchRecentExecutionsAnalysis(options = {}) {
-        const { first = 50, after = null, instanceId = null, startedAtGte = null, startedAtLte = null } = options;
+        const { first = 50, after = null, instanceId = null, customerId = null, startedAtGte = null, startedAtLte = null } = options;
         console.log('Fetching recent executions for analysis');
 
         const variables = { first };
         if (after) variables.after = after;
         if (instanceId) variables.instanceId = instanceId;
+        if (customerId) variables.customerId = customerId;
         if (startedAtGte) variables.startedAtGte = startedAtGte;
         if (startedAtLte) variables.startedAtLte = startedAtLte;
 
