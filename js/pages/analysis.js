@@ -1185,26 +1185,34 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Load recent executions with lazy loading support
-    async function loadRecentExecutions(reset = true, loadMore = false) {
+    // Load recent executions (initial load - resets state)
+    async function loadRecentExecutions() {
+        // Reset pagination state
+        state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
+        state.data.recentExecutions = [];
+
+        await fetchExecutions(false);
+    }
+
+    // Load more executions (pagination - appends to existing data)
+    async function loadMoreExecutions() {
+        // Don't load more if no more data available
+        if (!state.pagination.executions?.hasMore) return;
+
+        await fetchExecutions(true);
+    }
+
+    // Shared execution fetching logic
+    async function fetchExecutions(append) {
         try {
-            // Reset pagination state if requested
-            if (reset) {
-                state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
-                state.data.recentExecutions = [];
-            }
-
-            // Don't load more if no more data
-            if (loadMore && !state.pagination.executions?.hasMore) return;
-
             const options = {
                 first: 100,  // Keep at 100 - higher values may cause API errors
                 startedAtGte: state.dateFrom + 'T00:00:00Z',
                 startedAtLte: state.dateTo + 'T23:59:59Z'
             };
 
-            // Add cursor for pagination
-            if (loadMore && state.pagination.executions?.cursor) {
+            // Add cursor for pagination when appending
+            if (append && state.pagination.executions?.cursor) {
                 options.after = state.pagination.executions.cursor;
             }
 
@@ -1219,7 +1227,7 @@ const AnalysisPage = (() => {
             const newExecutions = result?.nodes || [];
 
             // Append or replace executions
-            if (loadMore) {
+            if (append) {
                 state.data.recentExecutions = [...state.data.recentExecutions, ...newExecutions];
             } else {
                 state.data.recentExecutions = newExecutions;
@@ -1251,7 +1259,7 @@ const AnalysisPage = (() => {
             updateRecentExecutionsCount();
 
         } catch (error) {
-            console.error('Error loading recent executions:', error);
+            console.error('Error loading executions:', error);
             showError('Failed to load executions: ' + error.message);
         }
     }
@@ -1355,7 +1363,7 @@ const AnalysisPage = (() => {
             loadMoreBtn.addEventListener('click', async () => {
                 loadMoreBtn.disabled = true;
                 loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
-                await loadRecentExecutions(false, true);
+                await loadMoreExecutions();
             });
         }
     }
