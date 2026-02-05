@@ -1026,6 +1026,29 @@ pre[class*="language-"] {
   text-decoration: underline;
 }
 
+/* Output-only steps (no logs) - non-clickable styling */
+.step-label-no-logs {
+  color: var(--text-color);
+  font-size: 0.8125rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.output-only-badge {
+  border: 1px solid var(--border-color);
+  font-weight: normal;
+}
+
+[data-theme="dark"] .step-label-no-logs {
+  opacity: 0.6;
+}
+
+[data-theme="dark"] .output-only-badge {
+  background-color: var(--card-bg) !important;
+  border-color: var(--border-color);
+  color: var(--text-muted) !important;
+}
+
 .toggle-step {
   background: none;
   border: none;
