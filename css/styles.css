@@ -1555,7 +1555,7 @@ pre[class*="language-"] {
 }
 
 /* Editor mode badges */
-#editorReadOnlyBadge, #editorEditableBadge {
+#editorReadOnlyBadge, #editorEditableBadge, #editorViewModeBadge {
   font-size: 0.7rem;
   font-weight: normal;
 }
@@ -1563,6 +1563,20 @@ pre[class*="language-"] {
 #unsavedChangesBadge {
   font-size: 0.75rem;
   animation: pulse 2s infinite;
+}
+
+/* Edit mode button styling */
+#enableEditModeBtn {
+  transition: all 0.2s ease-in-out;
+}
+
+#enableEditModeBtn.btn-warning {
+  animation: editModePulse 2s infinite;
+}
+
+@keyframes editModePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4); }
+  50% { box-shadow: 0 0 8px 2px rgba(255, 193, 7, 0.6); }
 }
 
 @keyframes pulse {
