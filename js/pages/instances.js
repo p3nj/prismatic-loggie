@@ -577,45 +577,31 @@ const InstancesPage = (() => {
     // Fetch complete execution chains for executions that have lineage data
     // Uses server-side flowId filter to only get same-flow recursive calls (excludes cross-flow)
     async function fetchCompleteChains(executions, targetFlowId) {
-        // Find executions that are part of chains (have lineage data)
-        const chainRoots = new Map(); // Map of root execution ID -> root execution info
-        const processedChains = new Set(); // Track which chains we've already fetched
+        // Step 1: Find TRUE chain roots (hasChildren=true AND no parent)
+        // These are the actual starting points of chains
+        const trueRoots = new Map(); // Map of root ID -> root info
 
         for (const exec of executions) {
             if (!exec) continue;
 
-            // Check if this execution is part of a chain
             const hasParent = exec.lineage?.invokedBy?.execution?.id;
             const hasChildren = exec.lineage?.hasChildren;
 
-            if (hasParent || hasChildren) {
-                // Find the root of the chain - if we have a parent, use its info; otherwise use this execution
-                let rootId, rootStartedAt;
-                if (hasParent) {
-                    rootId = exec.lineage.invokedBy.execution.id;
-                    rootStartedAt = exec.lineage.invokedBy.execution.startedAt;
-                } else {
-                    // This execution is the root (has children but no parent)
-                    rootId = exec.id;
-                    rootStartedAt = exec.startedAt;
-                }
-
-                if (!processedChains.has(rootId)) {
-                    chainRoots.set(rootId, { id: rootId, startedAt: rootStartedAt });
-                    processedChains.add(rootId);
-                }
+            // Only true roots: has children but no parent
+            if (hasChildren && !hasParent) {
+                trueRoots.set(exec.id, { id: exec.id, startedAt: exec.startedAt });
             }
         }
 
-        if (chainRoots.size === 0) {
-            return executions; // No chains to fetch
+        if (trueRoots.size === 0) {
+            return executions; // No chain roots found
         }
 
-        console.log(`Fetching ${chainRoots.size} complete chain(s) for flowId: ${targetFlowId}...`);
+        console.log(`Fetching ${trueRoots.size} complete chain(s) for flowId: ${targetFlowId}...`);
 
-        // Fetch chains sequentially to respect API rate limits
+        // Step 2: Fetch all descendants for each true root (sequentially for rate limiting)
         const chainResults = [];
-        for (const root of chainRoots.values()) {
+        for (const root of trueRoots.values()) {
             try {
                 const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt, targetFlowId);
                 chainResults.push({ rootId: root.id, executions: chainExecutions });
@@ -625,47 +611,48 @@ const InstancesPage = (() => {
             }
         }
 
-        // Build a map of all executions from complete chains (already filtered by server)
-        // Mark each execution with its chain root ID for proper grouping
+        // Step 3: Build map of chain executions, all marked with their true root
         const completeChainExecutions = new Map();
         for (const result of chainResults) {
             for (const exec of result.executions) {
-                // Mark with chain root ID for grouping (handles cross-flow gaps)
                 exec._chainRootId = result.rootId;
                 completeChainExecutions.set(exec.id, exec);
             }
         }
 
-        // Merge: use complete chain data where available, keep original for standalone executions
+        // Step 4: Merge - chain executions + original executions with proper root marking
         const mergedExecutions = new Map();
 
-        // First add all complete chain executions (already marked with _chainRootId)
+        // Add all fetched chain executions first
         for (const [id, exec] of completeChainExecutions) {
             mergedExecutions.set(id, exec);
         }
 
-        // Then add original executions, marking chain roots appropriately
+        // Add original executions with correct _chainRootId
         for (const exec of executions) {
             if (!exec) continue;
+
+            if (mergedExecutions.has(exec.id)) {
+                // Already have this from chain fetch, but ensure original root is marked
+                continue;
+            }
 
             const hasParent = exec.lineage?.invokedBy?.execution?.id;
             const hasChildren = exec.lineage?.hasChildren;
 
-            if (mergedExecutions.has(exec.id)) {
-                // Already added from chain fetch, skip
-                continue;
-            }
-
             if (hasChildren && !hasParent) {
-                // This is a chain ROOT - mark with its own ID as chain root
+                // This is a chain ROOT - mark with its own ID
                 exec._chainRootId = exec.id;
                 mergedExecutions.set(exec.id, exec);
             } else if (hasParent) {
-                // This execution has a parent - use parent's ID as chain root
-                exec._chainRootId = exec.lineage.invokedBy.execution.id;
+                // Has parent - find the ultimate root by checking if parent is a known root
+                // If parent's chain was fetched, use that root; otherwise use parent ID
+                const parentId = exec.lineage.invokedBy.execution.id;
+                const parentFromChain = completeChainExecutions.get(parentId);
+                exec._chainRootId = parentFromChain?._chainRootId || parentId;
                 mergedExecutions.set(exec.id, exec);
             } else {
-                // Standalone execution (no parent, no children)
+                // Standalone execution
                 mergedExecutions.set(exec.id, exec);
             }
         }
