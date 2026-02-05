@@ -327,6 +327,26 @@ const API = (() => {
         }
     `;
 
+    // GraphQL query for a single step result by ID (used to refresh presigned URL)
+    const singleStepResultQuery = `
+        query getStepResultById($id: ID!) {
+            stepResult(id: $id) {
+                id
+                startedAt
+                endedAt
+                loopStepIndex
+                loopStepName
+                stepName
+                displayStepName
+                isLoopStep
+                isRootResult
+                loopPath
+                hasError
+                resultsUrl
+            }
+        }
+    `;
+
     // GraphQL query for linked/chained executions (for long-running flows)
     const linkedExecutionsQuery = `
         query getLinkedExecutionList($invokedBy: ExecutionInvokedByInput) {
@@ -687,6 +707,13 @@ const API = (() => {
         return data.stepResults;
     }
 
+    // Fetch a single step result by ID (used to refresh presigned URL)
+    async function fetchSingleStepResult(stepId) {
+        console.log(`Fetching single step result: ${stepId}`);
+        const data = await graphqlRequest(singleStepResultQuery, { id: stepId });
+        return data.stepResult;
+    }
+
     // Fetch all step results with pagination (batch load with rate limiting)
     async function* fetchAllStepResults(executionId, options = {}) {
         const { batchSize = 100, isRootResult = null, loopPath = null, startedAt = null } = options;
@@ -855,6 +882,7 @@ const API = (() => {
         fetchExecutionLogs,
         fetchAllExecutionLogs,
         fetchStepResults,
+        fetchSingleStepResult,
         fetchAllStepResults,
         fetchLinkedExecutions,
         // Instance methods
