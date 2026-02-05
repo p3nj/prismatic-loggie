@@ -235,6 +235,15 @@ const API = (() => {
                         id
                         name
                     }
+                    lineage {
+                        hasChildren
+                        invokedBy {
+                            execution {
+                                id
+                                startedAt
+                            }
+                        }
+                    }
                 }
             }
         }
