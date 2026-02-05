@@ -391,7 +391,7 @@ const AnalysisPage = (() => {
 
             let lastProgress = null;
             const generator = API.fetchAllInstancesDailyUsageMetricsFull({
-                batchSize: 500,
+                batchSize: 100,  // Keep batch size small to avoid API errors
                 snapshotDateGte: state.dateFrom,
                 snapshotDateLte: state.dateTo
             });
@@ -1198,7 +1198,7 @@ const AnalysisPage = (() => {
             if (loadMore && !state.pagination.executions?.hasMore) return;
 
             const options = {
-                first: 500,  // Increased from 100 for better trigger distribution sampling
+                first: 100,  // Keep at 100 - higher values may cause API errors
                 startedAtGte: state.dateFrom + 'T00:00:00Z',
                 startedAtLte: state.dateTo + 'T23:59:59Z'
             };
