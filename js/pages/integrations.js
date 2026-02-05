@@ -393,7 +393,7 @@ const IntegrationsPage = (() => {
         if (isCurrentUnpublished) {
             versions.unshift({
                 versionNumber: integration.versionNumber,
-                versionComment: integration.versionComment,
+                comment: integration.versionComment, // Integration uses versionComment, Version uses comment
                 isAvailable: true,
                 isUnpublished: true
             });
@@ -412,7 +412,7 @@ const IntegrationsPage = (() => {
             } else {
                 label = `v${v.versionNumber}${availableTag}`;
             }
-            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''} data-unpublished="${v.isUnpublished || false}" data-comment="${escapeHtml(v.versionComment || '')}">
+            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''} data-unpublished="${v.isUnpublished || false}" data-comment="${escapeHtml(v.comment || '')}">
                 ${label}
             </option>`;
         }).join('');
