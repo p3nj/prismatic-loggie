@@ -114,7 +114,7 @@ const InstancesPage = (() => {
         return params;
     }
 
-    // Update URL with current state
+    // Update URL with current state (excludes datetime filters - those are only for sharing)
     function updateUrl() {
         const params = new URLSearchParams();
 
@@ -123,6 +123,28 @@ const InstancesPage = (() => {
             params.set('instanceName', selectedInstance.name);
         }
 
+        // Only include flow and status in URL, NOT datetime
+        if (currentFilters.status) {
+            params.set('status', currentFilters.status);
+        }
+        if (currentFilters.flowName) {
+            params.set('flow', currentFilters.flowName);
+        }
+
+        const newHash = `#instances?${params.toString()}`;
+        history.replaceState(null, '', newHash);
+    }
+
+    // Build full shareable URL including datetime filters
+    function buildShareableUrl() {
+        const params = new URLSearchParams();
+
+        if (selectedInstance) {
+            params.set('instanceId', selectedInstance.id);
+            params.set('instanceName', selectedInstance.name);
+        }
+
+        // Include all filters for sharing
         if (currentFilters.dateFrom) {
             params.set('from', currentFilters.dateFrom);
         }
@@ -136,13 +158,12 @@ const InstancesPage = (() => {
             params.set('flow', currentFilters.flowName);
         }
 
-        const newHash = `#instances?${params.toString()}`;
-        history.replaceState(null, '', newHash);
+        return `${window.location.origin}${window.location.pathname}#instances?${params.toString()}`;
     }
 
-    // Copy shareable link to clipboard
+    // Copy shareable link to clipboard (includes datetime filters)
     function copyShareableLink() {
-        const url = window.location.href;
+        const url = buildShareableUrl();
         navigator.clipboard.writeText(url).then(() => {
             const btn = document.getElementById('shareFilterBtn');
             const originalHtml = btn.innerHTML;
@@ -554,8 +575,8 @@ const InstancesPage = (() => {
     }
 
     // Fetch complete execution chains for executions that have lineage data
-    // Only includes executions of the same flow (filters out cross-flow calls)
-    async function fetchCompleteChains(executions, targetFlowName) {
+    // Uses server-side flowId filter to only get same-flow recursive calls (excludes cross-flow)
+    async function fetchCompleteChains(executions, targetFlowId) {
         // Find executions that are part of chains (have lineage data)
         const chainRoots = new Map(); // Map of root execution ID -> root execution info
         const processedChains = new Set(); // Track which chains we've already fetched
@@ -590,12 +611,13 @@ const InstancesPage = (() => {
             return executions; // No chains to fetch
         }
 
-        console.log(`Fetching ${chainRoots.size} complete chain(s) for flow: ${targetFlowName}...`);
+        console.log(`Fetching ${chainRoots.size} complete chain(s) for flowId: ${targetFlowId}...`);
 
-        // Fetch complete chains in parallel
+        // Fetch complete chains in parallel, using flowId for server-side filtering
         const chainPromises = Array.from(chainRoots.values()).map(async (root) => {
             try {
-                const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt);
+                // Pass flowId to filter out cross-flow calls at the API level
+                const chainExecutions = await API.fetchLinkedExecutions(root.id, root.startedAt, targetFlowId);
                 return { rootId: root.id, executions: chainExecutions };
             } catch (error) {
                 console.error(`Error fetching chain for ${root.id}:`, error);
@@ -605,32 +627,37 @@ const InstancesPage = (() => {
 
         const chainResults = await Promise.all(chainPromises);
 
-        // Build a map of all executions from complete chains, filtered to same flow only
+        // Build a map of all executions from complete chains (already filtered by server)
+        // Mark each execution with its chain root ID for proper grouping
         const completeChainExecutions = new Map();
         for (const result of chainResults) {
             for (const exec of result.executions) {
-                // Only include executions of the same flow (filter out cross-flow calls)
-                if (exec.flow?.name === targetFlowName) {
-                    completeChainExecutions.set(exec.id, exec);
-                }
+                // Mark with chain root ID for grouping (handles cross-flow gaps)
+                exec._chainRootId = result.rootId;
+                completeChainExecutions.set(exec.id, exec);
             }
         }
 
         // Merge: use complete chain data where available, keep original for standalone executions
         const mergedExecutions = new Map();
 
-        // First add all complete chain executions (already filtered to same flow)
+        // First add all complete chain executions (already marked with _chainRootId)
         for (const [id, exec] of completeChainExecutions) {
             mergedExecutions.set(id, exec);
         }
 
-        // Then add standalone executions (those not part of any fetched chain)
+        // Then add original executions that aren't in fetched chains
         for (const exec of executions) {
-            if (exec && !completeChainExecutions.has(exec.id)) {
-                // Only add if this execution is not part of a chain we fetched
+            if (exec && !mergedExecutions.has(exec.id)) {
                 const hasParent = exec.lineage?.invokedBy?.execution?.id;
                 const hasChildren = exec.lineage?.hasChildren;
-                if (!hasParent && !hasChildren) {
+
+                if (hasParent || hasChildren) {
+                    // This is a chain root from original query - mark it with its own ID
+                    exec._chainRootId = exec._chainRootId || exec.id;
+                    mergedExecutions.set(exec.id, exec);
+                } else {
+                    // Standalone execution
                     mergedExecutions.set(exec.id, exec);
                 }
             }
@@ -674,10 +701,10 @@ const InstancesPage = (() => {
             const data = await API.fetchExecutionsByInstance(instanceId, options);
 
             // When flow filter is active, fetch complete chains to include executions outside date range
-            // Only fetches executions of the same flow (filters out cross-flow calls)
-            if (currentFilters.flowId && currentFilters.flowName && data.nodes && data.nodes.length > 0) {
+            // Uses server-side flowId filter to exclude cross-flow calls
+            if (currentFilters.flowId && data.nodes && data.nodes.length > 0) {
                 contentDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border" role="status"></div><div class="mt-2">Loading execution chains...</div></div>';
-                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowName);
+                data.nodes = await fetchCompleteChains(data.nodes, currentFilters.flowId);
             }
 
             if (reset) {
@@ -721,42 +748,18 @@ const InstancesPage = (() => {
     }
 
     // Group executions by their execution chain
+    // Uses _chainRootId (set by fetchCompleteChains) for proper grouping across cross-flow gaps
     function groupExecutionsByChain(executions) {
         const chains = new Map(); // Map of root execution ID -> array of executions
-        const executionMap = new Map(); // Map of execution ID -> execution
 
-        // First pass: build execution map
-        executions.forEach(exec => {
-            if (exec) {
-                executionMap.set(exec.id, exec);
-            }
-        });
-
-        // Second pass: group by chain
+        // Group by _chainRootId if available, otherwise by execution ID
         executions.forEach(exec => {
             if (!exec) return;
 
-            // Find the root of this chain
-            let rootId = exec.id;
-            let rootExec = exec;
+            // Use _chainRootId for chain grouping (handles cross-flow gaps)
+            // Fall back to execution ID for standalone executions
+            const rootId = exec._chainRootId || exec.id;
 
-            // If this execution was invoked by another, find the root
-            if (exec.lineage?.invokedBy?.execution?.id) {
-                const parentId = exec.lineage.invokedBy.execution.id;
-                // Check if parent is in our list (same filter/time range)
-                if (executionMap.has(parentId)) {
-                    rootId = parentId;
-                    rootExec = executionMap.get(parentId);
-                    // Keep traversing up to find the actual root
-                    while (rootExec.lineage?.invokedBy?.execution?.id &&
-                           executionMap.has(rootExec.lineage.invokedBy.execution.id)) {
-                        rootId = rootExec.lineage.invokedBy.execution.id;
-                        rootExec = executionMap.get(rootId);
-                    }
-                }
-            }
-
-            // Add to chain group
             if (!chains.has(rootId)) {
                 chains.set(rootId, []);
             }
