@@ -132,26 +132,15 @@ const IntegrationsPage = (() => {
             return;
         }
 
-        // Extract the actual ID from the base64-encoded GraphQL ID
-        // The ID format is typically: SW50ZWdyYXRpb246YTJhNjE2YTEtOTZiNi00MjViLTgwMTAtZGMzNzVmMTQ2OTdk
-        // Which decodes to: Integration:a2a616a1-96b6-425b-8010-dc375f14697d
-        let integrationId = selectedIntegration.id;
-
-        try {
-            // Try to decode the base64 ID to get the actual UUID
-            const decoded = atob(integrationId);
-            if (decoded.includes(':')) {
-                integrationId = decoded.split(':')[1];
-            }
-        } catch (e) {
-            // If decoding fails, use the ID as-is
-            console.log('Using integration ID as-is:', integrationId);
-        }
+        // Use the full base64-encoded GraphQL ID for the designer URL
+        // The ID format is: SW50ZWdyYXRpb246YTJhNjE2YTEtOTZiNi00MjViLTgwMTAtZGMzNzVmMTQ2OTdk
+        // Prismatic designer URLs expect this full base64 encoded ID
+        const integrationId = selectedIntegration.id;
 
         // Get the current endpoint (e.g., https://app.prismatic.io)
         const endpoint = API.getEndpoint();
 
-        // Construct the designer URL
+        // Construct the designer URL with the base64 encoded ID
         const designerUrl = `${endpoint}/designer/${integrationId}/`;
 
         // Open in a new tab
@@ -858,7 +847,7 @@ const IntegrationsPage = (() => {
         return user.name || user.email || '-';
     }
 
-    // Update template metadata display (createdAt, updatedAt)
+    // Update template metadata display (createdAt, versionCreatedAt)
     function updateTemplateMetadata(integration) {
         const createdAtEl = document.getElementById('templateCreatedAtDisplay');
         const updatedAtEl = document.getElementById('templateUpdatedAtDisplay');
@@ -869,8 +858,9 @@ const IntegrationsPage = (() => {
             createdAtEl.title = created.full;
         }
 
+        // Use versionCreatedAt instead of updatedAt - updatedAt changes on every API call
         if (updatedAtEl) {
-            const updated = formatRelativeTime(integration.updatedAt);
+            const updated = formatRelativeTime(integration.versionCreatedAt);
             updatedAtEl.textContent = updated.relative;
             updatedAtEl.title = updated.full;
         }
@@ -885,28 +875,34 @@ const IntegrationsPage = (() => {
         const publishedByRow = document.getElementById('publishedByRow');
         const publishedAtRow = document.getElementById('publishedAtRow');
 
+        if (!integration) return;
+
         const versions = integration.versions?.nodes || [];
         const versionNum = currentVersionNumber || integration.versionNumber;
 
         // Find the selected version in the versions array
         const selectedVersionData = versions.find(v => v.versionNumber === versionNum);
 
-        // Check if current version is unpublished
-        const isUnpublished = !versions.some(v => v.versionNumber === versionNum);
+        // Check if selected version is unpublished (not in published versions list)
+        const isSelectedVersionUnpublished = !selectedVersionData;
+
+        // Check if viewing a historical version (not the current working version)
+        const isHistoricalVersion = versionNum !== integration.versionNumber;
 
         // Update published by
         if (publishedByEl && publishedByRow) {
-            if (isUnpublished) {
+            if (isSelectedVersionUnpublished) {
                 publishedByRow.classList.add('d-none');
             } else {
                 publishedByRow.classList.remove('d-none');
-                publishedByEl.textContent = getUserDisplayName(selectedVersionData?.publishedBy);
+                const publisherName = getUserDisplayName(selectedVersionData?.publishedBy);
+                publishedByEl.textContent = publisherName;
             }
         }
 
         // Update published at
         if (publishedAtEl && publishedAtRow) {
-            if (isUnpublished) {
+            if (isSelectedVersionUnpublished) {
                 publishedAtRow.classList.add('d-none');
             } else {
                 publishedAtRow.classList.remove('d-none');
@@ -930,11 +926,17 @@ const IntegrationsPage = (() => {
 
         // Update status indicator
         if (unpublishedChangesEl) {
-            if (isUnpublished) {
+            if (isHistoricalVersion) {
+                // Viewing a historical published version
+                unpublishedChangesEl.innerHTML = `<span class="badge bg-secondary">Viewing v${versionNum}</span>`;
+            } else if (isSelectedVersionUnpublished) {
+                // Current version is unpublished
                 unpublishedChangesEl.innerHTML = '<span class="badge bg-warning text-dark">Unpublished</span>';
             } else if (integration.hasUnpublishedChanges) {
+                // Current version is published but has newer unpublished changes
                 unpublishedChangesEl.innerHTML = '<span class="badge bg-info">Has unpublished changes</span>';
             } else {
+                // Current version is published and up to date
                 unpublishedChangesEl.innerHTML = '<span class="badge bg-success">Published</span>';
             }
         }
