@@ -1551,3 +1551,15 @@ pre[class*="language-"] {
     flex: 1;
   }
 }
+
+/* Version comment display */
+#versionCommentDisplay {
+  font-size: 0.875rem;
+}
+
+/* Ensure Monaco editor line numbers have enough width for 5+ digits */
+#yamlEditorContainer .monaco-editor .margin-view-overlays .line-numbers {
+  min-width: 50px;
+  text-align: right;
+  padding-right: 10px;
+}
