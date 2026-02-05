@@ -265,28 +265,33 @@ const AnalysisPage = (() => {
                     snapshotDateLte: state.dateTo
                 });
                 metricsData = result?.nodes || [];
-            } else {
-                // Fetch instance-level metrics (filtered by customer or instance)
-                const options = {
+            } else if (state.level === 'instance' && state.selectedInstanceId) {
+                // Fetch instance-level metrics for specific instance
+                const result = await API.fetchInstanceDailyUsageMetrics({
                     first: 100,
+                    instanceId: state.selectedInstanceId,
                     snapshotDateGte: state.dateFrom,
                     snapshotDateLte: state.dateTo
-                };
+                });
+                metricsData = result?.nodes || [];
+            } else if (state.level === 'customer' && state.selectedCustomerId) {
+                // Customer level: fetch metrics for all instances and filter by customer
+                // The API doesn't support filtering by customer, so we fetch all and filter client-side
+                const result = await API.fetchInstanceDailyUsageMetrics({
+                    first: 500, // Fetch more to ensure we get all customer data
+                    snapshotDateGte: state.dateFrom,
+                    snapshotDateLte: state.dateTo
+                });
 
-                if (state.level === 'instance' && state.selectedInstanceId) {
-                    options.instanceId = state.selectedInstanceId;
-                } else if (state.level === 'customer' && state.selectedCustomerId) {
-                    options.customerId = state.selectedCustomerId;
-                }
+                // Filter to only include metrics for instances belonging to this customer
+                const customerMetrics = (result?.nodes || []).filter(m =>
+                    m.instance?.customer?.id === state.selectedCustomerId
+                );
 
-                const result = await API.fetchInstanceDailyUsageMetrics(options);
-
-                // Aggregate by date if customer level (multiple instances)
-                if (state.level === 'customer') {
-                    metricsData = aggregateMetricsByDate(result?.nodes || []);
-                } else {
-                    metricsData = result?.nodes || [];
-                }
+                // Aggregate by date (multiple instances for one customer)
+                metricsData = aggregateMetricsByDate(customerMetrics);
+            } else {
+                metricsData = [];
             }
 
             state.data.dailyMetrics = metricsData;
@@ -979,12 +984,19 @@ const AnalysisPage = (() => {
 
             if (state.selectedInstanceId) {
                 options.instanceId = state.selectedInstanceId;
-            } else if (state.selectedCustomerId) {
-                options.customerId = state.selectedCustomerId;
             }
 
             const result = await API.fetchRecentExecutionsAnalysis(options);
-            state.data.recentExecutions = result?.nodes || [];
+            let executions = result?.nodes || [];
+
+            // If at customer level (without specific instance), filter by customer client-side
+            if (state.level === 'customer' && state.selectedCustomerId && !state.selectedInstanceId) {
+                executions = executions.filter(e =>
+                    e.instance?.customer?.id === state.selectedCustomerId
+                );
+            }
+
+            state.data.recentExecutions = executions;
 
             renderRecentExecutions();
             updateTriggerChart();

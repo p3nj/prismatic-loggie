@@ -22,7 +22,7 @@
     <!-- Top Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
         <div class="container-fluid">
-            <a class="navbar-brand" href="#instances">
+            <a class="navbar-brand" href="#analysis">
                 <i class="bi bi-journal-code me-2"></i>Prismatic Loggie
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -31,6 +31,11 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
+                        <a class="nav-link" href="#analysis">
+                            <i class="bi bi-graph-up me-1"></i>Analysis
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#instances">
                             <i class="bi bi-collection me-1"></i>Instances
                         </a>
@@ -38,11 +43,6 @@
                     <li class="nav-item">
                         <a class="nav-link" href="#integrations">
                             <i class="bi bi-diagram-3 me-1"></i>Integrations
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#analysis">
-                            <i class="bi bi-graph-up me-1"></i>Analysis
                         </a>
                     </li>
                     <li class="nav-item">
@@ -598,7 +598,7 @@
                                     <small class="fw-bold text-muted">CUSTOMERS</small>
                                     <span class="badge bg-secondary ms-1" id="customerCountBadge">0</span>
                                 </div>
-                                <div id="analysisCustomerList" class="analysis-list" style="max-height: 200px; overflow-y: auto;">
+                                <div id="analysisCustomerList" class="analysis-list" style="max-height: 350px; overflow-y: auto;">
                                     <div class="text-center text-muted py-3">
                                         <div class="spinner-border spinner-border-sm" role="status"></div>
                                         <small class="d-block mt-1">Loading customers...</small>
