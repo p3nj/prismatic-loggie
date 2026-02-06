@@ -218,7 +218,7 @@ const UI = (() => {
         // Clear step navigation for now (will be updated as logs load)
         let stepNav = document.getElementById('step-navigation');
         if (stepNav) {
-            stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2">Step Navigation</h5><div class="text-muted small">Loading steps...</div>';
+            stepNav.innerHTML = '<h5 class="border-bottom pb-2 mb-2"><i class="bi bi-signpost-split me-2"></i>Step Navigation</h5><div class="text-muted small">Loading steps...</div>';
         }
     }
 
@@ -239,6 +239,7 @@ const UI = (() => {
             logDiv.className = 'col-12 mb-3';
             logDiv.id = `log-${index}`;
             logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
+            logDiv.dataset.logNodeId = log.id || '';
 
             logDiv.innerHTML = `
                 <div class="log-card">
@@ -580,39 +581,52 @@ const UI = (() => {
     }
 
     // Build a hierarchical dictionary of steps for navigation
+    // Uses node IDs for stable DOM targeting (indices shift when live logs are prepended)
     function buildStepDictionary(logEdges) {
         const stepDict = {};
-        
+
         logEdges.forEach((edge, index) => {
             const log = edge.node;
             const stepName = log.stepName || 'Unnamed Step';
-            
+            const nodeId = log.id || '';
+
             if (!stepDict[stepName]) {
                 stepDict[stepName] = {
                     indices: [],
+                    nodeIds: [],
                     loops: {}
                 };
             }
-            
+
             stepDict[stepName].indices.push(index);
-            
+            stepDict[stepName].nodeIds.push(nodeId);
+
             // Track loop relationships if present
             if (log.loopStepName) {
                 const loopKey = `${log.loopStepName}_${log.loopStepIndex}`;
-                
+
                 if (!stepDict[stepName].loops[loopKey]) {
                     stepDict[stepName].loops[loopKey] = {
                         name: log.loopStepName,
                         index: log.loopStepIndex,
-                        indices: []
+                        indices: [],
+                        nodeIds: []
                     };
                 }
-                
+
                 stepDict[stepName].loops[loopKey].indices.push(index);
+                stepDict[stepName].loops[loopKey].nodeIds.push(nodeId);
             }
         });
-        
+
         return stepDict;
+    }
+
+    // Find a log element in the DOM by its API node ID
+    // This works regardless of whether the element was from initial load (log-N) or live polling (log-live-N)
+    function findLogElementByNodeId(nodeId) {
+        if (!nodeId) return null;
+        return document.querySelector(`[data-log-node-id="${nodeId}"]`);
     }
 
     // Update the step navigation in the sidebar
@@ -695,12 +709,13 @@ const UI = (() => {
             stepLink.textContent = `${stepName} (${stepData.indices.length})`;
             stepLink.onclick = function(e) {
                 e.preventDefault();
-                // Jump to the first occurrence of this step
-                if (stepData.indices.length > 0) {
-                    document.getElementById(`log-${stepData.indices[0]}`).scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
+                // Jump to the first occurrence of this step (use nodeId for stable targeting)
+                if (stepData.nodeIds && stepData.nodeIds.length > 0) {
+                    const el = findLogElementByNodeId(stepData.nodeIds[0]);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else if (stepData.indices.length > 0) {
+                    const el = document.getElementById(`log-${stepData.indices[0]}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             };
             stepHeader.appendChild(stepLink);
@@ -724,19 +739,20 @@ const UI = (() => {
                     loopLink.textContent = `${loopData.name} #${loopData.index} (${loopData.indices.length})`;
                     loopLink.onclick = function(e) {
                         e.preventDefault();
-                        // Jump to the first occurrence of this loop iteration
-                        if (loopData.indices.length > 0) {
-                            document.getElementById(`log-${loopData.indices[0]}`).scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
+                        // Jump to the first occurrence of this loop iteration (use nodeId for stable targeting)
+                        if (loopData.nodeIds && loopData.nodeIds.length > 0) {
+                            const el = findLogElementByNodeId(loopData.nodeIds[0]);
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else if (loopData.indices.length > 0) {
+                            const el = document.getElementById(`log-${loopData.indices[0]}`);
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
                     };
-                    
+
                     loopItem.appendChild(loopLink);
                     loopList.appendChild(loopItem);
                 }
-                
+
                 stepItem.appendChild(loopList);
             }
             
@@ -901,20 +917,19 @@ const UI = (() => {
 
                 stepLink.onclick = function(e) {
                     e.preventDefault();
-                    // Jump to the first occurrence of this step in logs
-                    if (stepData.indices.length > 0) {
-                        const logElement = document.getElementById(`log-${stepData.indices[0]}`);
-                        if (logElement) {
-                            logElement.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
-                            // Highlight the log entry briefly
-                            logElement.classList.add('highlight-log');
-                            setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
-                        }
+                    // Jump to the first occurrence of this step in logs (use nodeId for stable targeting)
+                    let logElement = null;
+                    if (stepData.nodeIds && stepData.nodeIds.length > 0) {
+                        logElement = findLogElementByNodeId(stepData.nodeIds[0]);
                     }
-                    // Also scroll the step navigation to keep this item visible
+                    if (!logElement && stepData.indices.length > 0) {
+                        logElement = document.getElementById(`log-${stepData.indices[0]}`);
+                    }
+                    if (logElement) {
+                        logElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        logElement.classList.add('highlight-log');
+                        setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                    }
                     scrollStepNavToItem(stepItem);
                 };
                 stepHeader.appendChild(stepLink);
@@ -990,20 +1005,19 @@ const UI = (() => {
                     loopLink.title = `${loopData.name} iteration ${loopData.index} (${loopData.indices.length} entries)`;
                     loopLink.onclick = function(e) {
                         e.preventDefault();
-                        // Jump to the first occurrence of this loop iteration
-                        if (loopData.indices.length > 0) {
-                            const logElement = document.getElementById(`log-${loopData.indices[0]}`);
-                            if (logElement) {
-                                logElement.scrollIntoView({
-                                    behavior: 'smooth',
-                                    block: 'start'
-                                });
-                                // Highlight the log entry briefly
-                                logElement.classList.add('highlight-log');
-                                setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
-                            }
+                        // Jump to the first occurrence of this loop iteration (use nodeId for stable targeting)
+                        let logElement = null;
+                        if (loopData.nodeIds && loopData.nodeIds.length > 0) {
+                            logElement = findLogElementByNodeId(loopData.nodeIds[0]);
                         }
-                        // Also scroll the step navigation to keep this item visible
+                        if (!logElement && loopData.indices.length > 0) {
+                            logElement = document.getElementById(`log-${loopData.indices[0]}`);
+                        }
+                        if (logElement) {
+                            logElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            logElement.classList.add('highlight-log');
+                            setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
+                        }
                         scrollStepNavToItem(loopItem);
                     };
                     loopItem.appendChild(loopLink);
@@ -2698,6 +2712,12 @@ const UI = (() => {
         const resultsDiv = document.getElementById('results');
         if (!resultsDiv) return;
 
+        // Clear "No logs found" placeholder if present (happens when execution started with 0 logs)
+        const noLogsPlaceholder = resultsDiv.querySelector('.col-12:not([id])');
+        if (noLogsPlaceholder && noLogsPlaceholder.textContent.includes('No logs')) {
+            noLogsPlaceholder.remove();
+        }
+
         const fragment = document.createDocumentFragment();
 
         logEdges.forEach((edge, i) => {
@@ -2706,6 +2726,7 @@ const UI = (() => {
             logDiv.className = 'col-12 mb-3 live-log-new';
             logDiv.id = `log-live-${liveIndexStart + i}`;
             logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
+            logDiv.dataset.logNodeId = log.id || '';
 
             logDiv.innerHTML = `
                 <div class="log-card">
@@ -2732,8 +2753,7 @@ const UI = (() => {
             fragment.appendChild(logDiv);
         });
 
-        // Insert before the first child (existing logs)
-        // Skip the loading-progress element if present
+        // Insert before the first existing log element (works for both log-N and log-live-N)
         const firstLog = resultsDiv.querySelector('[id^="log-"]');
         if (firstLog) {
             resultsDiv.insertBefore(fragment, firstLog);
@@ -2742,7 +2762,6 @@ const UI = (() => {
         }
 
         // Setup JSON viewers for the new live logs
-        const newLogMessages = [];
         for (let i = 0; i < logEdges.length; i++) {
             const el = document.getElementById(`log-live-${liveIndexStart + i}`);
             if (el) {

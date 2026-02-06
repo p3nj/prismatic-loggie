@@ -122,8 +122,8 @@ const ExecutionPage = (() => {
                     allLoadedLogEdges = [...newLogsData.edges, ...allLoadedLogEdges];
                     loadedLogTotalCount = logCheck.totalCount;
 
-                    // Update step navigation with all logs
-                    UI.updateStepNavigationFromLogs(allLoadedLogEdges);
+                    // Update step navigation with all logs (use combined style for consistency)
+                    UI.updateStepNavigationCombined(allLoadedLogEdges, lastStepResults || [], executionId);
                 }
             }
 
@@ -235,9 +235,10 @@ const ExecutionPage = (() => {
                 // Keep track of all log edges for step navigation
                 allLogEdges = progress.logs;
 
-                // Update step navigation incrementally (for smooth UX)
+                // Update step navigation incrementally using combined style for consistency
+                // Pass empty step results during loading - will be updated with real data when complete
                 if (allLogEdges.length > 0) {
-                    UI.updateStepNavigationFromLogs(allLogEdges);
+                    UI.updateStepNavigationCombined(allLogEdges, lastStepResults || [], executionId);
                 }
 
                 // Handle completion
