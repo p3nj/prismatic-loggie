@@ -101,14 +101,18 @@ const Router = (() => {
         window.addEventListener('hashchange', handleRouteChange);
 
         // Listen for popstate (browser back/forward)
+        // On back/forward navigation, both popstate and hashchange fire.
+        // Let hashchange (handleRouteChange) handle full routing to avoid
+        // duplicate fetches. Only use popstate to pre-set the execution ID
+        // from history state so it's available when onRoute runs.
         window.addEventListener('popstate', (event) => {
-            // Check if we have execution state and we're on the execution page
             if (event.state && event.state.executionId) {
                 const hash = window.location.hash.slice(1);
                 const path = hash.split('?')[0];
                 if (path === 'execution') {
                     ExecutionPage.setExecutionId(event.state.executionId);
-                    ExecutionPage.fetchResults();
+                    // Don't call fetchResults here - hashchange handler will
+                    // invoke onRoute which handles loading properly
                 }
             }
         });

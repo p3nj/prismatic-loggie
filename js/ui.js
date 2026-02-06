@@ -2688,6 +2688,165 @@ const UI = (() => {
         }
     }
 
+    // Detect consecutive log entries with matching prefix patterns and combine them
+    // into a single viewable JSON/text. Handles patterns like "OBZ-Http-75: {json...}"
+    // where multiple consecutive entries from the same step/timestamp are fragments
+    // of a larger JSON object split across log entries.
+    function detectAndSetupCombinedJsonViewers() {
+        const logElements = document.querySelectorAll('[id^="log-"]');
+        if (logElements.length < 2) return;
+
+        // Prefix pattern: matches "PREFIX-NUMBER: content" (e.g., "OBZ-Http-75: ...")
+        const prefixPattern = /^([\w][\w-]*?)-(\d+):\s*([\s\S]*)$/;
+
+        // Collect entry metadata
+        const entries = [];
+        for (let i = 0; i < logElements.length; i++) {
+            const logEl = logElements[i];
+            const stepName = logEl.dataset.stepName || '';
+            const timestampEl = logEl.querySelector('.timestamp');
+            const timestamp = timestampEl ? timestampEl.textContent.trim() : '';
+            const messageEl = logEl.querySelector('.log-message');
+            if (!messageEl) continue;
+
+            // Skip if already processed for combining
+            if (messageEl.dataset.combinedProcessed) continue;
+
+            const message = messageEl.textContent;
+            const match = message.match(prefixPattern);
+
+            entries.push({
+                index: i,
+                stepName,
+                timestamp,
+                message,
+                element: logEl,
+                messageEl,
+                match
+            });
+        }
+
+        // Find groups of consecutive entries with matching prefix patterns
+        const groups = [];
+        let currentGroup = null;
+
+        for (const entry of entries) {
+            if (!entry.match) {
+                // Non-matching entry breaks the current group
+                if (currentGroup && currentGroup.entries.length >= 2) {
+                    groups.push(currentGroup);
+                }
+                currentGroup = null;
+                continue;
+            }
+
+            const prefix = entry.match[1];
+            const num = parseInt(entry.match[2], 10);
+            const content = entry.match[3];
+
+            if (currentGroup &&
+                currentGroup.prefix === prefix &&
+                currentGroup.stepName === entry.stepName &&
+                currentGroup.timestamp === entry.timestamp) {
+                // Same group - add entry
+                currentGroup.entries.push({ ...entry, num, content });
+            } else {
+                // Save previous group if it has 2+ entries
+                if (currentGroup && currentGroup.entries.length >= 2) {
+                    groups.push(currentGroup);
+                }
+                // Start new group
+                currentGroup = {
+                    prefix,
+                    stepName: entry.stepName,
+                    timestamp: entry.timestamp,
+                    entries: [{ ...entry, num, content }]
+                };
+            }
+        }
+
+        // Don't forget the last group
+        if (currentGroup && currentGroup.entries.length >= 2) {
+            groups.push(currentGroup);
+        }
+
+        // Create combined view buttons for each group
+        groups.forEach(group => {
+            // Sort by number ascending to reconstruct original content order
+            const sortedEntries = [...group.entries].sort((a, b) => a.num - b.num);
+
+            // Combine content
+            const combinedText = sortedEntries.map(e => e.content).join('');
+
+            // Try to parse as JSON with various strategies
+            let isValidJson = false;
+            let jsonStr = combinedText;
+
+            // Strategy 1: Direct parse
+            try {
+                JSON.parse(combinedText);
+                isValidJson = true;
+            } catch (e) {
+                // Strategy 2: Wrap in braces (content might be inner object properties)
+                try {
+                    JSON.parse('{' + combinedText + '}');
+                    jsonStr = '{' + combinedText + '}';
+                    isValidJson = true;
+                } catch (e2) {
+                    // Strategy 3: Wrap in brackets (might be array items)
+                    try {
+                        JSON.parse('[' + combinedText + ']');
+                        jsonStr = '[' + combinedText + ']';
+                        isValidJson = true;
+                    } catch (e3) {
+                        // Strategy 4: Try to extract the largest valid JSON substring
+                        const braceStart = combinedText.indexOf('{');
+                        const braceEnd = combinedText.lastIndexOf('}');
+                        if (braceStart !== -1 && braceEnd > braceStart) {
+                            try {
+                                const substr = combinedText.substring(braceStart, braceEnd + 1);
+                                JSON.parse(substr);
+                                jsonStr = substr;
+                                isValidJson = true;
+                            } catch (e4) {
+                                // Not valid JSON
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Mark all entries in the group as combined-processed
+            group.entries.forEach(entry => {
+                entry.messageEl.dataset.combinedProcessed = 'true';
+            });
+
+            // Add a combined view button to the first displayed entry (highest number in DESC order)
+            const firstDisplayedEntry = group.entries[0];
+            const messageEl = firstDisplayedEntry.messageEl;
+
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-info view-json-btn mt-1 ms-1';
+            const iconClass = isValidJson ? 'bi-braces' : 'bi-file-text';
+            const label = isValidJson ? 'View Combined JSON' : 'View Combined Text';
+            btn.innerHTML = `<i class="bi ${iconClass} me-1"></i>${label} (${group.entries.length} entries)`;
+
+            if (isValidJson) {
+                btn.dataset.json = jsonStr;
+            } else {
+                // Wrap raw text so showJsonModal can display it
+                btn.dataset.json = JSON.stringify({ combinedRawText: combinedText });
+            }
+
+            messageEl.appendChild(document.createElement('br'));
+            messageEl.appendChild(btn);
+
+            btn.addEventListener('click', showJsonModal);
+        });
+
+        return groups.length;
+    }
+
     // Return public methods
     return {
         initTheme,
@@ -2705,6 +2864,7 @@ const UI = (() => {
         showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,
+        detectAndSetupCombinedJsonViewers,
         showJsonModal
     };
 })();

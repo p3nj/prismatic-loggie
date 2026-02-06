@@ -4,6 +4,7 @@ const ExecutionPage = (() => {
     let currentExecutionId = null;
     let stepResultsCache = new Map(); // Cache for step results
     let linkedExecutionsCache = null;
+    let fetchGeneration = 0; // Generation counter to cancel stale fetches
 
     // Initialize the execution page
     function init() {
@@ -47,6 +48,9 @@ const ExecutionPage = (() => {
             return;
         }
 
+        // Increment generation to invalidate any in-flight fetches
+        const generation = ++fetchGeneration;
+
         // Clear caches when loading new execution
         if (currentExecutionId !== executionId) {
             stepResultsCache.clear();
@@ -68,6 +72,9 @@ const ExecutionPage = (() => {
             // First fetch execution metadata
             const executionMetadata = await API.fetchExecutionResults(executionId);
 
+            // Bail out if a newer fetch has started
+            if (generation !== fetchGeneration) return;
+
             if (!executionMetadata) {
                 UI.showError('Execution not found');
                 return;
@@ -77,7 +84,7 @@ const ExecutionPage = (() => {
             UI.initResultsContainer(executionMetadata);
 
             // Fetch linked executions and step results in parallel with logs
-            const stepResultsPromise = fetchAllStepResultsWithProgress(executionId, executionMetadata.startedAt);
+            const stepResultsPromise = fetchAllStepResultsWithProgress(executionId, executionMetadata.startedAt, generation);
             const linkedExecutionsPromise = fetchLinkedExecutionsIfNeeded(executionId, executionMetadata.startedAt);
 
             // Start fetching logs
@@ -87,6 +94,9 @@ const ExecutionPage = (() => {
 
             // Process logs as they come in
             for await (const progress of logGenerator) {
+                // Bail out if a newer fetch has started
+                if (generation !== fetchGeneration) return;
+
                 // Show progress indicator
                 UI.showLoadingProgress(progress.loadedCount, progress.totalCount, progress.isComplete);
 
@@ -117,11 +127,17 @@ const ExecutionPage = (() => {
                 }
             }
 
+            // Bail out if a newer fetch has started
+            if (generation !== fetchGeneration) return;
+
             // Wait for step results and linked executions to complete
             const [stepResults, linkedExecutions] = await Promise.all([
                 stepResultsPromise,
                 linkedExecutionsPromise
             ]);
+
+            // Bail out if a newer fetch has started
+            if (generation !== fetchGeneration) return;
 
             // Final update with step results for eye icons (output viewing)
             if (allLogEdges.length > 0 && stepResults && stepResults.length > 0) {
@@ -133,13 +149,22 @@ const ExecutionPage = (() => {
                 UI.renderLinkedExecutions(linkedExecutions, executionId, executionMetadata);
             }
 
+            // Detect and combine consecutive log entries that are fragments of the
+            // same JSON object (e.g., HTTP response bodies split across entries)
+            if (allLogEdges.length > 1) {
+                UI.detectAndSetupCombinedJsonViewers();
+            }
+
         } catch (error) {
-            UI.showError(error.message);
+            // Only show error if this fetch is still current
+            if (generation === fetchGeneration) {
+                UI.showError(error.message);
+            }
         }
     }
 
     // Fetch all step results with progress updates
-    async function fetchAllStepResultsWithProgress(executionId, startedAt) {
+    async function fetchAllStepResultsWithProgress(executionId, startedAt, generation) {
         const allSteps = [];
 
         try {
@@ -149,7 +174,9 @@ const ExecutionPage = (() => {
             });
 
             for await (const progress of stepGenerator) {
-                // Could show step loading progress here if needed
+                // Bail out if a newer fetch has started
+                if (generation !== fetchGeneration) return [];
+
                 if (progress.isComplete) {
                     return progress.steps;
                 }
@@ -229,14 +256,28 @@ const ExecutionPage = (() => {
     function onRoute(params) {
         init();
 
-        // Check for execution ID in params (from instances page navigation)
+        // Check for execution ID in params (from instances page navigation or URL query)
         if (params.executionId) {
             setExecutionId(params.executionId);
             Router.clearParams();
-            // Auto-load the execution
-            setTimeout(fetchResults, 100);
+
+            // Clear stale DOM content immediately so old results aren't visible
+            const resultsDiv = document.getElementById('results');
+            if (resultsDiv) {
+                resultsDiv.innerHTML = '';
+            }
+
+            // Reset state if switching to a different execution
+            if (currentExecutionId !== params.executionId) {
+                currentExecutionId = params.executionId;
+                stepResultsCache.clear();
+                linkedExecutionsCache = null;
+            }
+
+            // Auto-load immediately (no delay to avoid showing stale content)
+            fetchResults();
         } else {
-            // Load last used execution ID
+            // Load last used execution ID as a convenience hint (pre-fills input)
             const lastExecutionId = localStorage.getItem('lastExecutionId');
             if (lastExecutionId) {
                 setExecutionId(lastExecutionId);
