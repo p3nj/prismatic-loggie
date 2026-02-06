@@ -14,6 +14,18 @@ const InstancesPage = (() => {
         status: null
     };
 
+    // Live polling state for execution list
+    // Prismatic API limit: 20 req/s. Built-in rate limiter: 4 req/s (250ms).
+    // Polling at 5s intervals uses ~0.2 req/s - very conservative.
+    const EXEC_POLL_INTERVAL = 5000; // 5 seconds - balances freshness vs API usage
+    const ACTIVE_EXEC_STATUSES = ['RUNNING', 'IN_PROGRESS', 'PENDING', 'QUEUED'];
+    let execPollTimer = null;
+    let isExecPollInFlight = false;
+
+    function isActiveExecStatus(status) {
+        return ACTIVE_EXEC_STATUSES.includes(status?.toUpperCase());
+    }
+
     // Initialize the instances page
     function init() {
         if (initialized) return;
@@ -228,6 +240,9 @@ const InstancesPage = (() => {
 
     // Apply all filters
     function applyFilters() {
+        // Stop polling while filters change
+        stopExecPolling();
+
         // Validate date range first
         if (!validateDateRange()) {
             return;
@@ -259,6 +274,9 @@ const InstancesPage = (() => {
 
     // Clear all filters
     function clearFilters() {
+        // Stop polling while filters change
+        stopExecPolling();
+
         const fromInput = document.getElementById('filterDateFrom');
         const toInput = document.getElementById('filterDateTo');
         const flowSelect = document.getElementById('filterFlow');
@@ -505,6 +523,9 @@ const InstancesPage = (() => {
 
     // Select an instance
     async function selectInstance(instance, skipUrlUpdate = false) {
+        // Stop any existing execution list polling
+        stopExecPolling();
+
         selectedInstance = instance;
 
         // Reset flows when selecting a new instance
@@ -667,6 +688,150 @@ const InstancesPage = (() => {
         return Array.from(allExecutions.values());
     }
 
+    // ==========================================
+    // Live Polling for Execution List
+    // ==========================================
+
+    function startExecPolling() {
+        stopExecPolling();
+        isExecPollInFlight = false;
+        showExecLiveIndicator();
+        execPollTimer = setInterval(pollExecutions, EXEC_POLL_INTERVAL);
+        console.log(`Execution list polling started (${EXEC_POLL_INTERVAL}ms interval)`);
+    }
+
+    function stopExecPolling() {
+        if (execPollTimer) {
+            clearInterval(execPollTimer);
+            execPollTimer = null;
+            console.log('Execution list polling stopped');
+        }
+        isExecPollInFlight = false;
+        hideExecLiveIndicator();
+    }
+
+    function showExecLiveIndicator() {
+        let liveEl = document.getElementById('executions-live-indicator');
+        if (!liveEl) {
+            liveEl = document.createElement('span');
+            liveEl.id = 'executions-live-indicator';
+            liveEl.className = 'live-indicator executions-live-indicator';
+            liveEl.innerHTML = '<span class="live-dot"></span> <span class="live-text">LIVE</span>';
+            const header = document.querySelector('#executionsPanel .card-header h5');
+            if (header) {
+                header.appendChild(liveEl);
+            }
+        }
+    }
+
+    function hideExecLiveIndicator() {
+        const liveEl = document.getElementById('executions-live-indicator');
+        if (liveEl) liveEl.remove();
+    }
+
+    // Check if polling should be active based on current execution data
+    function checkAndStartExecPolling() {
+        if (!executionsData || !executionsData.nodes) {
+            stopExecPolling();
+            return;
+        }
+
+        const hasActive = executionsData.nodes.some(exec =>
+            exec && isActiveExecStatus(exec.status)
+        );
+
+        if (hasActive && !execPollTimer) {
+            startExecPolling();
+        } else if (!hasActive && execPollTimer) {
+            stopExecPolling();
+        }
+    }
+
+    async function pollExecutions() {
+        if (isExecPollInFlight || !selectedInstance || !executionsData) return;
+        isExecPollInFlight = true;
+
+        try {
+            // Re-fetch the first page of executions with same filters
+            const options = { first: 50 };
+            if (currentFilters.dateFrom) options.startedAtGte = currentFilters.dateFrom;
+            if (currentFilters.dateTo) options.startedAtLte = currentFilters.dateTo;
+            if (currentFilters.status) options.status = currentFilters.status;
+            if (currentFilters.flowId) options.flowId = currentFilters.flowId;
+
+            const data = await API.fetchExecutionsByInstance(selectedInstance.id, options);
+            if (!data || !data.nodes) return;
+
+            // Build maps for comparison
+            const existingMap = new Map();
+            executionsData.nodes.forEach(exec => {
+                if (exec) existingMap.set(exec.id, exec);
+            });
+
+            let hasChanges = false;
+
+            // Check for changes in the refreshed data
+            for (const exec of data.nodes) {
+                if (!exec) continue;
+                const existing = existingMap.get(exec.id);
+                if (!existing) {
+                    hasChanges = true;
+                    break;
+                }
+                if (existing.status !== exec.status || existing.endedAt !== exec.endedAt) {
+                    hasChanges = true;
+                    break;
+                }
+            }
+
+            // Also check if totalCount changed (new executions may have started)
+            if (!hasChanges && data.totalCount !== executionsData.totalCount) {
+                hasChanges = true;
+            }
+
+            if (hasChanges) {
+                // Merge: update existing nodes with new data
+                const newMap = new Map();
+                data.nodes.forEach(exec => {
+                    if (exec) newMap.set(exec.id, exec);
+                });
+
+                // Update existing entries with fresh data
+                executionsData.nodes = executionsData.nodes.map(exec => {
+                    if (!exec) return exec;
+                    return newMap.get(exec.id) || exec;
+                });
+
+                // Add new executions at the beginning (they're newer)
+                const existingIds = new Set(executionsData.nodes.map(e => e?.id).filter(Boolean));
+                const newExecs = data.nodes.filter(e => e && !existingIds.has(e.id));
+                if (newExecs.length > 0) {
+                    executionsData.nodes = [...newExecs, ...executionsData.nodes];
+                }
+
+                // Update totalCount
+                if (data.totalCount) {
+                    executionsData.totalCount = data.totalCount;
+                }
+
+                renderExecutions(false);
+            }
+
+            // Check if we should continue polling
+            const hasActiveExecutions = executionsData.nodes.some(exec =>
+                exec && isActiveExecStatus(exec.status)
+            );
+
+            if (!hasActiveExecutions) {
+                stopExecPolling();
+            }
+        } catch (error) {
+            console.error('Execution list polling error:', error);
+        } finally {
+            isExecPollInFlight = false;
+        }
+    }
+
     // Load executions for an instance
     async function loadExecutions(instanceId, reset = false) {
         const contentDiv = document.getElementById('executionsContent');
@@ -753,6 +918,9 @@ const InstancesPage = (() => {
             } else {
                 loadMoreDiv.classList.add('d-none');
             }
+
+            // Start/stop live polling based on whether active executions exist
+            checkAndStartExecPolling();
 
         } catch (error) {
             console.error('Error loading executions:', error);
@@ -986,7 +1154,7 @@ const InstancesPage = (() => {
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
 
             html += `
-                <tr>
+                <tr data-execution-id="${exec.id}">
                     <td>${statusBadge}</td>
                     <td>${exec.flow?.name || 'Unknown'}</td>
                     <td><small>${formatDate(exec.startedAt)}</small></td>
@@ -1182,6 +1350,9 @@ const InstancesPage = (() => {
     function onRoute(params) {
         init();
 
+        // Stop any existing polling
+        stopExecPolling();
+
         // Reset filters on new route
         currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null };
         allFlows = new Map();
@@ -1230,7 +1401,8 @@ const InstancesPage = (() => {
     return {
         init,
         onRoute,
-        loadInstances
+        loadInstances,
+        stopExecPolling
     };
 })();
 

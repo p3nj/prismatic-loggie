@@ -2533,3 +2533,88 @@ pre[class*="language-"] {
     font-size: 0.65rem;
   }
 }
+
+/* ==========================================
+   Live Polling Indicators
+   ========================================== */
+
+/* Live indicator container */
+.live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(220, 53, 69, 0.08);
+    border: 1px solid rgba(220, 53, 69, 0.2);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+[data-theme="dark"] .live-indicator {
+    background: rgba(220, 53, 69, 0.15);
+    border-color: rgba(220, 53, 69, 0.3);
+}
+
+/* Pulsing dot */
+.live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #dc3545;
+    animation: live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Live text label */
+.live-text {
+    color: #dc3545;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Live indicator for execution detail sidebar */
+#execution-live-indicator {
+    margin-bottom: 8px;
+}
+
+/* Live indicator for execution list header */
+.executions-live-indicator {
+    display: inline-flex;
+    margin-left: 8px;
+}
+
+/* Subtle flash animation for newly arrived log entries */
+.live-log-new {
+    animation: live-log-flash 1.5s ease-out;
+}
+
+@keyframes live-log-flash {
+    0% { background-color: rgba(13, 110, 253, 0.12); }
+    100% { background-color: transparent; }
+}
+
+[data-theme="dark"] .live-log-new {
+    animation: live-log-flash-dark 1.5s ease-out;
+}
+
+@keyframes live-log-flash-dark {
+    0% { background-color: rgba(61, 139, 253, 0.15); }
+    100% { background-color: transparent; }
+}
+
+/* Execution list row status update flash */
+.execution-status-updated {
+    animation: status-flash 1s ease-out;
+}
+
+@keyframes status-flash {
+    0% { background-color: rgba(25, 135, 84, 0.12); }
+    100% { background-color: transparent; }
+}

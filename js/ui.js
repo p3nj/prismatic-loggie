@@ -2688,6 +2688,81 @@ const UI = (() => {
         }
     }
 
+    // ==========================================
+    // Live Update Helper Functions
+    // ==========================================
+
+    // Prepend new log entries at the top of the results div (for live polling)
+    // logEdges arrive in DESC order (newest first) - prepend them before existing logs
+    function prependNewLogs(logEdges, liveIndexStart) {
+        const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+
+        const fragment = document.createDocumentFragment();
+
+        logEdges.forEach((edge, i) => {
+            const log = edge.node;
+            const logDiv = document.createElement('div');
+            logDiv.className = 'col-12 mb-3 live-log-new';
+            logDiv.id = `log-live-${liveIndexStart + i}`;
+            logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
+
+            logDiv.innerHTML = `
+                <div class="log-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                            <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
+                        </div>
+                        ${log.loopStepName ? `
+                            <span class="badge bg-secondary">
+                                Loop: ${log.loopStepName} #${log.loopStepIndex}
+                            </span>
+                        ` : ''}
+                    </div>
+                    ${log.loopPath ? `
+                        <div class="loop-info mt-2">
+                            Loop Path: ${log.loopPath}
+                        </div>
+                    ` : ''}
+                    <pre class="mt-2 log-message">${escapeHtml(log.message)}</pre>
+                </div>
+            `;
+
+            fragment.appendChild(logDiv);
+        });
+
+        // Insert before the first child (existing logs)
+        // Skip the loading-progress element if present
+        const firstLog = resultsDiv.querySelector('[id^="log-"]');
+        if (firstLog) {
+            resultsDiv.insertBefore(fragment, firstLog);
+        } else {
+            resultsDiv.appendChild(fragment);
+        }
+
+        // Setup JSON viewers for the new live logs
+        const newLogMessages = [];
+        for (let i = 0; i < logEdges.length; i++) {
+            const el = document.getElementById(`log-live-${liveIndexStart + i}`);
+            if (el) {
+                const container = el.querySelector('.log-message');
+                if (container) {
+                    setupJsonViewerForContainer(container);
+                }
+            }
+        }
+    }
+
+    // Update the execution status badge in the sidebar
+    function updateExecutionStatusBadge(status) {
+        const badge = document.querySelector('#execution-details .badge');
+        if (badge) {
+            badge.className = `badge ${getStatusBadgeClass(status)}`;
+            badge.textContent = status || 'Unknown';
+        }
+    }
+
     // Return public methods
     return {
         initTheme,
@@ -2705,6 +2780,8 @@ const UI = (() => {
         showWelcome,
         getExecutionId,
         detectAndSetupJsonViewers,
-        showJsonModal
+        showJsonModal,
+        prependNewLogs,
+        updateExecutionStatusBadge
     };
 })();
