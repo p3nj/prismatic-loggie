@@ -5,6 +5,23 @@ const ExecutionPage = (() => {
     let stepResultsCache = new Map(); // Cache for step results
     let linkedExecutionsCache = null;
 
+    // Live polling state
+    // Prismatic API limit: 20 req/s. Built-in rate limiter: 4 req/s (250ms).
+    // Polling at 3s intervals uses ~0.7 req/s average - well within limits.
+    const POLL_INTERVAL = 3000; // 3 seconds - sweet spot for live feel without API spam
+    const ACTIVE_STATUSES = ['RUNNING', 'IN_PROGRESS', 'PENDING', 'QUEUED'];
+    let pollTimer = null;
+    let isPollInFlight = false;
+    let loadedLogTotalCount = 0;
+    let allLoadedLogEdges = [];
+    let lastExecutionStatus = null;
+    let liveLogInsertCount = 0;
+    let lastStepResults = null;
+
+    function isActiveStatus(status) {
+        return ACTIVE_STATUSES.includes(status?.toUpperCase());
+    }
+
     // Initialize the execution page
     function init() {
         if (initialized) return;
@@ -32,6 +49,112 @@ const ExecutionPage = (() => {
         }
     }
 
+    // ==========================================
+    // Live Polling
+    // ==========================================
+
+    function startPolling(executionId) {
+        stopPolling();
+        isPollInFlight = false;
+        showLiveIndicator();
+        pollTimer = setInterval(() => pollExecution(executionId), POLL_INTERVAL);
+        console.log(`Live polling started for execution ${executionId} (${POLL_INTERVAL}ms interval)`);
+    }
+
+    function stopPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            console.log('Live polling stopped');
+        }
+        isPollInFlight = false;
+        hideLiveIndicator();
+    }
+
+    function showLiveIndicator() {
+        let liveEl = document.getElementById('execution-live-indicator');
+        if (!liveEl) {
+            liveEl = document.createElement('div');
+            liveEl.id = 'execution-live-indicator';
+            liveEl.className = 'live-indicator mb-2';
+            liveEl.innerHTML = '<span class="live-dot"></span> <span class="live-text">LIVE</span> <small class="text-muted ms-1">Auto-updating every 3s</small>';
+            const details = document.getElementById('execution-details');
+            if (details) {
+                details.parentNode.insertBefore(liveEl, details);
+            }
+        }
+    }
+
+    function hideLiveIndicator() {
+        const liveEl = document.getElementById('execution-live-indicator');
+        if (liveEl) liveEl.remove();
+    }
+
+    async function pollExecution(executionId) {
+        // Guard: skip if another poll is in flight or execution changed
+        if (isPollInFlight || executionId !== currentExecutionId) return;
+        isPollInFlight = true;
+
+        try {
+            // 1. Fetch metadata to check status (1 API call)
+            const metadata = await API.fetchExecutionResults(executionId);
+            if (!metadata) { isPollInFlight = false; return; }
+
+            // 2. Update status badge if changed
+            if (metadata.status !== lastExecutionStatus) {
+                UI.updateExecutionStatusBadge(metadata.status);
+                lastExecutionStatus = metadata.status;
+            }
+
+            // 3. Check for new logs (1 API call - small payload with first:1)
+            const logCheck = await API.fetchExecutionLogs(executionId, { first: 1 });
+            if (logCheck && logCheck.totalCount > loadedLogTotalCount) {
+                const newCount = logCheck.totalCount - loadedLogTotalCount;
+                // Fetch only the new logs (1 API call)
+                // DESC order means the first N results are the newest N logs
+                const newLogsData = await API.fetchExecutionLogs(executionId, { first: newCount });
+                if (newLogsData && newLogsData.edges && newLogsData.edges.length > 0) {
+                    // Prepend new logs to UI (newest at top)
+                    UI.prependNewLogs(newLogsData.edges, liveLogInsertCount);
+                    liveLogInsertCount += newLogsData.edges.length;
+
+                    // Update tracking arrays
+                    allLoadedLogEdges = [...newLogsData.edges, ...allLoadedLogEdges];
+                    loadedLogTotalCount = logCheck.totalCount;
+
+                    // Update step navigation with all logs
+                    UI.updateStepNavigationFromLogs(allLoadedLogEdges);
+                }
+            }
+
+            // 4. If execution completed, stop polling and do final refresh
+            if (!isActiveStatus(metadata.status)) {
+                console.log(`Execution ${executionId} completed with status: ${metadata.status}`);
+                stopPolling();
+
+                // Re-fetch step results for the now-completed execution
+                try {
+                    const stepResults = await fetchAllStepResultsWithProgress(executionId, metadata.startedAt);
+                    lastStepResults = stepResults;
+                    if (allLoadedLogEdges.length > 0 && stepResults && stepResults.length > 0) {
+                        UI.updateStepNavigationCombined(allLoadedLogEdges, stepResults, executionId);
+                    }
+                } catch (e) {
+                    console.error('Error refreshing step results after completion:', e);
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+            // Don't stop polling on transient errors - will retry next interval
+        } finally {
+            isPollInFlight = false;
+        }
+    }
+
+    // ==========================================
+    // Core Execution Loading
+    // ==========================================
+
     // Fetch and display execution results with step outputs and logs
     async function fetchResults() {
         const executionId = getExecutionId();
@@ -47,12 +170,22 @@ const ExecutionPage = (() => {
             return;
         }
 
+        // Stop any existing polling before loading new execution
+        stopPolling();
+
         // Clear caches when loading new execution
         if (currentExecutionId !== executionId) {
             stepResultsCache.clear();
             linkedExecutionsCache = null;
             currentExecutionId = executionId;
         }
+
+        // Reset live polling state
+        loadedLogTotalCount = 0;
+        allLoadedLogEdges = [];
+        lastExecutionStatus = null;
+        liveLogInsertCount = 0;
+        lastStepResults = null;
 
         // Update URL to include execution ID for sharing/navigation
         const currentHash = window.location.hash;
@@ -72,6 +205,8 @@ const ExecutionPage = (() => {
                 UI.showError('Execution not found');
                 return;
             }
+
+            lastExecutionStatus = executionMetadata.status;
 
             // Initialize the results container with metadata
             UI.initResultsContainer(executionMetadata);
@@ -114,14 +249,21 @@ const ExecutionPage = (() => {
                         }
                         UI.hideLoadingProgress();
                     }
+                    // Track loaded log count for live polling
+                    loadedLogTotalCount = progress.totalCount;
                 }
             }
+
+            // Store all loaded logs for live polling reference
+            allLoadedLogEdges = allLogEdges;
 
             // Wait for step results and linked executions to complete
             const [stepResults, linkedExecutions] = await Promise.all([
                 stepResultsPromise,
                 linkedExecutionsPromise
             ]);
+
+            lastStepResults = stepResults;
 
             // Final update with step results for eye icons (output viewing)
             if (allLogEdges.length > 0 && stepResults && stepResults.length > 0) {
@@ -131,6 +273,11 @@ const ExecutionPage = (() => {
             // Show linked executions if any
             if (linkedExecutions && linkedExecutions.length > 0) {
                 UI.renderLinkedExecutions(linkedExecutions, executionId, executionMetadata);
+            }
+
+            // Start live polling if execution is still active
+            if (isActiveStatus(executionMetadata.status)) {
+                startPolling(executionId);
             }
 
         } catch (error) {
@@ -213,6 +360,7 @@ const ExecutionPage = (() => {
                         <li>Loop iterations with expandable step details</li>
                         <li>JSON data auto-detection and formatted viewing</li>
                         <li>Linked execution chain view for long-running flows</li>
+                        <li>Live updates for in-progress executions</li>
                         <li>Dark/light theme support</li>
                     </ul>
                     <p class="text-muted">
@@ -249,7 +397,8 @@ const ExecutionPage = (() => {
         init,
         onRoute,
         fetchResults,
-        setExecutionId
+        setExecutionId,
+        stopPolling
     };
 })();
 

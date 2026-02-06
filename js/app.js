@@ -16,8 +16,16 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.register('analysis', AnalysisPage.onRoute);
     Router.register('execution', ExecutionPage.onRoute);
 
-    // Add before navigate callback to check authentication for protected routes
+    // Add before navigate callback to check authentication and clean up polling
     Router.beforeNavigate((path, params) => {
+        // Stop all live polling timers when navigating away from any page
+        if (typeof ExecutionPage !== 'undefined' && ExecutionPage.stopPolling) {
+            ExecutionPage.stopPolling();
+        }
+        if (typeof InstancesPage !== 'undefined' && InstancesPage.stopExecPolling) {
+            InstancesPage.stopExecPolling();
+        }
+
         // Auth page is always accessible
         if (path === 'auth') return true;
 
