@@ -2234,8 +2234,8 @@ pre[class*="language-"] {
   gap: 0.25rem;
 }
 
-.analysis-date-inputs input[type="date"] {
-  width: 130px;
+.analysis-date-inputs input[type="datetime-local"] {
+  width: 195px;
   min-width: 0;
 }
 
@@ -2260,7 +2260,7 @@ pre[class*="language-"] {
     width: 100%;
   }
 
-  .analysis-date-inputs input[type="date"] {
+  .analysis-date-inputs input[type="datetime-local"] {
     width: auto;
     flex: 1;
     font-size: 0.8rem;

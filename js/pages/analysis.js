@@ -217,8 +217,9 @@ const AnalysisPage = (() => {
                 break;
         }
 
-        state.dateFrom = formatDateForInput(fromDate);
-        state.dateTo = formatDateForInput(today);
+        // Set from to start of day, to to end of current day
+        state.dateFrom = formatDateTimeForInput(fromDate, '00:00');
+        state.dateTo = formatDateTimeForInput(today, '23:59');
 
         // Update input fields
         const fromInput = document.getElementById('analysisDateFrom');
@@ -227,9 +228,22 @@ const AnalysisPage = (() => {
         if (toInput) toInput.value = state.dateTo;
     }
 
-    // Format date for input field (YYYY-MM-DD)
-    function formatDateForInput(date) {
-        return date.toISOString().split('T')[0];
+    // Format date for datetime-local input field (YYYY-MM-DDTHH:MM)
+    function formatDateTimeForInput(date, time) {
+        const dateStr = date.toISOString().split('T')[0];
+        return `${dateStr}T${time}`;
+    }
+
+    // Extract date-only portion (YYYY-MM-DD) from a datetime-local value
+    function extractDatePortion(datetimeStr) {
+        return datetimeStr ? datetimeStr.split('T')[0] : datetimeStr;
+    }
+
+    // Convert datetime-local value to ISO 8601 UTC string for API calls
+    function toISODateTime(datetimeStr) {
+        if (!datetimeStr) return null;
+        // datetime-local gives us YYYY-MM-DDTHH:MM, append :00Z for seconds and UTC
+        return datetimeStr + ':00Z';
     }
 
     // Format date for display
@@ -281,12 +295,16 @@ const AnalysisPage = (() => {
         try {
             let metricsData;
 
+            // Extract date-only portions for daily metrics API (expects YYYY-MM-DD)
+            const dateFromStr = extractDatePortion(state.dateFrom);
+            const dateToStr = extractDatePortion(state.dateTo);
+
             if (state.level === 'org') {
                 // Fetch org-level metrics
                 const result = await API.fetchOrgDailyUsageMetrics({
                     first: 100,
-                    snapshotDateGte: state.dateFrom,
-                    snapshotDateLte: state.dateTo
+                    snapshotDateGte: dateFromStr,
+                    snapshotDateLte: dateToStr
                 });
                 metricsData = result?.nodes || [];
             } else if (state.level === 'instance' && state.selectedInstanceId) {
@@ -294,8 +312,8 @@ const AnalysisPage = (() => {
                 const result = await API.fetchInstanceDailyUsageMetrics({
                     first: 100,
                     instanceId: state.selectedInstanceId,
-                    snapshotDateGte: state.dateFrom,
-                    snapshotDateLte: state.dateTo
+                    snapshotDateGte: dateFromStr,
+                    snapshotDateLte: dateToStr
                 });
                 metricsData = result?.nodes || [];
             } else if (state.level === 'customer' && state.selectedCustomerId) {
@@ -311,8 +329,8 @@ const AnalysisPage = (() => {
                             batch.map(inst => API.fetchInstanceDailyUsageMetrics({
                                 first: 100,
                                 instanceId: inst.id,
-                                snapshotDateGte: state.dateFrom,
-                                snapshotDateLte: state.dateTo
+                                snapshotDateGte: dateFromStr,
+                                snapshotDateLte: dateToStr
                             }))
                         );
                         results.forEach(r => allMetrics.push(...(r?.nodes || [])));
@@ -392,8 +410,8 @@ const AnalysisPage = (() => {
             let lastProgress = null;
             const generator = API.fetchAllInstancesDailyUsageMetricsFull({
                 batchSize: 100,  // Keep batch size small to avoid API errors
-                snapshotDateGte: state.dateFrom,
-                snapshotDateLte: state.dateTo
+                snapshotDateGte: extractDatePortion(state.dateFrom),
+                snapshotDateLte: extractDatePortion(state.dateTo)
             });
 
             for await (const progress of generator) {
@@ -755,6 +773,14 @@ const AnalysisPage = (() => {
         });
     }
 
+    // Auto-switch top chart dropdowns based on drill-down level
+    function updateTopChartDropdowns(value) {
+        const volumeSelect = document.getElementById('topVolumeMetric');
+        const errorsSelect = document.getElementById('topErrorsMetric');
+        if (volumeSelect) volumeSelect.value = value;
+        if (errorsSelect) errorsSelect.value = value;
+    }
+
     // Update top volume chart
     function updateTopVolumeChart() {
         const ctx = document.getElementById('topVolumeChart');
@@ -1060,6 +1086,9 @@ const AnalysisPage = (() => {
         updateBreadcrumb();
         renderCustomerList(); // Re-render to show active state
 
+        // Auto-switch top chart dropdowns to 'instances' at customer level
+        updateTopChartDropdowns('instances');
+
         // Show instance panel
         document.getElementById('instanceSelectionPanel')?.classList.remove('d-none');
 
@@ -1165,6 +1194,9 @@ const AnalysisPage = (() => {
         updateBreadcrumb();
         renderInstanceList(); // Re-render to show active state
 
+        // Auto-switch top chart dropdowns to 'flows' at instance level
+        updateTopChartDropdowns('flows');
+
         // Reload metrics for instance level
         await Promise.all([
             loadDailyMetrics(),
@@ -1184,6 +1216,9 @@ const AnalysisPage = (() => {
         updateBreadcrumb();
         document.getElementById('instanceSelectionPanel')?.classList.add('d-none');
         renderCustomerList();
+
+        // Reset top chart dropdowns to 'customers' at org level
+        updateTopChartDropdowns('customers');
 
         // Reload org-level data
         loadAllData();
@@ -1215,30 +1250,28 @@ const AnalysisPage = (() => {
         }
     }
 
-    // Load recent executions (initial load - resets state)
+    // Load recent executions - auto-loads ALL pages in the date range
     async function loadRecentExecutions() {
         // Reset pagination state
         state.pagination.executions = { cursor: null, hasMore: true, totalCount: 0 };
         state.data.recentExecutions = [];
 
+        // Fetch first page
         await fetchExecutions(false);
-    }
 
-    // Load more executions (pagination - appends to existing data)
-    async function loadMoreExecutions() {
-        // Don't load more if no more data available
-        if (!state.pagination.executions?.hasMore) return;
-
-        await fetchExecutions(true);
+        // Auto-load remaining pages
+        while (state.pagination.executions?.hasMore) {
+            await fetchExecutions(true);
+        }
     }
 
     // Shared execution fetching logic
     async function fetchExecutions(append) {
         try {
             const options = {
-                first: 100,  // Keep at 100 - higher values may cause API errors
-                startedAtGte: state.dateFrom + 'T00:00:00Z',
-                startedAtLte: state.dateTo + 'T23:59:59Z'
+                first: 100,  // Keep at 100 per page - higher values may cause API errors
+                startedAtGte: toISODateTime(state.dateFrom),
+                startedAtLte: toISODateTime(state.dateTo)
             };
 
             // Add cursor for pagination when appending
@@ -1302,26 +1335,21 @@ const AnalysisPage = (() => {
 
         if (countEl) {
             if (totalCount > loadedCount) {
-                countEl.textContent = `${formatNumber(loadedCount)} / ${formatNumber(totalCount)}`;
+                countEl.textContent = `${formatNumber(loadedCount)} / ${formatNumber(totalCount)} (loading...)`;
             } else {
                 countEl.textContent = formatNumber(loadedCount);
             }
         }
     }
 
-    // Track if we're currently loading more executions (prevent duplicate requests)
-    let isLoadingMoreExecutions = false;
-
-    // Render recent executions list with lazy loading
+    // Render recent executions list
     function renderRecentExecutions() {
         const container = document.getElementById('recentExecutionsList');
         if (!container) return;
 
-        // Display all loaded executions - the Load More button handles pagination
         const executions = state.data.recentExecutions;
-        const hasMoreToLoad = state.pagination.executions?.hasMore || false;
 
-        if (executions.length === 0) {
+        if (executions.length === 0 && !state.pagination.executions?.hasMore) {
             container.innerHTML = `
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-clock-history display-6 mb-2 d-block"></i>
@@ -1382,16 +1410,12 @@ const AnalysisPage = (() => {
             `;
         }).join('');
 
-        // Add "Load More" button if there's more data to fetch from API
-        if (hasMoreToLoad) {
-            const totalCount = state.pagination.executions?.totalCount || 0;
-            const loadedCount = state.data.recentExecutions.length;
+        // Show loading indicator while still fetching pages
+        if (state.pagination.executions?.hasMore) {
             html += `
-                <div id="loadMoreExecutionsContainer" class="text-center py-3 border-top">
-                    <button id="loadMoreExecutionsBtn" class="btn btn-outline-secondary btn-sm">
-                        <i class="bi bi-arrow-down-circle me-1"></i>
-                        Load More (${formatNumber(loadedCount)} of ${formatNumber(totalCount)})
-                    </button>
+                <div class="text-center py-3 border-top">
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <small class="text-muted">Loading executions... (${formatNumber(executions.length)} of ${formatNumber(state.pagination.executions?.totalCount || '?')})</small>
                 </div>
             `;
         }
@@ -1404,46 +1428,6 @@ const AnalysisPage = (() => {
         // Restore scroll position after update
         if (scrollTop > 0) {
             container.scrollTop = scrollTop;
-        }
-
-        // Attach event listener for Load More button
-        const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
-        if (loadMoreBtn) {
-            loadMoreBtn.addEventListener('click', handleLoadMoreClick);
-        }
-
-        // Attach scroll event listener for lazy loading
-        container.removeEventListener('scroll', handleExecutionsScroll);
-        container.addEventListener('scroll', handleExecutionsScroll);
-    }
-
-    // Handle Load More button click
-    async function handleLoadMoreClick() {
-        if (isLoadingMoreExecutions) return;
-
-        const loadMoreBtn = document.getElementById('loadMoreExecutionsBtn');
-        if (loadMoreBtn) {
-            loadMoreBtn.disabled = true;
-            loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
-        }
-
-        isLoadingMoreExecutions = true;
-        try {
-            await loadMoreExecutions();
-        } finally {
-            isLoadingMoreExecutions = false;
-        }
-    }
-
-    // Handle scroll event for lazy loading executions
-    function handleExecutionsScroll(e) {
-        const container = e.target;
-        if (!container || isLoadingMoreExecutions) return;
-
-        // Check if user has scrolled near the bottom (within 100px)
-        const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        if (scrollBottom < 100 && state.pagination.executions?.hasMore) {
-            handleLoadMoreClick();
         }
     }
 
