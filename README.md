@@ -1,228 +1,181 @@
 # Prismatic Loggie
 
-A web-based execution result viewer and debugger for the [Prismatic](https://prismatic.io) integration platform. Prismatic Loggie provides a user-friendly interface to browse, search, filter, and analyze execution logs and step results from your Prismatic instances.
+A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) integration platform. Loggie lets you analyse org-wide usage, browse instance executions, drill into step logs, inspect config variables, and replay executions — all from a single static HTML/JS bundle that talks directly to Prismatic's GraphQL API.
 
 ## Features
 
-### Instance Management
-- **Browse Instances** - View all your Prismatic instances with customer and integration details
-- **Search** - Find instances quickly with real-time search (with debounce)
-- **Pagination** - Navigate through large instance lists efficiently
+### Analysis (default landing page)
+- **Org-wide KPIs** — total executions, successful, failed, success rate over a chosen date range
+- **Time-series chart** — executions over time (line / bar / area) with date-range presets (Today, 7d, 30d, 90d)
+- **Distribution charts** — executions by outcome and by trigger type
+- **Top performers** — top instances by volume and by error count, aggregated client-side across every instance you can see
+- **Recent executions** feed with click-through to the Execution page
 
-### Execution Viewing & Filtering
-- **Execution History** - Browse all executions per instance with detailed metadata
-- **Advanced Filtering** - Filter by date range, execution status, and flow name
-- **Status Filters** - View SUCCESS, ERROR, PENDING, or QUEUED executions
-- **Shareable URLs** - Share filtered views with colleagues via URL parameters
+### Instances & Executions
+- **Browse instances** with customer and integration metadata
+- **Real-time search** with debouncing and cursor-based pagination
+- **Per-instance execution list** with date-range, status, and flow filters
+- **Live polling** — in-flight execution lists auto-refresh every 5 seconds
+- **Opaque shareable URLs** — every view collapses to a single base64 token (`#<base64>`), so links carry the exact view (instance + filters) without exposing query strings; old `#instances?...&f=...` URLs are auto-upgraded in place
 
-### Step-by-Step Analysis
-- **Detailed Logs** - View all execution logs with precise timestamps
-- **Step Navigation** - Navigate through steps with loop iteration support
-- **Step Outputs** - View and download step results with automatic JSON formatting
-- **Loop Tracking** - Track nested loop iterations through complex flows
+### Execution Detail
+- **Step-by-step navigation** with loop iteration tracking
+- **Step outputs** decoded from MessagePack, auto-formatted as JSON
+- **Linked executions** for following long-running flow chains
+- **Live updates** — running executions auto-refresh logs every 3 seconds
+- **Replay / refire** with confirmation
+- **Direct lookup** by execution ID
 
-### Advanced Capabilities
-- **Linked Executions** - Follow execution chains for long-running flows
-- **Execution Replay** - Replay/refire executions with confirmation dialog
-- **Incremental Loading** - Stream logs progressively for better performance
-- **Multi-Region Support** - Connect to any Prismatic region worldwide
+### Config
+- **Config variables view** grouped by section with headings and dividers
+- **Click-to-expand previews** powered by Monaco for JSON / JSONFORM values
+- **Connection status** indicators
 
-### User Experience
-- **Dark/Light Theme** - Toggle themes with preference persistence
-- **Responsive Design** - Works on desktop and mobile devices
-- **No Build Required** - Pure vanilla JavaScript, just serve and use
+### Integrations
+- Browse integrations the token can see, with versions and metadata
 
-## Tech Stack
+### Cross-cutting
+- **Multi-region support** — US, AP Southeast 2, CA Central 1, EU West 1/2, US Gov West 1
+- **Dark / light theme** with preference persistence
+- **No build step** — pure vanilla JS + Bootstrap; just serve and use
+- **Built-in rate limiter** — 4 req/s (250 ms minimum gap) to stay well inside Prismatic's 20 req/s limit
+
+## Tech stack
 
 | Category | Technology |
 |----------|------------|
 | Frontend | Vanilla JavaScript (ES6+) |
-| UI Framework | Bootstrap 5.1.3 |
+| UI framework | Bootstrap 5.1.3 |
 | Icons | Bootstrap Icons 1.8.1 |
-| Syntax Highlighting | Prism.js 1.28.0 |
-| Code Editor | Monaco Editor 0.36.1 |
-| JSON Viewer | JSON Editor 9.10.0 |
-| Data Format | MessagePack (@msgpack/msgpack 2.8.0) |
-| API | GraphQL (Prismatic API) |
+| Charts | Chart.js 4.4.1 + chartjs-adapter-date-fns 3.0.0 |
+| Syntax highlighting | Prism.js 1.28.0 |
+| Code editor | Monaco Editor 0.36.1 (lazy-loaded for previews) |
+| Binary decoding | MessagePack (@msgpack/msgpack 2.8.0) |
+| API | GraphQL (Prismatic) |
 
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
-- A modern web browser (Chrome, Firefox, Safari, Edge)
-- A valid Prismatic API token ([how to get one](https://prismatic.io/docs/api-tokens/))
-- Any static file server (Python, Node.js, or web server)
+- A modern browser (Chrome / Firefox / Safari / Edge — latest 2 versions)
+- A Prismatic API token ([docs](https://prismatic.io/docs/api-tokens/))
+- Any static file server
 
-### Installation
+### Run locally
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/your-username/prismatic-loggie.git
-   cd prismatic-loggie
-   ```
+```bash
+git clone https://github.com/p3nj/prismatic-loggie.git
+cd prismatic-loggie
 
-2. **Serve the files** using one of these methods:
+# pick one
+python3 -m http.server 8000
+npx http-server -p 8000
+npx serve -p 8000
+```
 
-   **Python 3:**
-   ```bash
-   python -m http.server 8000
-   ```
+Open <http://localhost:8000>.
 
-   **Python 2:**
-   ```bash
-   python -m SimpleHTTPServer 8000
-   ```
+### First-time setup
 
-   **Node.js (npx):**
-   ```bash
-   npx http-server -p 8000
-   ```
+1. Click the **Setup Token** dropdown in the navbar (top-right).
+2. Pick your **Prismatic region**.
+3. Paste your **API token** and click **Connect** — the token is validated against `/get_auth_token` and cached for the session (5-minute TTL on the validation result).
+4. You land on the **Analysis** page with org-wide metrics.
 
-   **Node.js (serve):**
-   ```bash
-   npx serve -p 8000
-   ```
+## Routing & shareable URLs
 
-3. **Open your browser** and navigate to:
-   ```
-   http://localhost:8000
-   ```
+Loggie is a single-page app routed entirely off the URL hash. Every page state — route plus all params — is encoded into a single URL-safe base64 token:
 
-## Configuration
+```
+https://<host>/#eyJyIjoiaW5zdGFuY2VzIiwicCI6eyJpbnN0YW5jZUlkIjoiLi4uIn19
+```
 
-### First-Time Setup
+This means a shareable link never leaks instance IDs, filter names, or page structure in plain text — the recipient gets the exact view that was copied, nothing more readable, nothing less complete.
 
-1. Click **"Setup Token"** in the navigation bar (or navigate to `#auth`)
-2. Select your **Prismatic region** from the dropdown:
-   - US (app.prismatic.io)
-   - AP Southeast 2 (app.ap-southeast-2.prismatic.io)
-   - CA Central 1 (app.ca-central-1.prismatic.io)
-   - EU West 1 (app.eu-west-1.prismatic.io)
-   - EU West 2 (app.eu-west-2.prismatic.io)
-   - US Gov West 1 (app.us-gov-west-1.prismatic.io)
-3. Enter your **Prismatic API token**
-4. Click **"Connect"** to validate and save
+Legacy URLs of the form `#instances?instanceId=…&f=…` are still accepted: on first load they're decoded by the legacy parser and immediately rewritten in place to the base64 form, so old shared links keep working.
 
-### Data Storage
+The codec lives in [js/urlstate.js](js/urlstate.js); the router is [js/router.js](js/router.js).
 
-All configuration is stored locally in your browser's `localStorage`:
+## Data storage
+
+Everything is stored locally in `localStorage` — no server-side state, no telemetry. Your API token never leaves your browser; all GraphQL calls go directly from the browser to Prismatic.
 
 | Key | Description |
 |-----|-------------|
-| `selectedEndpoint` | Selected Prismatic region URL |
-| `apiToken_[endpoint]` | API token for each region |
-| `theme` | Theme preference (light/dark) |
-| `lastExecutionId` | Last viewed execution ID |
+| `selectedEndpoint` | Selected Prismatic region URL (validated against `^https?://`) |
+| `apiToken_<endpoint>` | API token for each region |
+| `theme` | `light` or `dark` |
+| `lastExecutionId` | Last viewed execution ID (for convenience prefill) |
 
-> **Note:** Your API token never leaves your browser - all API calls are made directly from your browser to Prismatic's servers.
-
-## Usage
-
-### Browsing Instances
-
-1. Navigate to the **Instances** tab
-2. Use the search box to filter instances by name
-3. Click on an instance to view its execution history
-4. Use pagination controls for large lists
-
-### Viewing Executions
-
-1. Select an instance to see its executions
-2. Apply filters:
-   - **Date Range** - Default is last 7 days
-   - **Status** - Filter by SUCCESS, ERROR, PENDING, QUEUED
-   - **Flow** - Filter by specific flow name
-3. Click an execution to view detailed logs
-
-### Analyzing Execution Details
-
-1. View the **execution timeline** with all steps
-2. Click on steps in the **navigation panel** to jump to specific logs
-3. Expand steps to see **outputs and results**
-4. Download step outputs as JSON files
-5. Follow **linked executions** for execution chains
-
-### Direct Execution Lookup
-
-1. Navigate to the **Execution** tab
-2. Enter an execution ID directly
-3. Click **"Fetch Execution"** to load logs
-
-### Replaying Executions
-
-1. View an execution's details
-2. Click the **"Replay"** button
-3. Confirm the action in the dialog
-4. A new execution will be triggered
-
-## Project Structure
+## Project structure
 
 ```
 prismatic-loggie/
-├── index.html              # Main HTML file (SPA shell)
-├── README.md               # This file
+├── index.html                # SPA shell + Bootstrap markup + script tags
+├── README.md
+├── schema.json               # Prismatic GraphQL schema (introspection cache)
+├── fetch-schema.js           # Script for refreshing schema.json (not in app)
+├── fetch-schema-interactive.html
 ├── css/
-│   └── styles.css          # Styles with dark/light theme support
+│   └── styles.css            # Dark/light theme, layout, components
 └── js/
-    ├── app.js              # Application entry point
-    ├── router.js           # Hash-based SPA router
-    ├── api.js              # Prismatic GraphQL API client
-    ├── ui.js               # UI rendering and DOM manipulation
+    ├── app.js                # Entry point: theme init, auth init, route registration
+    ├── urlstate.js           # base64 JSON codec for the URL hash
+    ├── router.js             # Hash router (#<base64> + legacy upgrade)
+    ├── api.js                # Prismatic GraphQL client + rate limiter
+    ├── ui.js                 # Shared DOM rendering helpers
     └── pages/
-        ├── auth.js         # Authentication page handler
-        ├── instances.js    # Instances & executions page
-        └── execution.js    # Execution details page
+        ├── analysis.js       # Org-wide analysis + charts (default route)
+        ├── instances.js      # Instance browser + execution list + filters
+        ├── execution.js      # Single execution viewer + live polling
+        ├── integrations.js   # Integrations browser
+        ├── config.js         # Per-instance config variables view
+        └── auth.js           # Token setup + validation cache
 ```
 
-## API Rate Limiting
+## API rate limiting
 
-Prismatic Loggie includes built-in rate limiting (4 requests/second) to prevent hitting Prismatic's API limits. This is handled automatically - no configuration needed.
+Built into [js/api.js](js/api.js): a 250 ms minimum gap between requests (≈ 4 req/s sustained) keeps the app well under Prismatic's 20 req/s ceiling even when fanning out per-instance for org-wide aggregations.
 
-## Browser Support
+## Browser support
 
 | Browser | Support |
 |---------|---------|
-| Chrome | Latest 2 versions |
+| Chrome  | Latest 2 versions |
 | Firefox | Latest 2 versions |
-| Safari | Latest 2 versions |
-| Edge | Latest 2 versions |
+| Safari  | Latest 2 versions |
+| Edge    | Latest 2 versions |
+
+Requires `TextEncoder` / `TextDecoder` and `URLSearchParams` — available in every browser of the supported window.
 
 ## Troubleshooting
 
-### Token Not Working
+**Token not working** — verify the token in the Prismatic dashboard, confirm the region matches, and check that the token has at least `org_view_instances`-equivalent permissions for the Analysis page.
 
-1. Verify your token is valid in the Prismatic dashboard
-2. Ensure you've selected the correct region
-3. Check that the token has appropriate permissions
+**Analysis page shows no data** — the platform requires per-instance permission for `instanceDailyUsageMetrics`. Loggie fans out per-instance to work around this, but if your token can't see any instances, you'll see empty charts.
 
-### Logs Not Loading
+**Logs not loading** — open devtools and look at the network tab; the GraphQL endpoint is `<region>/api`. If you see `Missing required argument` errors, your token likely lacks the relevant permission on that resource.
 
-1. Check browser console for errors
-2. Verify the execution ID exists
-3. Ensure your token has access to the instance
-
-### Theme Not Persisting
-
-1. Check if localStorage is enabled in your browser
-2. Clear localStorage and reconfigure if corrupted
+**Theme not persisting** — confirm `localStorage` is enabled for this origin; some private-browsing modes block it.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+PRs welcome. Standard flow:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork
+2. `git checkout -b feature/your-thing`
+3. Commit and push to your fork
+4. Open a PR against `master`
 
 ## License
 
-This project is open source. See the repository for license details.
+Open source — see the repository for license details.
 
 ## Acknowledgments
 
-- [Prismatic](https://prismatic.io) - The integration platform this tool is built for
-- [Bootstrap](https://getbootstrap.com) - UI framework
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) - Code editor component
-- [Prism.js](https://prismjs.com) - Syntax highlighting
+- [Prismatic](https://prismatic.io) — the integration platform this tool targets
+- [Bootstrap](https://getbootstrap.com) — UI framework
+- [Chart.js](https://www.chartjs.org/) — analysis charts
+- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — code-editor component for config previews
+- [Prism.js](https://prismjs.com) — syntax highlighting
+- [MessagePack](https://msgpack.org/) — binary step-output decoding
