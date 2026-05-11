@@ -373,6 +373,78 @@ const AnalysisPage = (() => {
         return Object.values(byDate).sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
     }
 
+    // Coalesce repeated chart updates into a single rAF tick so the user
+    // sees one paint per frame even when the generator yields many times
+    // per second.
+    function rafThrottle(fn) {
+        let queued = false;
+        return () => {
+            if (queued) return;
+            queued = true;
+            requestAnimationFrame(() => { queued = false; fn(); });
+        };
+    }
+
+    // Fold a single metric node into a customer accumulator map.
+    function foldMetricIntoCustomerMap(map, m) {
+        const customerId = m.instance?.customer?.id;
+        if (!customerId) return;
+        const customerName = m.instance?.customer?.name || 'Unknown';
+
+        let entry = map.get(customerId);
+        if (!entry) {
+            entry = {
+                id: customerId,
+                name: customerName,
+                successfulExecutionCount: 0,
+                failedExecutionCount: 0,
+                totalExecutionCount: 0,
+                stepCount: 0,
+                spendMbSecs: 0
+            };
+            map.set(customerId, entry);
+        }
+        const succ = Number(m.successfulExecutionCount) || 0;
+        const fail = Number(m.failedExecutionCount) || 0;
+        entry.successfulExecutionCount += succ;
+        entry.failedExecutionCount += fail;
+        entry.totalExecutionCount += succ + fail;
+        entry.stepCount += Number(m.stepCount) || 0;
+        entry.spendMbSecs += Number(m.spendMbSecs) || 0;
+    }
+
+    // Fold a single metric node into an instance accumulator map.
+    function foldMetricIntoInstanceMap(map, m) {
+        const instanceId = m.instance?.id;
+        if (!instanceId) return;
+        const instanceName = m.instance?.name || 'Unknown';
+        const customerName = m.instance?.customer?.name || 'Unknown';
+        const integrationName = m.instance?.integration?.name || '';
+
+        let entry = map.get(instanceId);
+        if (!entry) {
+            entry = {
+                id: instanceId,
+                name: instanceName,
+                customerName: customerName,
+                integrationName: integrationName,
+                successfulExecutionCount: 0,
+                failedExecutionCount: 0,
+                totalExecutionCount: 0,
+                stepCount: 0,
+                spendMbSecs: 0
+            };
+            map.set(instanceId, entry);
+        }
+        const succ = Number(m.successfulExecutionCount) || 0;
+        const fail = Number(m.failedExecutionCount) || 0;
+        entry.successfulExecutionCount += succ;
+        entry.failedExecutionCount += fail;
+        entry.totalExecutionCount += succ + fail;
+        entry.stepCount += Number(m.stepCount) || 0;
+        entry.spendMbSecs += Number(m.spendMbSecs) || 0;
+    }
+
     // Load all instances' daily metrics for top performers (with pagination)
     async function loadAllInstanceMetrics() {
         // Only load at org level - customer/instance levels use filtered data
@@ -389,7 +461,21 @@ const AnalysisPage = (() => {
             state.instanceMetricsTotal = 0;
             updateInstanceMetricsLoadingUI();
 
-            let lastProgress = null;
+            // Incremental aggregators — one Map write per node instead of a
+            // full re-scan on every yield.
+            const byCustomer = new Map();
+            const byInstance = new Map();
+            const allMetrics = [];
+
+            // rAF-throttled chart refresh: many yields collapse to one paint.
+            const scheduleChartUpdate = rafThrottle(() => {
+                state.data.allInstanceMetrics = allMetrics;
+                state.data.aggregatedByCustomer = Array.from(byCustomer.values());
+                state.data.aggregatedByInstance = Array.from(byInstance.values());
+                updateTopVolumeChart();
+                updateTopErrorsChart();
+            });
+
             const generator = API.fetchAllInstancesDailyUsageMetricsFull({
                 batchSize: 100,  // Keep batch size small to avoid API errors
                 snapshotDateGte: state.dateFrom,
@@ -399,32 +485,28 @@ const AnalysisPage = (() => {
             for await (const progress of generator) {
                 state.instanceMetricsLoaded = progress.loadedCount;
                 state.instanceMetricsTotal = progress.totalCount;
-                lastProgress = progress;
                 updateInstanceMetricsLoadingUI();
 
-                // Update aggregations progressively for better UX
-                if (progress.metrics && progress.metrics.length > 0) {
-                    state.data.allInstanceMetrics = progress.metrics;
-                    state.data.aggregatedByCustomer = aggregateMetricsByCustomer(progress.metrics);
-                    state.data.aggregatedByInstance = aggregateMetricsByInstance(progress.metrics);
-
-                    // Update charts with partial data
-                    updateTopVolumeChart();
-                    updateTopErrorsChart();
+                const newMetrics = progress.newMetrics || [];
+                if (newMetrics.length > 0) {
+                    for (const m of newMetrics) {
+                        allMetrics.push(m);
+                        foldMetricIntoCustomerMap(byCustomer, m);
+                        foldMetricIntoInstanceMap(byInstance, m);
+                    }
+                    scheduleChartUpdate();
                 }
             }
 
-            // Ensure final state is set
-            if (lastProgress && lastProgress.metrics) {
-                state.data.allInstanceMetrics = lastProgress.metrics;
-                state.data.aggregatedByCustomer = aggregateMetricsByCustomer(lastProgress.metrics);
-                state.data.aggregatedByInstance = aggregateMetricsByInstance(lastProgress.metrics);
-            }
+            // Final state sync — convert maps to arrays and force one
+            // un-throttled paint so the user sees the complete picture.
+            state.data.allInstanceMetrics = allMetrics;
+            state.data.aggregatedByCustomer = Array.from(byCustomer.values());
+            state.data.aggregatedByInstance = Array.from(byInstance.values());
 
             state.instanceMetricsLoading = false;
             updateInstanceMetricsLoadingUI();
 
-            // Final chart update
             updateTopVolumeChart();
             updateTopErrorsChart();
 
