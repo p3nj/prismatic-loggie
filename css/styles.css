@@ -21,7 +21,29 @@
   --danger-color: #e35d6a;
   --warning-color: #ffca2c;
   --code-background: #2d2d2d;
+
+  /* Bridge to Bootstrap 5 tokens so every utility/component tracks dark mode
+     instead of staying light. Without this, classes like .text-muted,
+     .border, .bg-light, .card all keep their light-theme colours. */
+  --bs-body-bg:         #121212;
+  --bs-body-color:      #f8f9fa;
+  --bs-border-color:    #444;
+  --bs-secondary-color: #adb5bd;
+  --bs-tertiary-bg:     #2a2a2a;
+  --bs-secondary-bg:    #343a40;
+  --bs-emphasis-color:  #f8f9fa;
 }
+
+/* Theme-aware text colour for badges that previously hard-coded `.text-dark`
+   (Bootstrap's *always-dark* utility). Use `.theme-text` instead so the badge
+   text flips with the theme. */
+.theme-text { color: #212529; }
+[data-theme="dark"] .theme-text { color: #f8f9fa; }
+
+/* Fallback overrides for any badge in the page still using `.text-dark` or
+   `.bg-light` so the user never sees unreadable black-on-dark text. */
+[data-theme="dark"] .badge.text-dark { color: var(--bs-body-color) !important; }
+[data-theme="dark"] .badge.bg-light  { background-color: #343a40 !important; color: var(--bs-body-color) !important; }
 
 body {
   background-color: var(--background-color);
@@ -597,8 +619,8 @@ pre[class*="language-"] {
 .nested-json-tabs-container {
   flex-shrink: 0; /* Prevent tab container from shrinking */
   padding: 5px 5px 0;
-  border-bottom: 1px solid #dee2e6;
-  background-color: #f8f9fa;
+  border-bottom: 1px solid var(--bs-border-color);
+  background-color: var(--bs-tertiary-bg, #f8f9fa);
   height: 40px;
   overflow-x: auto;
   white-space: nowrap;
@@ -614,11 +636,11 @@ pre[class*="language-"] {
 .resize-handle {
   flex-shrink: 0; /* Prevent handle from shrinking */
   height: 6px;
-  background-color: #e9ecef;
+  background-color: var(--bs-secondary-bg, #e9ecef);
   cursor: ns-resize !important;
   width: 100%;
-  border-top: 1px solid #ced4da;
-  border-bottom: 1px solid #ced4da;
+  border-top: 1px solid var(--bs-border-color);
+  border-bottom: 1px solid var(--bs-border-color);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -627,12 +649,12 @@ pre[class*="language-"] {
 
 .resize-handle::after {
   content: "≡";
-  color: #6c757d;
+  color: var(--bs-secondary-color, #6c757d);
   font-size: 12px;
 }
 
 .resize-handle:hover {
-  background-color: #dee2e6;
+  background-color: var(--bs-tertiary-bg, #dee2e6);
 }
 
 /* Prevent content selection during resize for better performance */
@@ -694,28 +716,238 @@ pre[class*="language-"] {
   border-bottom: 2px solid var(--bs-border-color);
 }
 
+/* Responsive card grid: 1 col on phones, 2 cols on a typical laptop, 3+ on
+   wide screens. Long-form previews (STRING/CODE/JSONFORM) and section
+   headers/dividers opt out via `.config-var-item--wide`. */
 .config-group-items {
-  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  overflow: visible;
+  background-color: transparent;
 }
 
-.config-var-item:last-child {
-  border-bottom: none !important;
+.config-var-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background-color: var(--bs-body-bg);
+}
+
+.config-var-item--wide { grid-column: 1 / -1; }
+
+/* Section heading / divider variants — visually distinct from value cards. */
+.config-section-header.config-var-item--wide {
+  padding: 0.75rem 0.25rem 0;
+  border: none;
+  background: transparent;
+}
+
+.config-section-divider.config-var-item--wide {
+  padding: 0;
+  border: none;
+  border-top: 1px solid var(--bs-border-color);
+  background: transparent;
+  min-height: 0;
 }
 
 .config-var-key {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--bs-body-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.config-var-desc {
+  /* Allow descriptions to wrap up to two lines without pushing card heights. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .config-var-value-col {
-  min-width: 160px;
-  max-width: 320px;
-  text-align: right;
+  text-align: left;
+  min-width: 0;
 }
 
 .config-var-value-block {
   width: 100%;
+}
+
+/* View-mode CONNECTION expanded details: 2-column grid of name=value rows
+   shown when the user clicks "Show values" on a connection card. Secret
+   values render in a muted, italic style with the "•••• hidden" sentinel. */
+.conn-summary {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.conn-expand-toggle {
+  font-size: 0.78rem;
+  color: var(--bs-secondary-color, #6c757d);
+  text-decoration: none;
+}
+
+.conn-expand-toggle:hover,
+.conn-expand-toggle:focus-visible {
+  color: var(--bs-body-color);
+  text-decoration: none;
+}
+
+.conn-expand-toggle .bi {
+  transition: transform 0.15s ease;
+}
+
+.conn-expand-toggle[aria-expanded="true"] .bi {
+  transform: rotate(180deg);
+}
+
+.conn-detail-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.2rem 0.75rem;
+  font-size: 0.82rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.4rem;
+  background-color: var(--bs-tertiary-bg, rgba(0,0,0,0.02));
+}
+
+.conn-detail-row {
+  display: contents;
+}
+
+.conn-detail-name {
+  color: var(--bs-secondary-color, #6c757d);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.conn-detail-value {
+  word-break: break-all;
+  color: var(--bs-body-color);
+}
+
+.conn-detail-value.is-masked {
+  color: var(--bs-secondary-color, #6c757d);
+  font-style: italic;
+}
+
+/* Post-save mode-prompt modal: small centered card asking the user whether
+   to drop back to view mode after a successful save. */
+.post-save-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 1080;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.post-save-prompt-card {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  width: min(360px, 92vw);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Editable form for CONNECTION-type config vars: a vertical stack of
+   `label + input` rows. Sized to feel at-home inside a config card. */
+.connection-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.connection-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.connection-input-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--bs-secondary-color, #6c757d);
+  letter-spacing: 0.01em;
+}
+
+.connection-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+/* Editable form for SCHEDULE-type config vars. Mirrors the connection form
+   layout: stacked label + input rows. The cron row hides until the type
+   dropdown is set to CUSTOM. */
+.schedule-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.schedule-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.schedule-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.schedule-edit-row select.schedule-input {
+  font-family: inherit;
+}
+
+/* View-mode SCHEDULE summary: type pill + live cron line + timezone line,
+   all visible without interaction. */
+.schedule-view-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.schedule-view-cron {
+  font-size: 0.82rem;
+  color: var(--bs-body-color);
+}
+
+.schedule-view-cron-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bs-secondary-color, #6c757d);
+  margin-right: 0.25rem;
+}
+
+.schedule-view-cron code {
+  background-color: var(--bs-tertiary-bg, rgba(0,0,0,0.04));
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--bs-body-color);
+}
+
+.schedule-view-tz {
+  font-size: 0.78rem;
+  margin-top: 0.1rem;
 }
 
 /* Inline preview card — clicks open the full editor modal. */

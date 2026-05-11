@@ -929,6 +929,20 @@ const API = (() => {
                                 value
                                 status
                                 scheduleType
+                                timeZone
+                                meta
+                                refreshAt
+                                lastSuccessfulRefreshAt
+                                inputs {
+                                    edges {
+                                        node {
+                                            name
+                                            type
+                                            value
+                                            meta
+                                        }
+                                    }
+                                }
                                 requiredConfigVariable {
                                     key
                                     dataType

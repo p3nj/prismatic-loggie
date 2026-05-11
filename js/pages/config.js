@@ -11,6 +11,16 @@ const ConfigPage = (() => {
     let editMode = false;
     let hasUnsavedChanges = false;
     let configChanges = {};
+    // For CONNECTION-typed config vars only: pending per-input edits, keyed by
+    // config-var ID then input name. Saved as a `values: JSONString` payload
+    // (an InputExpression list) on the InputInstanceConfigVariable mutation.
+    let connectionInputChanges = {};
+    // For SCHEDULE-typed config vars only: pending edits, keyed by config-var
+    // ID. Holds the desired `scheduleType` (lowercase enum string),
+    // `timeZone`, and `cron` value. Mapped onto an
+    // InputInstanceConfigVariable at save time with `scheduleType` +
+    // `timeZone` set directly and the cron string carried in `value`.
+    let scheduleChanges = {};
     let valueMap = {};            // configVarId -> { key, value, dataType }
     let modalEditor = null;       // the Monaco editor instance currently shown in the modal
 
@@ -73,7 +83,42 @@ const ConfigPage = (() => {
                 saveConfiguration();
                 return;
             }
+            const expandBtn = e.target.closest('.conn-expand-toggle');
+            if (expandBtn) {
+                const card = expandBtn.closest('.config-var-item');
+                if (!card) return;
+                const grid = card.querySelector('.conn-detail-grid');
+                const subline = card.querySelector('.config-var-subline');
+                const label = expandBtn.querySelector('.conn-expand-label');
+                const wasExpanded = expandBtn.getAttribute('aria-expanded') === 'true';
+                expandBtn.setAttribute('aria-expanded', String(!wasExpanded));
+                if (grid) grid.classList.toggle('d-none');
+                if (subline) subline.classList.toggle('d-none');
+                if (label) label.textContent = wasExpanded ? 'Show values' : 'Hide values';
+                return;
+            }
         });
+
+        // Delegated input/change handler for every edit-mode form input.
+        // Each input declares its kind via `data-action` (scalar config var,
+        // connection input, or schedule field). Using delegation here instead
+        // of inline `onchange="..."` lets us avoid the HTML/JS attribute-
+        // escaping minefield around user-supplied config-var keys.
+        const onFormChange = (e) => {
+            const el = e.target;
+            if (!el?.dataset?.action) return;
+            const { action, configId, configKey, inputName, field } = el.dataset;
+            const value = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
+            if (action === 'config-input') {
+                handleConfigChange(configId, configKey, value);
+            } else if (action === 'connection-input') {
+                handleConnectionInputChange(configId, configKey, inputName, value);
+            } else if (action === 'schedule-input') {
+                handleScheduleChange(configId, configKey, field, value);
+            }
+        };
+        document.addEventListener('input', onFormChange);
+        document.addEventListener('change', onFormChange);
 
         // Listen for theme changes
         const observer = new MutationObserver((mutations) => {
@@ -257,8 +302,14 @@ const ConfigPage = (() => {
     // Select an instance and load its config
     async function selectInstance(instance) {
         selectedInstance = instance;
+        // Switching instances drops any edit-mode state. Pending changes belong
+        // to the old instance; carrying them over (or staying in edit mode
+        // with an empty form) is never what the user wants.
+        editMode = false;
         hasUnsavedChanges = false;
         configChanges = {};
+        connectionInputChanges = {};
+        scheduleChanges = {};
 
         // Update UI selection
         document.querySelectorAll('.config-list-item').forEach(item => {
@@ -368,6 +419,110 @@ const ConfigPage = (() => {
         { key: 'other',      label: 'Other',        icon: 'bi-gear-fill',    types: [],                                      badgeClass: 'bg-dark'      },
     ];
 
+    // Map a SCHEDULE config var's enum + inputs into a human-readable summary.
+    // CUSTOM schedules carry their cron expression in `inputs`; the other types
+    // are implicit from the enum.
+    const SCHEDULE_TYPE_LABELS = {
+        NONE:   'No schedule',
+        MINUTE: 'Every minute',
+        HOUR:   'Hourly',
+        DAY:    'Daily',
+        WEEK:   'Weekly',
+        CUSTOM: 'Custom',
+    };
+
+    // Pull a useful inputs map off an InstanceConfigVariable node. Keys come
+    // from the Expression's `name` (e.g. "host", "port", "value"); values may
+    // be null when the field is a secret.
+    function inputsAsObject(node) {
+        const edges = node?.inputs?.edges || [];
+        const out = {};
+        edges.forEach(e => {
+            const n = e?.node;
+            if (n?.name != null) out[n.name] = n.value;
+        });
+        return out;
+    }
+
+    // Live cron expression for a schedule. Prismatic stores the cron on the
+    // top-level `value` field of the InstanceConfigVariable regardless of the
+    // `scheduleType` category — e.g. a "MINUTE" preset can still carry a
+    // custom-looking `*/15 * * * *` cron. The legacy `inputs` fallback stays
+    // for safety in case some integrations are configured the old way.
+    function customScheduleValue(node) {
+        if (node?.value) return node.value;
+        const inputs = inputsAsObject(node);
+        return inputs.value ?? inputs.cron ?? inputs.schedule
+            ?? Object.values(inputs).find(v => v != null && v !== '') ?? '';
+    }
+
+    // Prismatic masks secret connection inputs by returning the literal string
+    // "NA" rather than the real value. Echoing "NA" back on save is the way to
+    // *not* change a secret; replacing it would overwrite the real value with
+    // the string "NA". Field-name heuristics catch common naming patterns
+    // (anything matching key/secret/password/token) so the UI can also mask
+    // their input boxes regardless of current value.
+    // Field-name patterns that should be treated as secrets even when their
+    // current value isn't the "NA" mask. We intentionally include `key`
+    // (catches `apiKey`, `clientKey`, `signingKey`, …) at the cost of a few
+    // false positives (e.g. `monkey` — harmless: a field would just render
+    // as a password input). `bearer` and `credential` catch the common
+    // OAuth-ish names; `auth` is broad but again the false-positive cost is
+    // a masked input, not a leak.
+    const SECRET_NAME_RE = /(secret|password|passwd|token|key|credential|bearer|auth)/i;
+    function isLikelySecretInput(name, value) {
+        if (value === 'NA') return true;
+        if (SECRET_NAME_RE.test(name || '')) return true;
+        return false;
+    }
+
+    // Map the GraphQL `ExpressionType` enum (uppercase: VALUE / CONFIGVAR /
+    // REFERENCE / TEMPLATE / COMPLEX) onto the lowercase string form that the
+    // mutation expects for `InputExpression.type`. The mutation rejects the
+    // uppercase form with "Invalid value provided for Connection config
+    // variable".
+    const EXPRESSION_TYPE_INPUT_MAP = {
+        VALUE: 'value',
+        CONFIGVAR: 'configVar',
+        REFERENCE: 'reference',
+        TEMPLATE: 'template',
+        COMPLEX: 'complex',
+    };
+    function expressionTypeForInput(typeFromResponse) {
+        if (!typeFromResponse) return 'value';
+        return EXPRESSION_TYPE_INPUT_MAP[typeFromResponse] || String(typeFromResponse).toLowerCase();
+    }
+
+    // Build a JSON-friendly representation of the effective value for the JSON
+    // view. Scalars stay scalars; CONNECTION/SCHEDULE expand into an object so
+    // the JSON view actually shows their detail instead of `null`.
+    function effectiveValueForJson(node) {
+        const dt = node?.requiredConfigVariable?.dataType || 'STRING';
+        if (dt === 'CONNECTION') {
+            return {
+                status: node.status || null,
+                refreshAt: node.refreshAt || null,
+                lastSuccessfulRefreshAt: node.lastSuccessfulRefreshAt || null,
+                inputs: inputsAsObject(node),
+            };
+        }
+        if (dt === 'SCHEDULE') {
+            const cron = customScheduleValue(node);
+            const out = {
+                scheduleType: node.scheduleType || 'NONE',
+                label: SCHEDULE_TYPE_LABELS[node.scheduleType] || node.scheduleType || null,
+                timeZone: node.timeZone || null,
+                value: cron || null,
+            };
+            if (node.meta) {
+                try { out.meta = typeof node.meta === 'string' ? JSON.parse(node.meta) : node.meta; }
+                catch (_e) { out.meta = node.meta; }
+            }
+            return out;
+        }
+        return node.value ?? null;
+    }
+
     // Render config variables grouped by type
     function renderConfigVariables(instance) {
         const configVars = instance.configVariables?.edges || [];
@@ -427,50 +582,45 @@ const ConfigPage = (() => {
 
             items.forEach((node, idx) => {
                 const key         = node.requiredConfigVariable?.key || 'Unknown';
-                const value       = node.value || '';
                 const dataType    = node.requiredConfigVariable?.dataType || 'STRING';
+                // Effective value: scalars stay scalar, CONNECTION/SCHEDULE
+                // expand into objects so the renderer can show real detail.
+                const value       = (dataType === 'CONNECTION' || dataType === 'SCHEDULE')
+                                        ? effectiveValueForJson(node)
+                                        : (node.value || '');
                 const description = node.requiredConfigVariable?.description || '';
                 const header      = node.requiredConfigVariable?.header || '';
                 const hasDivider  = node.requiredConfigVariable?.hasDivider || false;
-                const isLast      = idx === items.length - 1;
                 const status      = node.status || '';
-                const rendered    = renderConfigValue(node.id, key, value, dataType, editMode, status);
+                const rendered    = renderConfigValue(node.id, key, value, dataType, editMode, status, node);
                 const isBlock     = rendered.layout === 'block';
 
-                // Section heading and/or divider from the wizard definition
+                // Section heading and/or divider from the wizard definition.
+                // These are full-width siblings inside the grid so the layout
+                // still reads as wizard sections.
                 if (hasDivider && idx > 0) {
-                    html += `<div class="config-section-divider border-top mx-3"></div>`;
+                    html += `<div class="config-section-divider config-var-item--wide"></div>`;
                 }
                 if (header) {
-                    html += `<div class="config-section-header px-3 pt-3 pb-1">
+                    html += `<div class="config-section-header config-var-item--wide">
                         <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:.05em">${escapeHtml(header)}</span>
                     </div>`;
                 }
 
                 const meta = `
                     <div class="config-var-meta">
-                        <h6 class="config-var-key mb-0">${escapeHtml(key)}</h6>
-                        ${description ? `<p class="text-muted small mb-0 mt-1">${escapeHtml(description)}</p>` : ''}
+                        <h6 class="config-var-key mb-0" title="${escapeAttr(key)}">${escapeHtml(key)}</h6>
+                        ${description ? `<p class="text-muted small mb-0 mt-1 config-var-desc">${escapeHtml(description)}</p>` : ''}
                     </div>
                 `;
 
-                if (isBlock) {
-                    html += `
-                        <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
-                            ${meta}
-                            <div class="config-var-value-block mt-2">${rendered.html}</div>
-                        </div>
-                    `;
-                } else {
-                    html += `
-                        <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
-                            <div class="d-flex justify-content-between align-items-start gap-3">
-                                ${meta}
-                                <div class="config-var-value-col flex-shrink-0">${rendered.html}</div>
-                            </div>
-                        </div>
-                    `;
-                }
+                const wideClass = isBlock ? ' config-var-item--wide' : '';
+                html += `
+                    <div class="config-var-item${wideClass}">
+                        ${meta}
+                        <div class="config-var-value-col mt-2">${rendered.html}</div>
+                    </div>
+                `;
             });
 
             html += `</div></section>`;
@@ -482,7 +632,7 @@ const ConfigPage = (() => {
 
     // Render the value cell for a config variable.
     // Returns { layout: 'inline' | 'block', html }.
-    function renderConfigValue(id, key, value, dataType, isEditable, status = '') {
+    function renderConfigValue(id, key, value, dataType, isEditable, status = '', node = null) {
         const inputId = `config-${id}`;
         const safeKey = escapeHtml(key);
         const inline  = (html) => ({ layout: 'inline', html });
@@ -498,13 +648,46 @@ const ConfigPage = (() => {
         // ── View mode for badge-style types ───────────────────────────────────
         if (!isEditable) {
             if (dataType === 'CONNECTION') {
+                const detail = value && typeof value === 'object' ? value : null;
+                const inputsObj = detail?.inputs || {};
+                const inputKeys = Object.keys(inputsObj);
+                let badge;
                 if (status === 'ACTIVE')
-                    return inline(`<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`);
-                if (status === 'ERROR' || status === 'FAILED')
-                    return inline(`<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Error</span>`);
-                if (status === 'PENDING')
-                    return inline(`<span class="badge bg-warning text-dark"><i class="bi bi-hourglass me-1"></i>Pending</span>`);
-                return inline(`<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`);
+                    badge = `<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`;
+                else if (status === 'ERROR' || status === 'FAILED')
+                    badge = `<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Error</span>`;
+                else if (status === 'PENDING')
+                    badge = `<span class="badge bg-warning theme-text"><i class="bi bi-hourglass me-1"></i>Pending</span>`;
+                else
+                    badge = `<span class="badge bg-warning theme-text"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`;
+
+                if (!inputKeys.length) return inline(badge);
+
+                // Clickable summary + collapsed detail grid. The button
+                // toggles between the comma-separated name list (compact) and
+                // the per-input name/value rows. Secrets render as "•••
+                // hidden" rather than the literal "NA" sentinel.
+                const detailRows = inputKeys.map(name => {
+                    const v = inputsObj[name];
+                    const isSecret = isLikelySecretInput(name, v);
+                    const displayVal = isSecret ? '•••• hidden' : (v ?? '');
+                    return `<div class="conn-detail-row">
+                        <span class="conn-detail-name">${escapeHtml(name)}</span>
+                        <span class="conn-detail-value${isSecret ? ' is-masked' : ''}">${escapeHtml(displayVal)}</span>
+                    </div>`;
+                }).join('');
+                return inline(`
+                    <div class="conn-summary">
+                        ${badge}
+                        <button type="button" class="btn btn-link btn-sm p-0 ms-2 conn-expand-toggle"
+                                aria-expanded="false" aria-label="Toggle connection input values">
+                            <span class="conn-expand-label">Show values</span>
+                            <i class="bi bi-chevron-down ms-1"></i>
+                        </button>
+                    </div>
+                    <div class="config-var-subline text-muted small mt-1">${escapeHtml(inputKeys.join(', '))}</div>
+                    <div class="conn-detail-grid mt-2 d-none">${detailRows}</div>
+                `);
             }
             if (dataType === 'BOOLEAN') {
                 return inline(value === 'true'
@@ -512,43 +695,210 @@ const ConfigPage = (() => {
                     : `<span class="badge bg-secondary">Disabled</span>`);
             }
             if (dataType === 'SCHEDULE') {
-                return inline(`<span class="badge bg-info text-dark"><i class="bi bi-clock me-1"></i>${escapeHtml(value || 'Custom')}</span>`);
+                const detail = value && typeof value === 'object' ? value : null;
+                const cron = detail?.value || '';
+                const labelText = detail?.label || detail?.scheduleType || 'Custom';
+                const tz = detail?.timeZone;
+                // Show the schedule-type pill and the live cron / timezone
+                // inline so the configured value is visible at a glance —
+                // no click required. Falls back to just the pill when no cron
+                // is set (scheduleType === NONE).
+                const cronLine = cron
+                    ? `<div class="schedule-view-cron mt-1"><span class="schedule-view-cron-label">cron</span> <code>${escapeHtml(cron)}</code></div>`
+                    : '';
+                const tzLine = tz
+                    ? `<div class="schedule-view-tz small text-muted">${escapeHtml(tz)}</div>`
+                    : '';
+                return inline(`
+                    <div class="schedule-view-summary">
+                        <span class="badge bg-info theme-text"><i class="bi bi-clock me-1"></i>${escapeHtml(labelText)}</span>
+                    </div>
+                    ${cronLine}${tzLine}
+                `);
             }
             if (dataType === 'NUMBER') {
-                return inline(`<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`);
+                return inline(`<span class="badge bg-light theme-text border">${escapeHtml(value || '—')}</span>`);
             }
             if (dataType === 'PICKLIST') {
-                return inline(`<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`);
+                return inline(`<span class="badge bg-light theme-text border">${escapeHtml(value || '—')}</span>`);
             }
             return inline(`<span class="badge bg-light text-muted border">—</span>`);
         }
 
         // ── Edit mode for the remaining types ─────────────────────────────────
+        // All inputs use `data-action="config-input"` + `data-config-id` +
+        // `data-config-key` so the delegated input/change listener in
+        // setupEventListeners can route the value to handleConfigChange
+        // without any inline JS (which would need a separate escape pass).
+        const inputIdAttr  = escapeAttr(inputId);
+        const idAttr       = escapeAttr(id);
+        const keyAttr      = escapeAttr(key);
         if (dataType === 'NUMBER') {
-            return inline(`<input type="number" class="form-control form-control-sm config-input" id="${inputId}"
-                        value="${escapeHtml(value)}" data-config-id="${id}" data-config-key="${safeKey}"
-                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`);
+            return inline(`<input type="number" class="form-control form-control-sm config-input"
+                        id="${inputIdAttr}"
+                        value="${escapeAttr(value)}"
+                        data-action="config-input"
+                        data-config-id="${idAttr}"
+                        data-config-key="${keyAttr}">`);
         }
         if (dataType === 'BOOLEAN') {
             return inline(`
                 <div class="form-check form-switch mb-0">
-                    <input class="form-check-input config-input" type="checkbox" id="${inputId}"
-                           data-config-id="${id}" data-config-key="${safeKey}"
-                           ${value === 'true' ? 'checked' : ''}
-                           onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.checked ? 'true' : 'false')">
-                    <label class="form-check-label small" for="${inputId}">${value === 'true' ? 'Enabled' : 'Disabled'}</label>
+                    <input class="form-check-input config-input" type="checkbox"
+                           id="${inputIdAttr}"
+                           data-action="config-input"
+                           data-config-id="${idAttr}"
+                           data-config-key="${keyAttr}"
+                           ${value === 'true' ? 'checked' : ''}>
+                    <label class="form-check-label small" for="${inputIdAttr}">${value === 'true' ? 'Enabled' : 'Disabled'}</label>
                 </div>`);
         }
         if (dataType === 'PICKLIST') {
             return inline(`
-                <select class="form-select form-select-sm config-input" id="${inputId}"
-                        data-config-id="${id}" data-config-key="${safeKey}"
-                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">
-                    <option value="${escapeHtml(value)}">${escapeHtml(value || 'Select...')}</option>
+                <select class="form-select form-select-sm config-input"
+                        id="${inputIdAttr}"
+                        data-action="config-input"
+                        data-config-id="${idAttr}"
+                        data-config-key="${keyAttr}">
+                    <option value="${escapeAttr(value)}">${escapeHtml(value || 'Select...')}</option>
                 </select>`);
         }
-        // CONNECTION, SCHEDULE — read-only in edit mode
+        if (dataType === 'CONNECTION' && node) {
+            // Use inline layout (no `config-var-item--wide`) so connection
+            // cards stay in the responsive grid in edit mode too. Each card
+            // remains the standard ~320px+ width and the form stacks
+            // vertically inside it; the grid sizes rows to fit the tallest
+            // card so columns line up.
+            return inline(renderConnectionEditForm(id, key, node));
+        }
+        if (dataType === 'SCHEDULE' && node) {
+            return inline(renderScheduleEditForm(id, key, node));
+        }
+        // Anything else not handled — read-only in edit mode.
         return inline(`<span class="badge bg-light text-muted border small">Read-only</span>`);
+    }
+
+    // Render the editable connection-inputs form. Each input becomes a labelled
+    // row: text or password input depending on whether the field looks like a
+    // secret. Pending edits are captured by `handleConnectionInputChange` and
+    // flushed on save as `values: JSONString` on the InstanceConfigVariable.
+    function renderConnectionEditForm(id, key, node) {
+        const edges = node?.inputs?.edges || [];
+        if (!edges.length) {
+            return `<div class="text-muted small">No editable inputs for this connection.</div>`;
+        }
+        const idAttr  = escapeAttr(id);
+        const keyAttr = escapeAttr(key);
+        const rows = edges.map(e => {
+            const inp = e?.node || {};
+            const name = inp.name || '';
+            const value = inp.value ?? '';
+            const isSecret = isLikelySecretInput(name, value);
+            const inputType = isSecret ? 'password' : 'text';
+            // For secrets, show the masked-value placeholder rather than the
+            // literal "NA" sentinel — typing a value will overwrite it,
+            // leaving the field blank will echo "NA" on save (no change).
+            const displayValue = isSecret ? '' : value;
+            const placeholder  = isSecret ? '•••• hidden (type to replace)' : '';
+            const inputId      = `conn-${id}-${name}`;
+            return `
+                <div class="connection-input-row">
+                    <label class="connection-input-label" for="${escapeAttr(inputId)}">
+                        ${escapeHtml(name)}${isSecret ? ' <span class="badge bg-secondary ms-1 align-middle">secret</span>' : ''}
+                    </label>
+                    <input type="${inputType}" class="form-control form-control-sm connection-input"
+                           id="${escapeAttr(inputId)}"
+                           value="${escapeAttr(displayValue)}"
+                           placeholder="${escapeAttr(placeholder)}"
+                           autocomplete="off" spellcheck="false"
+                           data-action="connection-input"
+                           data-config-id="${idAttr}"
+                           data-config-key="${keyAttr}"
+                           data-input-name="${escapeAttr(name)}"
+                           data-is-secret="${isSecret ? '1' : '0'}">
+                </div>
+            `;
+        }).join('');
+        return `<div class="connection-edit-form">${rows}</div>`;
+    }
+
+    // Full IANA timezone list straight from the browser. `Intl.supportedValuesOf`
+    // ships in every browser since March 2022 (Chrome 99 / Firefox 93 /
+    // Safari 15.4); since this tool already requires Monaco + ES2020, that's
+    // a safe baseline. Rendered once into a singleton <datalist> that every
+    // schedule form references via `list=`.
+    function ensureTimezoneDatalist() {
+        if (document.getElementById('loggie-timezone-list')) return;
+        const zones = Intl.supportedValuesOf('timeZone');
+        const dl = document.createElement('datalist');
+        dl.id = 'loggie-timezone-list';
+        dl.innerHTML = zones
+            .map(tz => `<option value="${escapeAttr(tz)}"></option>`)
+            .join('');
+        document.body.appendChild(dl);
+    }
+
+    // Render the editable schedule form. Mirrors Prismatic's own schedule
+    // picker: type dropdown + always-visible cron text input + optional IANA
+    // timezone (autocomplete via <datalist>). The cron expression lives on
+    // the InstanceConfigVariable's top-level `value` field for **every**
+    // scheduleType (MINUTE/HOUR/.../CUSTOM all carry a cron); scheduleType is
+    // a UI category hint that we send lowercase on the way in (matches the
+    // prism CLI's ScheduleTypeEnum).
+    function renderScheduleEditForm(id, key, node) {
+        ensureTimezoneDatalist();
+        const idAttr  = escapeAttr(id);
+        const keyAttr = escapeAttr(key);
+        const currentType = (node.scheduleType || 'NONE').toUpperCase();
+        const tz = node.timeZone || '';
+        const currentCron = customScheduleValue(node);
+        const opts = [
+            ['NONE',   'No schedule'],
+            ['MINUTE', 'Every minute'],
+            ['HOUR',   'Hourly'],
+            ['DAY',    'Daily'],
+            ['WEEK',   'Weekly'],
+            ['CUSTOM', 'Custom (cron)'],
+        ].map(([v, label]) =>
+            `<option value="${v}"${v === currentType ? ' selected' : ''}>${escapeHtml(label)}</option>`
+        ).join('');
+        return `
+            <div class="schedule-edit-form" data-config-id="${idAttr}" data-config-key="${keyAttr}">
+                <div class="schedule-edit-row">
+                    <label class="connection-input-label">Schedule type</label>
+                    <select class="form-select form-select-sm schedule-input"
+                            data-action="schedule-input"
+                            data-config-id="${idAttr}"
+                            data-config-key="${keyAttr}"
+                            data-field="scheduleType">
+                        ${opts}
+                    </select>
+                </div>
+                <div class="schedule-edit-row schedule-cron-row">
+                    <label class="connection-input-label">Cron expression</label>
+                    <input type="text" class="form-control form-control-sm schedule-input"
+                           value="${escapeAttr(currentCron)}"
+                           placeholder="e.g. 0 9 * * 1-5"
+                           autocomplete="off" spellcheck="false"
+                           data-action="schedule-input"
+                           data-config-id="${idAttr}"
+                           data-config-key="${keyAttr}"
+                           data-field="cron">
+                </div>
+                <div class="schedule-edit-row">
+                    <label class="connection-input-label">Timezone <span class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control form-control-sm schedule-input"
+                           list="loggie-timezone-list"
+                           value="${escapeAttr(tz)}"
+                           placeholder="UTC / Australia/Brisbane"
+                           autocomplete="off" spellcheck="false"
+                           data-action="schedule-input"
+                           data-config-id="${idAttr}"
+                           data-config-key="${keyAttr}"
+                           data-field="timeZone">
+                </div>
+            </div>
+        `;
     }
 
     // Pretty-print a value if it parses as JSON; otherwise return as-is.
@@ -845,6 +1195,36 @@ const ConfigPage = (() => {
         updateSaveButton();
     }
 
+    // Handle per-input edits on a CONNECTION config var. We track the delta
+    // per (configVarId, inputName); the final payload is assembled at save
+    // time so unchanged inputs (including masked secrets) are echoed back
+    // verbatim. Inputs are read from `dataset` so values arrive un-escaped.
+    function handleConnectionInputChange(id, key, inputName, newValue) {
+        const bucket = connectionInputChanges[id] || (connectionInputChanges[id] = { key, inputs: {} });
+        bucket.key = key;
+        bucket.inputs[inputName] = newValue;
+        recomputeUnsaved();
+    }
+
+    // Handle edits on a SCHEDULE config var. Tracks the desired scheduleType /
+    // timeZone / cron triple under one bucket per config-var ID; the save
+    // flow assembles a single InputInstanceConfigVariable per dirty schedule.
+    function handleScheduleChange(id, key, field, newValue) {
+        const bucket = scheduleChanges[id] || (scheduleChanges[id] = { key });
+        bucket.key = key;
+        bucket[field] = newValue;
+        recomputeUnsaved();
+    }
+
+    // Centralised dirty-flag computation across all three change sources.
+    function recomputeUnsaved() {
+        hasUnsavedChanges =
+            Object.keys(configChanges).length > 0
+            || Object.values(connectionInputChanges).some(b => Object.keys(b.inputs || {}).length > 0)
+            || Object.keys(scheduleChanges).length > 0;
+        updateSaveButton();
+    }
+
     // Update save button visibility
     function updateSaveButton() {
         const saveBtn = document.getElementById('saveConfigBtn');
@@ -877,6 +1257,8 @@ const ConfigPage = (() => {
             }
             hasUnsavedChanges = false;
             configChanges = {};
+            connectionInputChanges = {};
+            scheduleChanges = {};
         }
         
         // Re-render the current tab
@@ -942,15 +1324,24 @@ const ConfigPage = (() => {
             instance.configVariables.edges.forEach(edge => {
                 const configVar = edge.node;
                 const key = configVar.requiredConfigVariable?.key;
-                if (key) {
-                    // Apply any unsaved changes
-                    const value = configChanges[configVar.id]?.value || configVar.value;
-                    configVarsObj[key] = {
-                        value: value,
-                        dataType: configVar.requiredConfigVariable?.dataType,
-                        description: configVar.requiredConfigVariable?.description
-                    };
+                if (!key) return;
+                const dataType = configVar.requiredConfigVariable?.dataType;
+                // Compute effective value. CONNECTION/SCHEDULE expand into an
+                // object with inputs/timeZone/meta so the JSON view shows real
+                // detail instead of `null`. Other types keep their scalar
+                // `value`, with any unsaved edit applied on top.
+                let effective;
+                if (dataType === 'CONNECTION' || dataType === 'SCHEDULE') {
+                    effective = effectiveValueForJson(configVar);
+                } else {
+                    effective = configChanges[configVar.id]?.value ?? configVar.value ?? null;
                 }
+                configVarsObj[key] = {
+                    value: effective,
+                    dataType,
+                    description: configVar.requiredConfigVariable?.description,
+                    status: configVar.status || undefined,
+                };
             });
         }
 
@@ -974,61 +1365,253 @@ const ConfigPage = (() => {
         };
     }
 
-    // Save configuration changes
+    // Save configuration changes.
+    //
+    // Flow:
+    //   1. Snapshot the three change buckets up front so any typing that
+    //      happens during the in-flight mutation lands in fresh buckets
+    //      (no data loss). We diff against the snapshot when clearing state
+    //      after success.
+    //   2. Build a single `configVariables` array containing scalar, CONNECTION,
+    //      and SCHEDULE updates. Prismatic accepts all three shapes through
+    //      the same `updateInstanceConfigVariables` mutation.
+    //   3. Subtract the snapshot from the live buckets on success so any
+    //      *new* typing survives; reset only what was actually sent.
+    //   4. Apply the post-save mode preference (view / edit / ask) then call
+    //      `selectInstance` to re-fetch — its own reset handles a fresh
+    //      slate if the user navigates away after saving.
     async function saveConfiguration() {
-        if (!hasUnsavedChanges || Object.keys(configChanges).length === 0) {
+        const hasScalarChanges = Object.keys(configChanges).length > 0;
+        const hasConnInputChanges = Object.values(connectionInputChanges)
+            .some(b => b && Object.keys(b.inputs || {}).length > 0);
+        const hasScheduleChanges = Object.keys(scheduleChanges).length > 0;
+        if (!hasUnsavedChanges || (!hasScalarChanges && !hasConnInputChanges && !hasScheduleChanges)) {
             showToast('No changes to save', 'info');
             return;
         }
 
+        // Snapshot live buckets — any further keystrokes go into the
+        // *real* buckets while this Promise is in flight.
+        const scalarSnapshot = { ...configChanges };
+        const connSnapshot = JSON.parse(JSON.stringify(connectionInputChanges));
+        const schedSnapshot = JSON.parse(JSON.stringify(scheduleChanges));
+
+        const saveBtn = document.getElementById('saveConfigBtn');
+        const originalText = saveBtn.innerHTML;
+
         try {
-            // Show saving state
-            const saveBtn = document.getElementById('saveConfigBtn');
-            const originalText = saveBtn.innerHTML;
             saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
             saveBtn.disabled = true;
 
-            // Prepare config variables array for batch update
-            const configVariablesToUpdate = Object.values(configChanges).map(change => ({
-                key: change.key,
-                value: change.value
-            }));
+            const configVariablesToUpdate = buildSavePayload(
+                scalarSnapshot, connSnapshot, schedSnapshot, selectedInstanceConfig,
+            );
 
-            // Update all config variables at once
             await API.updateInstanceConfigVariables(selectedInstance.id, configVariablesToUpdate);
 
-            // Clear changes
-            hasUnsavedChanges = false;
-            configChanges = {};
+            // Drop only the entries we actually sent. Anything that landed in
+            // a bucket while the mutation was in flight stays as a new
+            // pending change.
+            subtractSnapshot(configChanges, scalarSnapshot);
+            subtractConnectionSnapshot(connectionInputChanges, connSnapshot);
+            subtractSnapshot(scheduleChanges, schedSnapshot);
+            recomputeUnsaved();
 
-            // Update UI
             saveBtn.innerHTML = originalText;
             saveBtn.disabled = false;
             updateSaveButton();
-
             showToast('Configuration saved successfully', 'success');
 
-            // Refresh the config to show saved values
+            // Decide whether to drop back to view mode. Persisted user
+            // preference wins; otherwise prompt. We change `editMode` *before*
+            // the refresh so selectInstance re-renders straight into the
+            // chosen mode (no flicker).
+            if (editMode) {
+                const pref = getPostSavePref();
+                const choice = pref === 'ask' ? await showPostSaveModePrompt() : pref;
+                if (choice === 'view') editMode = false;
+            }
+
+            // Refresh from the server. `selectInstance` also resets the
+            // change buckets — that's correct: after a navigation/refresh the
+            // user's local pending edits no longer apply to the freshly-
+            // fetched data.
             if (selectedInstance) {
                 selectInstance(selectedInstance);
             }
         } catch (error) {
             console.error('Error saving configuration:', error);
             showToast(`Failed to save configuration: ${error.message}`, 'error');
-            
-            // Restore button
-            const saveBtn = document.getElementById('saveConfigBtn');
-            saveBtn.innerHTML = '<i class="bi bi-save me-1"></i>Save Changes';
+            saveBtn.innerHTML = originalText;
             saveBtn.disabled = false;
         }
     }
 
+    // Pure: turn a snapshot of the three change buckets into the
+    // configVariables array the mutation expects. Lives outside
+    // saveConfiguration so it's straightforward to unit-test by hand.
+    //
+    // CONNECTION updates carry their inputs as a `values: JSONString` of
+    // InputExpression objects with **lowercase** `type` ("value" /
+    // "configVar" / "reference" / "template" / "complex"). The GraphQL
+    // response returns the uppercase enum form; sending the uppercase form
+    // back is rejected with "Invalid value provided for Connection config
+    // variable". Untouched inputs (including masked "NA" secrets) are echoed
+    // verbatim — Prismatic treats "NA" as "don't change the secret".
+    //
+    // SCHEDULE updates send `scheduleType` (lowercase enum), `timeZone`, and
+    // the cron in `value` for every type except NONE (which clears the cron).
+    function buildSavePayload(scalarChanges, connChanges, schedChanges, currentInstance) {
+        const out = Object.values(scalarChanges).map(change => ({
+            key: change.key,
+            value: change.value,
+        }));
 
-    // Utility function to escape HTML
+        const nodesById = new Map();
+        (currentInstance?.configVariables?.edges || []).forEach(e => {
+            if (e.node?.id) nodesById.set(e.node.id, e.node);
+        });
+
+        for (const [configVarId, bucket] of Object.entries(connChanges)) {
+            if (!bucket || !Object.keys(bucket.inputs || {}).length) continue;
+            const node = nodesById.get(configVarId);
+            if (!node) continue;
+            const merged = (node.inputs?.edges || []).map(e => {
+                const inp = e.node || {};
+                const override = bucket.inputs[inp.name];
+                let value = inp.value ?? '';
+                if (override !== undefined) {
+                    const isSecret = isLikelySecretInput(inp.name, inp.value);
+                    // User cleared a masked-secret field → echo "NA" so the
+                    // platform leaves the real secret untouched.
+                    value = (isSecret && override === '') ? (inp.value ?? '') : override;
+                }
+                return {
+                    name: inp.name,
+                    type: expressionTypeForInput(inp.type),
+                    value,
+                };
+            });
+            out.push({ key: bucket.key, values: JSON.stringify(merged) });
+        }
+
+        for (const [configVarId, bucket] of Object.entries(schedChanges)) {
+            if (!bucket) continue;
+            const node = nodesById.get(configVarId);
+            if (!node) continue;
+            const newType = (bucket.scheduleType ?? node.scheduleType ?? 'NONE').toUpperCase();
+            const newTz   = bucket.timeZone ?? (node.timeZone || '');
+            const newCron = bucket.cron ?? customScheduleValue(node);
+            out.push({
+                key: bucket.key,
+                scheduleType: newType.toLowerCase(),
+                timeZone: newTz,
+                value: newType === 'NONE' ? '' : (newCron || ''),
+            });
+        }
+
+        return out;
+    }
+
+    // Remove from `live` every key that was present in `snapshot`. Used to
+    // clear *only* the changes that were actually saved, leaving any
+    // concurrent typing intact.
+    function subtractSnapshot(live, snapshot) {
+        for (const k of Object.keys(snapshot)) delete live[k];
+    }
+
+    // Connection-snapshot subtraction is per-input: we only remove the
+    // specific input names that were in the snapshot, not the whole bucket,
+    // so concurrent edits on *other* inputs of the same connection survive.
+    function subtractConnectionSnapshot(live, snapshot) {
+        for (const [configVarId, snapBucket] of Object.entries(snapshot)) {
+            const liveBucket = live[configVarId];
+            if (!liveBucket) continue;
+            for (const inputName of Object.keys(snapBucket.inputs || {})) {
+                delete liveBucket.inputs[inputName];
+            }
+            if (!Object.keys(liveBucket.inputs || {}).length) delete live[configVarId];
+        }
+    }
+
+
+    // Persisted preference for what to do after a successful save while in
+    // edit mode. Values: 'ask' (default — show the prompt), 'view' (auto
+    // switch back), 'edit' (stay in edit mode). The user opts into a remembered
+    // choice via the "Don't ask again" checkbox on the prompt.
+    const POST_SAVE_PREF_KEY = 'loggie:config:postSaveMode';
+    function getPostSavePref() {
+        try { return localStorage.getItem(POST_SAVE_PREF_KEY) || 'ask'; }
+        catch (_e) { return 'ask'; }
+    }
+    function setPostSavePref(value) {
+        try { localStorage.setItem(POST_SAVE_PREF_KEY, value); } catch (_e) {}
+    }
+
+    // Show a small modal asking whether to return to view mode after a save.
+    // Resolves to 'view' or 'edit'. If the user ticks "Don't ask again" the
+    // choice is persisted to localStorage and future saves skip the prompt.
+    function showPostSaveModePrompt() {
+        return new Promise(resolve => {
+            const existing = document.getElementById('postSaveModePrompt');
+            if (existing) existing.remove();
+            const wrap = document.createElement('div');
+            wrap.id = 'postSaveModePrompt';
+            wrap.className = 'post-save-prompt-backdrop';
+            wrap.innerHTML = `
+                <div class="post-save-prompt-card" role="dialog" aria-modal="true" aria-labelledby="postSavePromptTitle">
+                    <h6 id="postSavePromptTitle" class="mb-1">Configuration saved</h6>
+                    <p class="small text-muted mb-3">Switch back to View mode?</p>
+                    <div class="form-check small mb-3">
+                        <input class="form-check-input" type="checkbox" id="postSaveDontAsk">
+                        <label class="form-check-label text-muted" for="postSaveDontAsk">Don't ask again</label>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-choice="edit">Stay in Edit</button>
+                        <button type="button" class="btn btn-sm btn-primary" data-choice="view">Switch to View</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(wrap);
+            function done(choice) {
+                const remember = wrap.querySelector('#postSaveDontAsk')?.checked;
+                if (remember) setPostSavePref(choice);
+                wrap.remove();
+                resolve(choice);
+            }
+            wrap.addEventListener('click', (e) => {
+                if (e.target === wrap) { done('edit'); return; }
+                const btn = e.target.closest('[data-choice]');
+                if (btn) done(btn.dataset.choice);
+            });
+            // Focus the primary action for keyboard users.
+            setTimeout(() => wrap.querySelector('[data-choice="view"]')?.focus(), 0);
+        });
+    }
+
+    // Utility function to escape HTML for **text content** (element bodies).
+    // Only escapes `<`, `>`, `&` because that's all textContent serialization
+    // covers. Do NOT use this inside an HTML attribute value — use
+    // `escapeAttr()` for that, otherwise quotes in the input will break the
+    // attribute quoting.
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Escape for **HTML attribute values**. Covers everything `escapeHtml`
+    // does, plus `"` and `'` so that interpolating user-controlled text into
+    // either `"..."` or `'...'` attribute contexts is safe. Also covers
+    // backtick to be defensive against any host that ever templates with it.
+    function escapeAttr(text) {
+        return String(text ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/`/g, '&#96;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
     }
 
     // Show toast notification
@@ -1054,7 +1637,6 @@ const ConfigPage = (() => {
         init,
         onRoute,
         cleanup,
-        handleConfigChange,
         toggleEditMode,
         openValueEditor
     };

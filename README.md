@@ -27,9 +27,14 @@ A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) int
 - **Direct lookup** by execution ID
 
 ### Config
-- **Config variables view** grouped by section with headings and dividers
+- **Responsive card grid** — config variables grouped by Connections / Schedules / Values / Code, laid out 1 column on mobile and 2+ on a typical laptop. Section headings and dividers from the wizard definition span the full row.
 - **Click-to-expand previews** powered by Monaco for JSON / JSONFORM values
-- **Connection status** indicators
+- **Connection editing** — every input on a connection becomes a labelled text or password field. Likely-secret fields (`*key`, `*secret`, `*password`, `*token`, `*credential`, `*bearer`, `*auth`, or any field Prismatic masks with the literal `"NA"`) render as password inputs with a "•••• hidden (type to replace)" placeholder; leaving them blank echoes `"NA"` on save so the real secret stays untouched.
+- **Schedule editing** — schedule type dropdown (None / Every minute / Hourly / Daily / Weekly / Custom), always-visible cron input, and an IANA timezone autocomplete backed by the browser's `Intl.supportedValuesOf('timeZone')`.
+- **View-mode reveal** — click "Show values" on a connection card to expand a name=value grid (secrets stay masked). Schedules show their cron inline, no click required.
+- **JSON view** — the JSON tab surfaces real connection inputs, schedule cron + timezone + scheduleType, and connection status / refresh metadata. Previously this tab showed `null` for connection and schedule values.
+- **Post-save mode prompt** — after a successful save, ask whether to drop back to view mode or stay in edit. A "Don't ask again" checkbox persists the choice to `localStorage`.
+- **Dark-mode parity** — every form, badge, card, and modal tracks the theme. The custom theme tokens (`--background-color`, etc.) bridge to Bootstrap 5's `--bs-*` variables so utility classes flip with the theme too.
 
 ### Integrations
 - Browse integrations the token can see, with versions and metadata
@@ -106,6 +111,7 @@ Everything is stored locally in `localStorage` — no server-side state, no tele
 | `apiToken_<endpoint>` | API token for each region |
 | `theme` | `light` or `dark` |
 | `lastExecutionId` | Last viewed execution ID (for convenience prefill) |
+| `loggie:config:postSaveMode` | `view` / `edit` / `ask` — remembered post-save mode preference for the Config page |
 
 ## Project structure
 
