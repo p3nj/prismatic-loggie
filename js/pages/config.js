@@ -9,8 +9,6 @@ const ConfigPage = (() => {
     let nextPageInfo = null;
     let currentSearchTerm = '';
     let editMode = false;
-    let currentPage = 1;
-    const itemsPerPage = 10;
     let hasUnsavedChanges = false;
     let configChanges = {};
 
@@ -344,15 +342,20 @@ const ConfigPage = (() => {
             </div>
         `;
 
-        // Initialize current page
-        currentPage = 1;
-        updatePagination();
     }
 
-    // Render config variables with a clean UI
+    const TYPE_GROUPS = [
+        { key: 'connection', label: 'Connections',  icon: 'bi-plug-fill',    types: ['CONNECTION'],                          badgeClass: 'bg-primary'   },
+        { key: 'schedule',   label: 'Schedules',    icon: 'bi-clock-fill',   types: ['SCHEDULE'],                            badgeClass: 'bg-info'      },
+        { key: 'values',     label: 'Values',       icon: 'bi-sliders',      types: ['STRING', 'NUMBER', 'BOOLEAN', 'PICKLIST'], badgeClass: 'bg-success' },
+        { key: 'code',       label: 'Code',         icon: 'bi-code-slash',   types: ['CODE'],                                badgeClass: 'bg-secondary' },
+        { key: 'other',      label: 'Other',        icon: 'bi-gear-fill',    types: [],                                      badgeClass: 'bg-dark'      },
+    ];
+
+    // Render config variables grouped by type
     function renderConfigVariables(instance) {
         const configVars = instance.configVariables?.edges || [];
-        
+
         if (configVars.length === 0) {
             return `
                 <div class="text-center text-muted py-5">
@@ -362,147 +365,138 @@ const ConfigPage = (() => {
             `;
         }
 
-        // Calculate pagination
-        const totalItems = configVars.length;
-        const totalPages = Math.ceil(totalItems / itemsPerPage);
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
-        const currentItems = configVars.slice(startIndex, endIndex);
+        // Bucket each variable into its group
+        const buckets = Object.fromEntries(TYPE_GROUPS.map(g => [g.key, []]));
+        configVars.forEach(edge => {
+            const node = edge.node;
+            const dt = node.requiredConfigVariable?.dataType || 'STRING';
+            const group = TYPE_GROUPS.find(g => g.types.includes(dt)) || TYPE_GROUPS.find(g => g.key === 'other');
+            buckets[group.key].push(node);
+        });
 
         let html = `
             <div class="config-variables-container">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div>
-                        <span class="text-muted">Showing ${startIndex + 1}-${endIndex} of ${totalItems} variables</span>
-                    </div>
-                    <div>
-                        <button class="btn btn-sm ${editMode ? 'btn-success' : 'btn-primary'}" id="toggleEditBtn">
-                            <i class="bi ${editMode ? 'bi-check-lg' : 'bi-pencil'} me-1"></i>
-                            ${editMode ? 'View Mode' : 'Edit Mode'}
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <span class="text-muted small">${configVars.length} variable${configVars.length !== 1 ? 's' : ''}</span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" id="toggleEditBtn">
+                            <i class="bi ${editMode ? 'bi-eye' : 'bi-pencil'} me-1"></i>${editMode ? 'View Mode' : 'Edit Mode'}
                         </button>
                         <button class="btn btn-sm btn-success ${!editMode || !hasUnsavedChanges ? 'd-none' : ''}" id="saveConfigBtn">
                             <i class="bi bi-save me-1"></i>Save Changes
                         </button>
                     </div>
                 </div>
-                <div class="config-vars-list">
         `;
 
-        currentItems.forEach(edge => {
-            const configVar = edge.node;
-            const key = configVar.requiredConfigVariable?.key || 'Unknown';
-            const value = configVar.value || '';
-            const dataType = configVar.requiredConfigVariable?.dataType || 'STRING';
-            const description = configVar.requiredConfigVariable?.description || '';
-            const isSchedule = configVar.scheduleType && configVar.scheduleType !== 'NONE';
+        TYPE_GROUPS.forEach(group => {
+            const items = buckets[group.key];
+            if (!items.length) return;
 
             html += `
-                <div class="config-var-item mb-3 p-3 border rounded">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <div class="fw-semibold">${escapeHtml(key)}</div>
-                            <small class="text-muted">${escapeHtml(description)}</small>
-                            <div class="mt-1">
-                                <span class="badge bg-secondary">${dataType}</span>
-                                ${isSchedule ? '<span class="badge bg-info ms-1">Schedule</span>' : ''}
+                <section class="config-group mb-4">
+                    <h5 class="config-group-heading">
+                        <i class="bi ${group.icon} me-2"></i>${group.label}
+                        <span class="badge ${group.badgeClass} ms-2">${items.length}</span>
+                    </h5>
+                    <div class="config-group-items border rounded">
+            `;
+
+            items.forEach((node, idx) => {
+                const key         = node.requiredConfigVariable?.key || 'Unknown';
+                const value       = node.value || '';
+                const dataType    = node.requiredConfigVariable?.dataType || 'STRING';
+                const description = node.requiredConfigVariable?.description || '';
+                const isLast      = idx === items.length - 1;
+
+                html += `
+                    <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div class="config-var-meta">
+                                <h6 class="config-var-key mb-0">${escapeHtml(key)}</h6>
+                                ${description ? `<p class="text-muted small mb-0 mt-1">${escapeHtml(description)}</p>` : ''}
+                            </div>
+                            <div class="config-var-value-col flex-shrink-0">
+                                ${renderConfigValue(node.id, key, value, dataType, editMode)}
                             </div>
                         </div>
-                        <div class="col-md-8">
-                            ${renderConfigValue(configVar.id, key, value, dataType, editMode)}
-                        </div>
                     </div>
-                </div>
-            `;
+                `;
+            });
+
+            html += `</div></section>`;
         });
 
-        html += `
-                </div>
-                <div class="d-flex justify-content-center mt-4">
-                    <nav>
-                        <ul class="pagination">
-                            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                                <a class="page-link" href="#" onclick="ConfigPage.changePage(${currentPage - 1}); return false;">Previous</a>
-                            </li>
-        `;
-
-        // Add page numbers
-        for (let i = 1; i <= totalPages; i++) {
-            if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                html += `
-                    <li class="page-item ${i === currentPage ? 'active' : ''}">
-                        <a class="page-link" href="#" onclick="ConfigPage.changePage(${i}); return false;">${i}</a>
-                    </li>
-                `;
-            } else if (i === currentPage - 3 || i === currentPage + 3) {
-                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
-            }
-        }
-
-        html += `
-                            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                                <a class="page-link" href="#" onclick="ConfigPage.changePage(${currentPage + 1}); return false;">Next</a>
-                            </li>
-                        </ul>
-                    </nav>
-                </div>
-            </div>
-        `;
-
+        html += `</div>`;
         return html;
     }
 
-    // Render config value based on type and edit mode
+    // Render the right-hand value column for a config variable
     function renderConfigValue(id, key, value, dataType, isEditable) {
         const inputId = `config-${id}`;
-        
+        const safeKey = escapeHtml(key);
+
+        // ── View mode ──────────────────────────────────────────────────────────
         if (!isEditable) {
-            // View mode
-            if (dataType === 'BOOLEAN') {
-                return `<span class="badge ${value === 'true' ? 'bg-success' : 'bg-secondary'}">${value || 'false'}</span>`;
-            } else if (dataType === 'CONNECTION') {
-                return `<code class="d-block p-2 bg-light text-wrap">${escapeHtml(value || 'Not configured')}</code>`;
-            } else {
-                const displayValue = value || '<span class="text-muted">Not set</span>';
-                return `<div class="config-value">${value ? escapeHtml(value) : displayValue}</div>`;
+            if (dataType === 'STRING') {
+                return value
+                    ? `<span class="config-string-value">${escapeHtml(value)}</span>`
+                    : `<span class="text-muted fst-italic small">Not set</span>`;
             }
+            if (dataType === 'CONNECTION') {
+                return value
+                    ? `<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`
+                    : `<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`;
+            }
+            if (dataType === 'BOOLEAN') {
+                return value === 'true'
+                    ? `<span class="badge bg-success">Enabled</span>`
+                    : `<span class="badge bg-secondary">Disabled</span>`;
+            }
+            if (dataType === 'SCHEDULE') {
+                return `<span class="badge bg-info text-dark"><i class="bi bi-clock me-1"></i>${escapeHtml(value || 'Custom')}</span>`;
+            }
+            if (dataType === 'NUMBER') {
+                return `<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`;
+            }
+            if (dataType === 'PICKLIST') {
+                return `<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`;
+            }
+            // CODE and anything else — no value shown
+            return `<span class="badge bg-light text-muted border">Code</span>`;
         }
 
-        // Edit mode
+        // ── Edit mode ──────────────────────────────────────────────────────────
+        if (dataType === 'STRING') {
+            return `<input type="text" class="form-control form-control-sm config-input" id="${inputId}"
+                        value="${escapeHtml(value)}" data-config-id="${id}" data-config-key="${safeKey}"
+                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`;
+        }
+        if (dataType === 'NUMBER') {
+            return `<input type="number" class="form-control form-control-sm config-input" id="${inputId}"
+                        value="${escapeHtml(value)}" data-config-id="${id}" data-config-key="${safeKey}"
+                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`;
+        }
         if (dataType === 'BOOLEAN') {
             return `
-                <div class="form-check form-switch">
-                    <input class="form-check-input config-input" type="checkbox" id="${inputId}" 
-                           data-config-id="${id}" data-config-key="${key}"
-                           ${value === 'true' ? 'checked' : ''} 
-                           onchange="ConfigPage.handleConfigChange('${id}', '${key}', this.checked ? 'true' : 'false')">
-                    <label class="form-check-label" for="${inputId}">
-                        ${value === 'true' ? 'Enabled' : 'Disabled'}
-                    </label>
-                </div>
-            `;
-        } else if (dataType === 'PICKLIST') {
-            // Would need to fetch picklist options
-            return `
-                <select class="form-select config-input" id="${inputId}" 
-                        data-config-id="${id}" data-config-key="${key}"
-                        onchange="ConfigPage.handleConfigChange('${id}', '${key}', this.value)">
-                    <option value="${value}">${value || 'Select...'}</option>
-                </select>
-            `;
-        } else if (dataType === 'CODE' || value.length > 100) {
-            return `
-                <textarea class="form-control config-input" id="${inputId}" rows="3"
-                          data-config-id="${id}" data-config-key="${key}"
-                          onchange="ConfigPage.handleConfigChange('${id}', '${key}', this.value)">${escapeHtml(value)}</textarea>
-            `;
-        } else {
-            return `
-                <input type="text" class="form-control config-input" id="${inputId}" 
-                       value="${escapeHtml(value)}" 
-                       data-config-id="${id}" data-config-key="${key}"
-                       onchange="ConfigPage.handleConfigChange('${id}', '${key}', this.value)">
-            `;
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input config-input" type="checkbox" id="${inputId}"
+                           data-config-id="${id}" data-config-key="${safeKey}"
+                           ${value === 'true' ? 'checked' : ''}
+                           onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.checked ? 'true' : 'false')">
+                    <label class="form-check-label small" for="${inputId}">${value === 'true' ? 'Enabled' : 'Disabled'}</label>
+                </div>`;
         }
+        if (dataType === 'PICKLIST') {
+            return `
+                <select class="form-select form-select-sm config-input" id="${inputId}"
+                        data-config-id="${id}" data-config-key="${safeKey}"
+                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">
+                    <option value="${escapeHtml(value)}">${escapeHtml(value || 'Select...')}</option>
+                </select>`;
+        }
+        // CONNECTION, SCHEDULE, CODE — read-only in edit mode
+        return `<span class="badge bg-light text-muted border small">Read-only</span>`;
     }
 
     // Handle config value changes
@@ -690,24 +684,6 @@ const ConfigPage = (() => {
         }
     }
 
-    // Change page for pagination
-    function changePage(page) {
-        const configVars = selectedInstanceConfig?.configVariables?.edges || [];
-        const totalPages = Math.ceil(configVars.length / itemsPerPage);
-        
-        if (page < 1 || page > totalPages) return;
-        
-        currentPage = page;
-        const container = document.getElementById('variables-tab');
-        if (container && selectedInstanceConfig) {
-            container.innerHTML = renderConfigVariables(selectedInstanceConfig);
-        }
-    }
-
-    // Update pagination
-    function updatePagination() {
-        // This is handled in renderConfigVariables
-    }
 
     // Utility function to escape HTML
     function escapeHtml(text) {
@@ -738,7 +714,6 @@ const ConfigPage = (() => {
         init,
         onRoute,
         cleanup,
-        changePage,
         handleConfigChange,
         toggleEditMode
     };
