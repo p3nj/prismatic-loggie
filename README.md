@@ -1,5 +1,7 @@
 # Prismatic Loggie
 
+> Prismatic's UX is too hard for me to use, so I use their API to built me a better one to use.
+
 A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) integration platform. Loggie lets you analyse org-wide usage, browse instance executions, drill into step logs, inspect config variables, and replay executions — all from a single static HTML/JS bundle that talks directly to Prismatic's GraphQL API.
 
 ## Features
