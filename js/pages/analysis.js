@@ -581,21 +581,33 @@ const AnalysisPage = (() => {
         return Object.values(byInstance);
     }
 
-    // Update loading UI for instance metrics
+    // Update loading UI for instance metrics. Called once per generator yield
+    // (~52 times in a typical org), so we mutate text in place instead of
+    // re-creating the spinner DOM on every tick.
+    let _loadingIndicatorEl = null;
+    let _loadingCountEl = null;
     function updateInstanceMetricsLoadingUI() {
-        const loadingIndicator = document.getElementById('instanceMetricsLoading');
-        if (!loadingIndicator) return;
+        if (!_loadingIndicatorEl) {
+            _loadingIndicatorEl = document.getElementById('instanceMetricsLoading');
+            if (!_loadingIndicatorEl) return;
+        }
 
         if (state.instanceMetricsLoading) {
-            loadingIndicator.classList.remove('d-none');
-            loadingIndicator.innerHTML = `
+            if (!_loadingCountEl) {
+                _loadingIndicatorEl.innerHTML = `
                 <small class="text-muted">
                     <span class="spinner-border spinner-border-sm me-1"></span>
-                    Loading metrics: ${formatNumber(state.instanceMetricsLoaded)} / ${formatNumber(state.instanceMetricsTotal)}
+                    Loading metrics: <span data-loading-count>0 / 0</span>
                 </small>
             `;
+                _loadingCountEl = _loadingIndicatorEl.querySelector('[data-loading-count]');
+            }
+            _loadingIndicatorEl.classList.remove('d-none');
+            if (_loadingCountEl) {
+                _loadingCountEl.textContent = `${formatNumber(state.instanceMetricsLoaded)} / ${formatNumber(state.instanceMetricsTotal)}`;
+            }
         } else {
-            loadingIndicator.classList.add('d-none');
+            _loadingIndicatorEl.classList.add('d-none');
         }
     }
 

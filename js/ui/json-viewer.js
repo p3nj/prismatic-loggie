@@ -1,11 +1,13 @@
 // JSON viewer cluster: detection + modal rendering with Monaco.
 // Mutates window.UI so call sites can keep using `UI.foo`.
 (() => {
-    // Detect and setup JSON viewers for a specific range of log indices
+    // Detect and setup JSON viewers for a specific range of log indices.
+    // Selector scopes to nodes not already processed (the data-json-processed
+    // attribute is set by setupJsonViewerForContainer) so live polling that
+    // re-invokes this for the new tail doesn't re-walk older logs.
     function detectAndSetupJsonViewersForRange(startIndex, endIndex) {
-        const logContainers = document.querySelectorAll('.log-message');
+        const logContainers = document.querySelectorAll('.log-message:not([data-json-processed])');
 
-        // Process only logs in the specified range
         for (let i = startIndex; i < endIndex && i < logContainers.length; i++) {
             const container = logContainers[i];
             setupJsonViewerForContainer(container);
