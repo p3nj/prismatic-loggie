@@ -11,6 +11,11 @@ const ConfigPage = (() => {
     let editMode = false;
     let hasUnsavedChanges = false;
     let configChanges = {};
+    let valueMap = {};            // configVarId -> { key, value, dataType }
+    let modalEditor = null;       // the Monaco editor instance currently shown in the modal
+
+    const PREVIEW_LINES = 3;
+    const PREVIEW_MAX_CHARS = 240;
 
     // Initialize the config page
     function init() {
@@ -50,30 +55,31 @@ const ConfigPage = (() => {
             loadMoreBtn.addEventListener('click', loadMoreInstances);
         }
 
-        // Tab switching
+        // Tab switching, edit-mode toggle, and save button are delegated to
+        // document because the buttons are injected after `displayInstanceConfig`
+        // runs, not at page-init time.
         document.addEventListener('click', (e) => {
-            if (e.target.matches('[data-config-tab]')) {
+            const tab = e.target.closest('[data-config-tab]');
+            if (tab) {
                 e.preventDefault();
-                switchTab(e.target.dataset.configTab);
+                switchTab(tab.dataset.configTab);
+                return;
+            }
+            if (e.target.closest('#toggleEditBtn')) {
+                toggleEditMode();
+                return;
+            }
+            if (e.target.closest('#saveConfigBtn')) {
+                saveConfiguration();
+                return;
             }
         });
-
-        // Save button
-        const saveBtn = document.getElementById('saveConfigBtn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', saveConfiguration);
-        }
-
-        // Edit mode toggle
-        const editBtn = document.getElementById('toggleEditBtn');
-        if (editBtn) {
-            editBtn.addEventListener('click', toggleEditMode);
-        }
 
         // Listen for theme changes
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
-                if (mutation.attributeName === 'data-theme' && monacoEditor) {
+                if (mutation.attributeName !== 'data-theme') return;
+                if (typeof monaco !== 'undefined' && monaco.editor) {
                     monaco.editor.setTheme(getCurrentTheme());
                 }
             });
@@ -317,6 +323,17 @@ const ConfigPage = (() => {
         const contentContainer = document.getElementById('configContent');
         if (!contentContainer) return;
 
+        // Close any open value modal and tear down the JSON-view editor from
+        // a previously displayed instance.
+        closeValueModal();
+        if (monacoEditor) {
+            monacoEditor.dispose();
+            monacoEditor = null;
+        }
+
+        // Build the in-memory value map (source of truth for the modal).
+        rebuildValueMap(instance);
+
         contentContainer.innerHTML = `
             <div class="config-tabs mb-3">
                 <ul class="nav nav-tabs">
@@ -341,7 +358,6 @@ const ConfigPage = (() => {
                 </div>
             </div>
         `;
-
     }
 
     const TYPE_GROUPS = [
@@ -408,20 +424,33 @@ const ConfigPage = (() => {
                 const dataType    = node.requiredConfigVariable?.dataType || 'STRING';
                 const description = node.requiredConfigVariable?.description || '';
                 const isLast      = idx === items.length - 1;
+                const rendered    = renderConfigValue(node.id, key, value, dataType, editMode);
+                const isBlock     = rendered.layout === 'block';
 
-                html += `
-                    <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div class="config-var-meta">
-                                <h6 class="config-var-key mb-0">${escapeHtml(key)}</h6>
-                                ${description ? `<p class="text-muted small mb-0 mt-1">${escapeHtml(description)}</p>` : ''}
-                            </div>
-                            <div class="config-var-value-col flex-shrink-0">
-                                ${renderConfigValue(node.id, key, value, dataType, editMode)}
-                            </div>
-                        </div>
+                const meta = `
+                    <div class="config-var-meta">
+                        <h6 class="config-var-key mb-0">${escapeHtml(key)}</h6>
+                        ${description ? `<p class="text-muted small mb-0 mt-1">${escapeHtml(description)}</p>` : ''}
                     </div>
                 `;
+
+                if (isBlock) {
+                    html += `
+                        <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
+                            ${meta}
+                            <div class="config-var-value-block mt-2">${rendered.html}</div>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="config-var-item px-3 py-3 ${isLast ? '' : 'border-bottom'}">
+                            <div class="d-flex justify-content-between align-items-start gap-3">
+                                ${meta}
+                                <div class="config-var-value-col flex-shrink-0">${rendered.html}</div>
+                            </div>
+                        </div>
+                    `;
+                }
             });
 
             html += `</div></section>`;
@@ -431,72 +460,333 @@ const ConfigPage = (() => {
         return html;
     }
 
-    // Render the right-hand value column for a config variable
+    // Render the value cell for a config variable.
+    // Returns { layout: 'inline' | 'block', html }.
     function renderConfigValue(id, key, value, dataType, isEditable) {
         const inputId = `config-${id}`;
         const safeKey = escapeHtml(key);
+        const inline  = (html) => ({ layout: 'inline', html });
+        const block   = (html) => ({ layout: 'block', html });
 
-        // ── View mode ──────────────────────────────────────────────────────────
+        // STRING and CODE share a compact preview card that opens a full-screen
+        // Monaco-backed editor modal on click. The card shows the first few
+        // lines of the value plus a type label and an expand hint.
+        if (dataType === 'STRING' || dataType === 'CODE') {
+            return block(renderValuePreview(id, value, dataType, isEditable));
+        }
+
+        // ── View mode for badge-style types ───────────────────────────────────
         if (!isEditable) {
-            if (dataType === 'STRING') {
-                return value
-                    ? `<span class="config-string-value">${escapeHtml(value)}</span>`
-                    : `<span class="text-muted fst-italic small">Not set</span>`;
-            }
             if (dataType === 'CONNECTION') {
-                return value
+                return inline(value
                     ? `<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`
-                    : `<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`;
+                    : `<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`);
             }
             if (dataType === 'BOOLEAN') {
-                return value === 'true'
+                return inline(value === 'true'
                     ? `<span class="badge bg-success">Enabled</span>`
-                    : `<span class="badge bg-secondary">Disabled</span>`;
+                    : `<span class="badge bg-secondary">Disabled</span>`);
             }
             if (dataType === 'SCHEDULE') {
-                return `<span class="badge bg-info text-dark"><i class="bi bi-clock me-1"></i>${escapeHtml(value || 'Custom')}</span>`;
+                return inline(`<span class="badge bg-info text-dark"><i class="bi bi-clock me-1"></i>${escapeHtml(value || 'Custom')}</span>`);
             }
             if (dataType === 'NUMBER') {
-                return `<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`;
+                return inline(`<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`);
             }
             if (dataType === 'PICKLIST') {
-                return `<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`;
+                return inline(`<span class="badge bg-light text-dark border">${escapeHtml(value || '—')}</span>`);
             }
-            // CODE and anything else — no value shown
-            return `<span class="badge bg-light text-muted border">Code</span>`;
+            return inline(`<span class="badge bg-light text-muted border">—</span>`);
         }
 
-        // ── Edit mode ──────────────────────────────────────────────────────────
-        if (dataType === 'STRING') {
-            return `<input type="text" class="form-control form-control-sm config-input" id="${inputId}"
-                        value="${escapeHtml(value)}" data-config-id="${id}" data-config-key="${safeKey}"
-                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`;
-        }
+        // ── Edit mode for the remaining types ─────────────────────────────────
         if (dataType === 'NUMBER') {
-            return `<input type="number" class="form-control form-control-sm config-input" id="${inputId}"
+            return inline(`<input type="number" class="form-control form-control-sm config-input" id="${inputId}"
                         value="${escapeHtml(value)}" data-config-id="${id}" data-config-key="${safeKey}"
-                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`;
+                        onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">`);
         }
         if (dataType === 'BOOLEAN') {
-            return `
+            return inline(`
                 <div class="form-check form-switch mb-0">
                     <input class="form-check-input config-input" type="checkbox" id="${inputId}"
                            data-config-id="${id}" data-config-key="${safeKey}"
                            ${value === 'true' ? 'checked' : ''}
                            onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.checked ? 'true' : 'false')">
                     <label class="form-check-label small" for="${inputId}">${value === 'true' ? 'Enabled' : 'Disabled'}</label>
-                </div>`;
+                </div>`);
         }
         if (dataType === 'PICKLIST') {
-            return `
+            return inline(`
                 <select class="form-select form-select-sm config-input" id="${inputId}"
                         data-config-id="${id}" data-config-key="${safeKey}"
                         onchange="ConfigPage.handleConfigChange('${id}', '${safeKey}', this.value)">
                     <option value="${escapeHtml(value)}">${escapeHtml(value || 'Select...')}</option>
-                </select>`;
+                </select>`);
         }
-        // CONNECTION, SCHEDULE, CODE — read-only in edit mode
-        return `<span class="badge bg-light text-muted border small">Read-only</span>`;
+        // CONNECTION, SCHEDULE — read-only in edit mode
+        return inline(`<span class="badge bg-light text-muted border small">Read-only</span>`);
+    }
+
+    // Detect a sensible Monaco language for a CODE value. Falls back to
+    // 'javascript' so curly-braced blobs still get reasonable highlighting.
+    function detectCodeLanguage(value) {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return 'plaintext';
+        try { JSON.parse(trimmed); return 'json'; } catch (_e) {}
+        if (/^<\?xml|^<[a-zA-Z][^>]*>/.test(trimmed)) return 'xml';
+        if (/^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(trimmed)) return 'sql';
+        return 'javascript';
+    }
+
+    // Human-friendly type label shown on the preview card.
+    function valueTypeLabel(value, dataType) {
+        if (dataType === 'STRING') return 'String';
+        if (dataType === 'CODE') {
+            const lang = detectCodeLanguage(value);
+            if (lang === 'json') return 'JSON';
+            if (lang === 'xml') return 'XML';
+            if (lang === 'sql') return 'SQL';
+            if (lang === 'javascript') return 'Code';
+            return 'Code';
+        }
+        return dataType;
+    }
+
+    // Get the first PREVIEW_LINES of a value, capped at PREVIEW_MAX_CHARS,
+    // and report whether content was truncated.
+    function getPreviewText(value) {
+        const v = value || '';
+        const lines = v.split('\n').slice(0, PREVIEW_LINES);
+        let text = lines.join('\n');
+        let truncated = v.split('\n').length > PREVIEW_LINES;
+        if (text.length > PREVIEW_MAX_CHARS) {
+            text = text.slice(0, PREVIEW_MAX_CHARS);
+            truncated = true;
+        }
+        return { text, truncated };
+    }
+
+    // Build the HTML for an inline preview card. Clicking it (or hitting
+    // Enter / Space when focused) opens the full editor modal.
+    function renderValuePreview(id, value, dataType, isEditable) {
+        const empty = !value;
+        const { text, truncated } = getPreviewText(value);
+        const label = valueTypeLabel(value, dataType);
+        const canEdit = isEditable && dataType === 'STRING';
+        const hintIcon = canEdit ? 'bi-pencil-square' : 'bi-arrows-angle-expand';
+        const hintText = canEdit ? 'Edit' : 'Expand';
+        const stateClass = empty ? 'is-empty' : '';
+        const bodyHtml = empty
+            ? `<span class="config-value-preview-empty">Not set</span>`
+            : `${escapeHtml(text)}${truncated ? '<span class="config-value-preview-fade"></span>' : ''}`;
+
+        return `
+            <div class="config-value-preview ${stateClass}"
+                 role="button"
+                 tabindex="0"
+                 aria-label="${canEdit ? 'Edit value' : 'View value'}"
+                 data-config-id="${id}"
+                 onclick="ConfigPage.openValueEditor(this)"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ConfigPage.openValueEditor(this)}">
+                <div class="config-value-preview-header">
+                    <span class="config-value-preview-type">${label}</span>
+                    <span class="config-value-preview-hint">
+                        <i class="bi ${hintIcon}"></i>
+                        <span>${hintText}</span>
+                    </span>
+                </div>
+                <pre class="config-value-preview-body">${bodyHtml}</pre>
+            </div>
+        `;
+    }
+
+    // Populate the in-memory value map from an instance. The map is the
+    // source of truth for what the modal opens with — it tracks any unsaved
+    // edits made via the modal.
+    function rebuildValueMap(instance) {
+        valueMap = {};
+        (instance?.configVariables?.edges || []).forEach(edge => {
+            const node = edge.node;
+            const key = node.requiredConfigVariable?.key;
+            if (!key) return;
+            valueMap[node.id] = {
+                key,
+                value: configChanges[key]?.value ?? node.value ?? '',
+                dataType: node.requiredConfigVariable?.dataType || 'STRING',
+            };
+        });
+    }
+
+    // Update a single preview card's body in place (used after Save in modal).
+    function refreshValuePreview(id) {
+        const entry = valueMap[id];
+        if (!entry) return;
+        const card = document.querySelector(`.config-value-preview[data-config-id="${id}"]`);
+        if (!card) return;
+        // Re-render the card HTML and replace the existing element so all
+        // state (label, hint, body, fade, classes) stays consistent.
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = renderValuePreview(id, entry.value, entry.dataType, editMode).trim();
+        const fresh = wrapper.firstChild;
+        if (fresh) card.replaceWith(fresh);
+    }
+
+    // ── Value editor modal ────────────────────────────────────────────────────
+    // Entry point invoked by the inline preview card. `el` is the card itself.
+    function openValueEditor(el) {
+        const id = el?.dataset?.configId;
+        const entry = valueMap[id];
+        if (!entry) return;
+        showValueModal(id, entry.key, entry.value, entry.dataType);
+    }
+
+    // Build (or reuse) the modal DOM and mount a Monaco editor inside it.
+    function showValueModal(id, key, value, dataType) {
+        const canEdit = editMode && dataType === 'STRING';
+        const language = dataType === 'CODE' ? detectCodeLanguage(value) : 'plaintext';
+
+        const modal = ensureValueModalShell();
+        modal.dataset.configId = id;
+        modal.dataset.dataType = dataType;
+        modal.dataset.editable = canEdit ? '1' : '0';
+
+        // Header content
+        modal.querySelector('.config-modal-title').textContent = key;
+        const typeLabel = valueTypeLabel(value, dataType);
+        const typeBadge = modal.querySelector('.config-modal-type');
+        typeBadge.textContent = typeLabel;
+        typeBadge.className = `config-modal-type badge ${dataType === 'CODE' ? 'bg-secondary' : 'bg-info text-dark'}`;
+        modal.querySelector('.config-modal-mode').textContent = canEdit ? 'Edit mode' : 'Read-only';
+
+        // Footer buttons
+        const saveBtn = modal.querySelector('.config-modal-save');
+        saveBtn.classList.toggle('d-none', !canEdit);
+
+        const cancelBtn = modal.querySelector('.config-modal-cancel');
+        cancelBtn.textContent = canEdit ? 'Cancel' : 'Close';
+
+        // Show shell, then mount Monaco. Monaco is already loaded for the
+        // JSON-view tab; if for some reason it isn't yet, load it.
+        modal.style.display = 'block';
+        document.body.classList.add('config-modal-open');
+
+        const mount = () => mountModalEditor(value, language, canEdit);
+        if (typeof monaco !== 'undefined' && monaco.editor) {
+            mount();
+        } else if (typeof require === 'function') {
+            require(['vs/editor/editor.main'], mount);
+        }
+    }
+
+    // Create the modal shell once and cache it on the document.
+    function ensureValueModalShell() {
+        let modal = document.getElementById('configValueModal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'configValueModal';
+        modal.className = 'json-modal config-value-modal';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'configModalTitle');
+        modal.innerHTML = `
+            <div class="modal-content modal-lg config-modal-content">
+                <div class="config-modal-head">
+                    <div class="config-modal-titles">
+                        <div class="config-modal-eyebrow">
+                            <span class="config-modal-type badge bg-secondary">Value</span>
+                            <span class="config-modal-mode small text-muted">Read-only</span>
+                        </div>
+                        <h5 id="configModalTitle" class="config-modal-title mb-0">Value</h5>
+                    </div>
+                    <button type="button" class="btn-close config-modal-close" aria-label="Close"></button>
+                </div>
+                <div class="config-modal-body">
+                    <div class="config-modal-editor"></div>
+                </div>
+                <div class="config-modal-foot">
+                    <button type="button" class="btn btn-outline-secondary btn-sm config-modal-cancel">Close</button>
+                    <button type="button" class="btn btn-primary btn-sm config-modal-save d-none">
+                        <i class="bi bi-check2 me-1"></i>Save
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Wire the dismiss + save handlers once.
+        modal.querySelector('.config-modal-close').addEventListener('click', closeValueModal);
+        modal.querySelector('.config-modal-cancel').addEventListener('click', closeValueModal);
+        modal.querySelector('.config-modal-save').addEventListener('click', saveValueModal);
+        // Click outside the content closes the modal.
+        modal.addEventListener('mousedown', (e) => {
+            if (e.target === modal) closeValueModal();
+        });
+        // ESC dismisses.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.style.display === 'block') {
+                closeValueModal();
+            }
+        });
+
+        return modal;
+    }
+
+    // Tear down any previous editor instance and mount a fresh one in the
+    // modal body.
+    function mountModalEditor(value, language, canEdit) {
+        const modal = document.getElementById('configValueModal');
+        const host = modal.querySelector('.config-modal-editor');
+        // Clear any previous editor DOM
+        host.innerHTML = '';
+        if (modalEditor) {
+            try { modalEditor.dispose(); } catch (_e) {}
+            modalEditor = null;
+        }
+        modalEditor = monaco.editor.create(host, {
+            value: value || '',
+            language,
+            theme: getCurrentTheme(),
+            readOnly: !canEdit,
+            automaticLayout: true,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            wordWrap: 'on',
+            lineNumbers: 'on',
+            folding: true,
+            renderWhitespace: 'selection',
+        });
+        // Focus first line so keyboard works immediately.
+        setTimeout(() => modalEditor && modalEditor.focus(), 50);
+    }
+
+    function closeValueModal() {
+        const modal = document.getElementById('configValueModal');
+        if (!modal) return;
+        if (modalEditor) {
+            try { modalEditor.dispose(); } catch (_e) {}
+            modalEditor = null;
+        }
+        modal.style.display = 'none';
+        document.body.classList.remove('config-modal-open');
+    }
+
+    function saveValueModal() {
+        const modal = document.getElementById('configValueModal');
+        if (!modal || !modalEditor) return;
+        const id = modal.dataset.configId;
+        const entry = valueMap[id];
+        if (!entry) { closeValueModal(); return; }
+
+        const newValue = modalEditor.getValue();
+        // No change — just close.
+        if (newValue === entry.value) { closeValueModal(); return; }
+
+        entry.value = newValue;
+        handleConfigChange(id, entry.key, newValue);
+        refreshValuePreview(id);
+        closeValueModal();
     }
 
     // Handle config value changes
@@ -546,6 +836,7 @@ const ConfigPage = (() => {
         if (activeTab && activeTab.dataset.configTab === 'variables' && selectedInstanceConfig) {
             const container = document.getElementById('variables-tab');
             if (container) {
+                rebuildValueMap(selectedInstanceConfig);
                 container.innerHTML = renderConfigVariables(selectedInstanceConfig);
             }
         }
@@ -707,6 +998,7 @@ const ConfigPage = (() => {
             monacoEditor.dispose();
             monacoEditor = null;
         }
+        closeValueModal();
     }
 
     // Public methods
@@ -715,7 +1007,8 @@ const ConfigPage = (() => {
         onRoute,
         cleanup,
         handleConfigChange,
-        toggleEditMode
+        toggleEditMode,
+        openValueEditor
     };
 })();
 

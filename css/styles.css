@@ -714,11 +714,184 @@ pre[class*="language-"] {
   text-align: right;
 }
 
-.config-string-value {
+.config-var-value-block {
+  width: 100%;
+}
+
+/* Inline preview card — clicks open the full editor modal. */
+.config-value-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background-color: var(--bs-body-bg);
+  padding: 0.5rem 0.75rem 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  text-align: left;
+}
+
+.config-value-preview:hover,
+.config-value-preview:focus-visible {
+  border-color: var(--bs-primary, #0d6efd);
+  box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.12);
+  outline: none;
+}
+
+.config-value-preview.is-empty {
+  border-style: dashed;
+}
+
+.config-value-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  user-select: none;
+}
+
+.config-value-preview-type {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bs-secondary-color, #6c757d);
+}
+
+.config-value-preview-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--bs-secondary-color, #6c757d);
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.config-value-preview:hover .config-value-preview-hint,
+.config-value-preview:focus-visible .config-value-preview-hint {
+  opacity: 1;
+  color: var(--bs-primary, #0d6efd);
+}
+
+.config-value-preview-body {
+  margin: 0;
   font-family: var(--bs-font-monospace);
   font-size: 0.82rem;
-  word-break: break-all;
+  line-height: 1.5;
   color: var(--bs-body-color);
+  white-space: pre;
+  overflow: hidden;
+  position: relative;
+  max-height: calc(1.5em * 3);
+}
+
+.config-value-preview-empty {
+  font-family: var(--bs-body-font-family);
+  font-style: italic;
+  color: var(--bs-secondary-color, #6c757d);
+}
+
+.config-value-preview-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.4em;
+  background: linear-gradient(to bottom, transparent, var(--bs-body-bg) 85%);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .config-value-preview {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="dark"] .config-value-preview-fade {
+  background: linear-gradient(to bottom, transparent, #212529 85%);
+}
+
+/* Value editor modal — extends the JSON-modal pattern with a cleaner shell
+   and a clear header / body / footer split. */
+.config-value-modal .config-modal-content {
+  display: flex;
+  flex-direction: column;
+  width: 90%;
+  max-width: 1100px;
+  height: 80vh;
+  max-height: 90vh;
+  margin: 5vh auto;
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.25);
+  padding: 0;
+  overflow: hidden;
+}
+
+.config-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  flex-shrink: 0;
+}
+
+.config-modal-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.config-modal-type {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.config-modal-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.config-modal-close {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.config-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  padding: 0.75rem 1rem;
+}
+
+.config-modal-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.config-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--bs-border-color);
+  background-color: var(--bs-tertiary-bg, rgba(0, 0, 0, 0.02));
+  flex-shrink: 0;
+}
+
+body.config-modal-open {
+  overflow: hidden;
 }
 
 [data-theme="dark"] .config-group-heading {
