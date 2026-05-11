@@ -1,0 +1,1 @@
+window.IntegrationsPage = window.IntegrationsPage || {};
