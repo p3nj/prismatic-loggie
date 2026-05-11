@@ -124,7 +124,7 @@ prismatic-loggie/
     ├── router.js             # Hash router (#<base64> + legacy upgrade)
     ├── api.js                # Prismatic GraphQL client + rate limiter
     ├── ui/                   # Shared DOM rendering, split for cohesion
-    │   ├── _namespace.js     #   creates window.UI
+    │   ├── namespace.js      #   creates window.UI
     │   ├── util.js           #   theme, loading/error indicators, escapeHtml
     │   ├── json-viewer.js    #   JSON detection + Monaco-backed modal
     │   └── render.js         #   logs, step nav, linked executions, exec detail
@@ -133,7 +133,7 @@ prismatic-loggie/
         ├── instances.js      # Instance browser + execution list + filters
         ├── execution.js      # Single execution viewer + live polling
         ├── integrations/     # Integrations page, split for cohesion
-        │   ├── _namespace.js #   creates window.IntegrationsPage
+        │   ├── namespace.js  #   creates window.IntegrationsPage
         │   ├── list.js       #   list + selection + shared state
         │   ├── detail.js     #   Monaco editor + edit-mode lifecycle
         │   └── yaml.js       #   validate / save / publish / import / version swap
