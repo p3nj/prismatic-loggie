@@ -10,8 +10,6 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
     <link href="css/styles.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/jsoneditor@9.10.0/dist/jsoneditor.min.css" rel="stylesheet" type="text/css">
-    <script src="https://cdn.jsdelivr.net/npm/jsoneditor@9.10.0/dist/jsoneditor.min.js"></script>
     <!-- MessagePack decoder for binary step outputs -->
     <script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack@2.8.0/dist.es5+umd/msgpack.min.js"></script>
     <!-- Chart.js for analytics -->
@@ -43,6 +41,11 @@
                     <li class="nav-item">
                         <a class="nav-link" href="#integrations">
                             <i class="bi bi-diagram-3 me-1"></i>Integrations
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#config">
+                            <i class="bi bi-gear me-1"></i>Config
                         </a>
                     </li>
                     <li class="nav-item">
@@ -745,6 +748,58 @@
             </div>
         </div>
 
+        <!-- Config Page -->
+        <div id="page-config" class="page-container d-none">
+            <div class="container-fluid py-4">
+                <div class="row">
+                    <!-- Config List Column -->
+                    <div class="col-lg-4 col-xl-3">
+                        <div class="card sticky-sidebar">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>Config</h5>
+                                <button class="btn btn-sm btn-outline-primary" id="refreshConfigBtn" title="Refresh">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="p-3 border-bottom">
+                                    <input type="text" class="form-control form-control-sm" id="configSearchInput" placeholder="Search instances...">
+                                </div>
+                                <div id="configList" class="config-list">
+                                    <!-- Instances with config populated by JS -->
+                                </div>
+                                <div id="configLoadMore" class="p-3 text-center d-none">
+                                    <button class="btn btn-sm btn-outline-primary" id="loadMoreConfigBtn">
+                                        Load More
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Config Details Column -->
+                    <div class="col-lg-8 col-xl-9">
+                        <div id="configPanel" class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-gear-fill me-2"></i>
+                                    <span id="selectedConfigName">Select an Instance</span>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="configContent">
+                                    <div class="text-center text-muted py-5">
+                                        <i class="bi bi-arrow-left-circle display-4 mb-3 d-block"></i>
+                                        <p>Select an instance from the list to view its configuration</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Execution Page (Original functionality) -->
         <div id="page-execution" class="page-container d-none">
             <div class="container-fluid py-4">
@@ -814,6 +869,7 @@
     <script src="js/pages/auth.js"></script>
     <script src="js/pages/instances.js"></script>
     <script src="js/pages/integrations.js"></script>
+    <script src="js/pages/config.js"></script>
     <script src="js/pages/execution.js"></script>
     <script src="js/pages/analysis.js"></script>
     <script src="js/app.js"></script>

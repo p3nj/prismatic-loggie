@@ -93,12 +93,47 @@ const InstancesPage = (() => {
         }
     }
 
+    // Encode a filter payload to a URL-safe base64 string. Returns null if no filters set.
+    function encodeFiltersForUrl(filters) {
+        const payload = {};
+        if (filters.dateFrom) payload.from = filters.dateFrom;
+        if (filters.dateTo) payload.to = filters.dateTo;
+        if (filters.status) payload.status = filters.status;
+        if (filters.flowId) payload.flowId = filters.flowId;
+        if (Object.keys(payload).length === 0) return null;
+
+        const json = JSON.stringify(payload);
+        // UTF-8 safe encode to base64url
+        const bytes = new TextEncoder().encode(json);
+        let binary = '';
+        bytes.forEach(b => { binary += String.fromCharCode(b); });
+        return btoa(binary)
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+    }
+
+    // Decode a base64url filter param back into {from, to, status, flowId}. Null on failure.
+    function decodeFiltersFromUrl(b64) {
+        try {
+            const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
+            const binary = atob(padded);
+            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+            const json = new TextDecoder().decode(bytes);
+            return JSON.parse(json);
+        } catch (e) {
+            console.warn('Failed to decode filter URL param:', e);
+            return null;
+        }
+    }
+
     // Parse URL parameters
+    // New format: #instances?instanceId=xxx&instanceName=yyy&f=BASE64URL
+    // Legacy format (still accepted): #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx&flow=xxx
     function parseUrlParams() {
         const hash = window.location.hash;
         const params = {};
 
-        // Parse hash parameters (e.g., #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx&flow=xxx)
         if (hash.includes('?')) {
             const queryString = hash.split('?')[1];
             const urlParams = new URLSearchParams(queryString);
@@ -109,16 +144,32 @@ const InstancesPage = (() => {
             if (urlParams.has('instanceName')) {
                 params.instanceName = decodeURIComponent(urlParams.get('instanceName'));
             }
-            if (urlParams.has('from')) {
+
+            // Preferred: base64-encoded filter blob
+            if (urlParams.has('f')) {
+                const decoded = decodeFiltersFromUrl(urlParams.get('f'));
+                if (decoded) {
+                    if (decoded.from) params.from = decoded.from;
+                    if (decoded.to) params.to = decoded.to;
+                    if (decoded.status) params.status = decoded.status;
+                    if (decoded.flowId) params.flowId = decoded.flowId;
+                }
+            }
+
+            // Backward compat: legacy plaintext params (only used if `f` absent or partial)
+            if (!params.from && urlParams.has('from')) {
                 params.from = urlParams.get('from');
             }
-            if (urlParams.has('to')) {
+            if (!params.to && urlParams.has('to')) {
                 params.to = urlParams.get('to');
             }
-            if (urlParams.has('status')) {
+            if (!params.status && urlParams.has('status')) {
                 params.status = urlParams.get('status');
             }
-            if (urlParams.has('flow')) {
+            if (!params.flowId && urlParams.has('flowId')) {
+                params.flowId = urlParams.get('flowId');
+            }
+            if (!params.flowId && !params.flow && urlParams.has('flow')) {
                 params.flow = decodeURIComponent(urlParams.get('flow'));
             }
         }
@@ -126,7 +177,9 @@ const InstancesPage = (() => {
         return params;
     }
 
-    // Update URL with current state (excludes datetime filters - those are only for sharing)
+    // Update URL with current state. All filter fields are round-tripped via a single
+    // base64-encoded `f` param so the URL stays compact and shareable links carry
+    // everything needed to reproduce the view.
     function updateUrl() {
         const params = new URLSearchParams();
 
@@ -135,19 +188,17 @@ const InstancesPage = (() => {
             params.set('instanceName', selectedInstance.name);
         }
 
-        // Only include flow and status in URL, NOT datetime
-        if (currentFilters.status) {
-            params.set('status', currentFilters.status);
-        }
-        if (currentFilters.flowName) {
-            params.set('flow', currentFilters.flowName);
+        const encoded = encodeFiltersForUrl(currentFilters);
+        if (encoded) {
+            params.set('f', encoded);
         }
 
         const newHash = `#instances?${params.toString()}`;
         history.replaceState(null, '', newHash);
     }
 
-    // Build full shareable URL including datetime filters
+    // Build full shareable URL. Identical contract to updateUrl() — single base64
+    // `f` param carries every filter so the recipient gets the exact same view.
     function buildShareableUrl() {
         const params = new URLSearchParams();
 
@@ -156,18 +207,9 @@ const InstancesPage = (() => {
             params.set('instanceName', selectedInstance.name);
         }
 
-        // Include all filters for sharing
-        if (currentFilters.dateFrom) {
-            params.set('from', currentFilters.dateFrom);
-        }
-        if (currentFilters.dateTo) {
-            params.set('to', currentFilters.dateTo);
-        }
-        if (currentFilters.status) {
-            params.set('status', currentFilters.status);
-        }
-        if (currentFilters.flowName) {
-            params.set('flow', currentFilters.flowName);
+        const encoded = encodeFiltersForUrl(currentFilters);
+        if (encoded) {
+            params.set('f', encoded);
         }
 
         return `${window.location.origin}${window.location.pathname}#instances?${params.toString()}`;
@@ -351,8 +393,24 @@ const InstancesPage = (() => {
             currentFilters.dateTo = filters.to;
         }
 
-        if (filters.flow && flowSelect) {
-            // We'll set this after loading executions when we have the flow list
+        if (filters.flowId && flowSelect) {
+            // Canonical case: URL/state carries the flowId.
+            currentFilters.flowId = filters.flowId;
+            // Look up name now if flows are already loaded; otherwise populateFlowDropdown
+            // will fill the dropdown selection once it runs.
+            for (const [name, id] of allFlows.entries()) {
+                if (id === filters.flowId) {
+                    currentFilters.flowName = name;
+                    break;
+                }
+            }
+            // If the option already exists in the dropdown, select it.
+            if (Array.from(flowSelect.options).some(o => o.value === filters.flowId)) {
+                flowSelect.value = filters.flowId;
+            }
+        } else if (filters.flow && flowSelect) {
+            // Backward compat: legacy URLs carry flow name only. Resolved by
+            // populateFlowDropdown once the flow list has loaded.
             currentFilters.flowName = filters.flow;
         }
 
@@ -386,6 +444,12 @@ const InstancesPage = (() => {
     function populateFlowDropdown() {
         const flowSelect = document.getElementById('filterFlow');
         if (!flowSelect) return;
+
+        // Backward compat: if state came from a legacy URL that carried flow=NAME,
+        // resolve it to the canonical flowId now that allFlows is populated.
+        if (!currentFilters.flowId && currentFilters.flowName && allFlows.has(currentFilters.flowName)) {
+            currentFilters.flowId = allFlows.get(currentFilters.flowName);
+        }
 
         // Get current selection before repopulating
         const currentFlowId = currentFilters.flowId || flowSelect.value;
@@ -1347,18 +1411,36 @@ const InstancesPage = (() => {
     }
 
     // Route handler
+    //
+    // Filter preservation strategy:
+    //   1. URL is the canonical state for share links and full-page reloads.
+    //      All filter fields are round-tripped via a single base64 `f` query param.
+    //   2. In-memory `currentFilters` survives in-app navigation (the user switching
+    //      to another page and coming back), because the browser wipes the hash
+    //      query string when navigating to a different hash anchor.
+    //   3. URL params overwrite in-memory state when present, so a shared link
+    //      always reproduces the exact view it was copied from.
+    //   4. allFlows is reset every route entry because it's per-instance.
     function onRoute(params) {
         init();
 
         // Stop any existing polling
         stopExecPolling();
 
-        // Reset filters on new route
-        currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null };
+        // Reset per-instance flow cache (rebuilt by loadFlowsForDropdown)
         allFlows = new Map();
 
         // Parse URL parameters
         const urlParams = parseUrlParams();
+        const urlHasFilters = urlParams.from || urlParams.to || urlParams.status ||
+                              urlParams.flow || urlParams.flowId;
+
+        // Only reset currentFilters if the URL is providing fresh filter state.
+        // If the URL has no filter params, keep the in-memory state so that
+        // navigating away and back doesn't drop the user's filters.
+        if (urlHasFilters) {
+            currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null };
+        }
 
         // Load instances if authenticated
         if (API.isAuthenticated()) {
@@ -1371,13 +1453,14 @@ const InstancesPage = (() => {
                         // Get the full instance data and select it
                         const instance = instancesData?.edges?.find(e => e.node.id === urlParams.instanceId)?.node;
                         if (instance) {
-                            // Set filters before selecting
-                            if (urlParams.from || urlParams.to || urlParams.status || urlParams.flow) {
+                            // Restore filters from URL before selecting (so loadExecutions sees them)
+                            if (urlHasFilters) {
                                 setFilterInputs({
                                     from: urlParams.from,
                                     to: urlParams.to,
                                     status: urlParams.status,
-                                    flow: urlParams.flow
+                                    flow: urlParams.flow,
+                                    flowId: urlParams.flowId
                                 });
                             }
                             selectInstance(instance, true);
@@ -1388,8 +1471,23 @@ const InstancesPage = (() => {
                             from: urlParams.from,
                             to: urlParams.to,
                             status: urlParams.status,
-                            flow: urlParams.flow
+                            flow: urlParams.flow,
+                            flowId: urlParams.flowId
                         });
+                    }
+                } else if (selectedInstance && !urlHasFilters) {
+                    // No URL state but we still remember a selection in memory.
+                    // Reselect so the previous filtered view is restored on nav-back.
+                    const instance = instancesData?.edges?.find(e => e.node.id === selectedInstance.id)?.node;
+                    if (instance) {
+                        // Push currentFilters back into the input elements before reselecting.
+                        setFilterInputs({
+                            from: currentFilters.dateFrom,
+                            to: currentFilters.dateTo,
+                            status: currentFilters.status,
+                            flowId: currentFilters.flowId
+                        });
+                        selectInstance(instance, true);
                     }
                 }
             });
