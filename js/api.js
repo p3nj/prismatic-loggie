@@ -1371,6 +1371,25 @@ const API = (() => {
         return allMetrics;
     }
 
+    // Run `asyncFn(item, index)` over `items` with at most `concurrency`
+    // tasks in flight at once. Returns a promise that resolves once every
+    // task has settled. Errors propagate (Promise.race rejection).
+    async function mapConcurrent(items, concurrency, asyncFn) {
+        const inFlight = new Set();
+        for (let i = 0; i < items.length; i++) {
+            const p = Promise.resolve().then(() => asyncFn(items[i], i));
+            inFlight.add(p);
+            // Whichever task finishes first removes itself from the set so
+            // the slot is freed; we don't care about return values here.
+            p.then(() => inFlight.delete(p), () => inFlight.delete(p));
+            if (inFlight.size >= concurrency) {
+                await Promise.race(inFlight);
+            }
+        }
+        // Drain remaining tasks.
+        await Promise.all(inFlight);
+    }
+
     // Generator that aggregates daily usage metrics across every instance the
     // user can see. The platform's instanceDailyUsageMetrics field requires
     // an `instance` argument for callers without org-wide instance permissions
@@ -1380,8 +1399,12 @@ const API = (() => {
     // Each metric node is enriched with the parent instance's `integration`
     // data because the per-instance query doesn't return it but the analysis
     // page's aggregation expects `m.instance.integration.name`.
+    //
+    // Each yield includes `newMetrics` (just the nodes added by the most
+    // recently completed instance) so consumers can fold incrementally
+    // instead of re-scanning the full accumulator on every tick.
     async function* fetchAllInstancesDailyUsageMetricsFull(options = {}) {
-        const { batchSize = 100, snapshotDateGte = null, snapshotDateLte = null } = options;
+        const { batchSize = 100, snapshotDateGte = null, snapshotDateLte = null, concurrency = 3 } = options;
         const allMetrics = [];
 
         // Page through the full instance list first.
@@ -1398,12 +1421,36 @@ const API = (() => {
 
         const totalInstances = instances.length;
         if (totalInstances === 0) {
-            yield { metrics: [], loadedCount: 0, totalCount: 0, hasMore: false, isComplete: true };
+            yield {
+                metrics: [],
+                newMetrics: [],
+                loadedCount: 0,
+                totalCount: 0,
+                hasMore: false,
+                isComplete: true
+            };
             return allMetrics;
         }
 
-        for (let i = 0; i < totalInstances; i++) {
-            const instance = instances[i];
+        // The fan-out launches `concurrency` instances in parallel. Each
+        // completion pushes a frame into the queue and resolves whatever
+        // promise the generator is currently awaiting, so the consumer
+        // sees one yield per instance in completion order.
+        const queue = [];
+        let resolveNext = null;
+        let completed = 0;
+
+        function pushFrame(frame) {
+            queue.push(frame);
+            if (resolveNext) {
+                const r = resolveNext;
+                resolveNext = null;
+                r();
+            }
+        }
+
+        const fanOut = mapConcurrent(instances, concurrency, async (instance) => {
+            const instanceMetrics = [];
             let cursor = null;
             let hasMore = true;
             while (hasMore) {
@@ -1419,23 +1466,52 @@ const API = (() => {
                     if (node.instance && instance.integration && !node.instance.integration) {
                         node.instance.integration = instance.integration;
                     }
+                    instanceMetrics.push(node);
                     allMetrics.push(node);
                 }
                 hasMore = page.pageInfo?.hasNextPage || false;
                 cursor = page.pageInfo?.endCursor || null;
             }
 
-            // Progress is reported per-instance so the UI shows steady ticks
-            // rather than waiting for any single instance to finish paging.
-            const done = i + 1;
-            yield {
+            completed += 1;
+            pushFrame({
+                newMetrics: instanceMetrics,
                 metrics: allMetrics,
-                loadedCount: done,
+                loadedCount: completed,
                 totalCount: totalInstances,
-                hasMore: done < totalInstances,
-                isComplete: done === totalInstances
-            };
+                hasMore: completed < totalInstances,
+                isComplete: completed === totalInstances
+            });
+        });
+
+        // Surface fan-out errors through the generator so the consumer's
+        // try/catch sees them rather than an unhandled rejection.
+        let fanOutError = null;
+        const fanOutDone = fanOut.catch((err) => { fanOutError = err; }).then(() => {
+            // Wake the generator if it's parked waiting for a frame.
+            if (resolveNext) {
+                const r = resolveNext;
+                resolveNext = null;
+                r();
+            }
+        });
+
+        while (completed < totalInstances) {
+            if (queue.length === 0) {
+                if (fanOutError) throw fanOutError;
+                await new Promise((resolve) => { resolveNext = resolve; });
+                if (fanOutError) throw fanOutError;
+                if (queue.length === 0) break; // fanOut finished without filling the queue (shouldn't happen)
+            }
+            yield queue.shift();
         }
+
+        // Flush any frames that landed after the loop exit condition was
+        // checked (e.g. the final completion).
+        while (queue.length > 0) yield queue.shift();
+
+        await fanOutDone;
+        if (fanOutError) throw fanOutError;
 
         return allMetrics;
     }
