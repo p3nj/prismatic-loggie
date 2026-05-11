@@ -93,126 +93,26 @@ const InstancesPage = (() => {
         }
     }
 
-    // Encode a filter payload to a URL-safe base64 string. Returns null if no filters set.
-    function encodeFiltersForUrl(filters) {
-        const payload = {};
-        if (filters.dateFrom) payload.from = filters.dateFrom;
-        if (filters.dateTo) payload.to = filters.dateTo;
-        if (filters.status) payload.status = filters.status;
-        if (filters.flowId) payload.flowId = filters.flowId;
-        if (Object.keys(payload).length === 0) return null;
-
-        const json = JSON.stringify(payload);
-        // UTF-8 safe encode to base64url
-        const bytes = new TextEncoder().encode(json);
-        let binary = '';
-        bytes.forEach(b => { binary += String.fromCharCode(b); });
-        return btoa(binary)
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-    }
-
-    // Decode a base64url filter param back into {from, to, status, flowId}. Null on failure.
-    function decodeFiltersFromUrl(b64) {
-        try {
-            const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
-            const binary = atob(padded);
-            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-            const json = new TextDecoder().decode(bytes);
-            return JSON.parse(json);
-        } catch (e) {
-            console.warn('Failed to decode filter URL param:', e);
-            return null;
-        }
-    }
-
-    // Parse URL parameters
-    // New format: #instances?instanceId=xxx&instanceName=yyy&f=BASE64URL
-    // Legacy format (still accepted): #instances?instanceId=xxx&from=xxx&to=xxx&status=xxx&flow=xxx
-    function parseUrlParams() {
-        const hash = window.location.hash;
+    // Build the params blob the router/UrlState codec expects.
+    function buildRouteParams() {
         const params = {};
-
-        if (hash.includes('?')) {
-            const queryString = hash.split('?')[1];
-            const urlParams = new URLSearchParams(queryString);
-
-            if (urlParams.has('instanceId')) {
-                params.instanceId = urlParams.get('instanceId');
-            }
-            if (urlParams.has('instanceName')) {
-                params.instanceName = decodeURIComponent(urlParams.get('instanceName'));
-            }
-
-            // Preferred: base64-encoded filter blob
-            if (urlParams.has('f')) {
-                const decoded = decodeFiltersFromUrl(urlParams.get('f'));
-                if (decoded) {
-                    if (decoded.from) params.from = decoded.from;
-                    if (decoded.to) params.to = decoded.to;
-                    if (decoded.status) params.status = decoded.status;
-                    if (decoded.flowId) params.flowId = decoded.flowId;
-                }
-            }
-
-            // Backward compat: legacy plaintext params (only used if `f` absent or partial)
-            if (!params.from && urlParams.has('from')) {
-                params.from = urlParams.get('from');
-            }
-            if (!params.to && urlParams.has('to')) {
-                params.to = urlParams.get('to');
-            }
-            if (!params.status && urlParams.has('status')) {
-                params.status = urlParams.get('status');
-            }
-            if (!params.flowId && urlParams.has('flowId')) {
-                params.flowId = urlParams.get('flowId');
-            }
-            if (!params.flowId && !params.flow && urlParams.has('flow')) {
-                params.flow = decodeURIComponent(urlParams.get('flow'));
-            }
+        if (selectedInstance) {
+            params.instanceId = selectedInstance.id;
+            if (selectedInstance.name) params.instanceName = selectedInstance.name;
         }
-
+        if (currentFilters.dateFrom) params.from = currentFilters.dateFrom;
+        if (currentFilters.dateTo) params.to = currentFilters.dateTo;
+        if (currentFilters.status) params.status = currentFilters.status;
+        if (currentFilters.flowId) params.flowId = currentFilters.flowId;
         return params;
     }
 
-    // Update URL with current state. All filter fields are round-tripped via a single
-    // base64-encoded `f` param so the URL stays compact and shareable links carry
-    // everything needed to reproduce the view.
     function updateUrl() {
-        const params = new URLSearchParams();
-
-        if (selectedInstance) {
-            params.set('instanceId', selectedInstance.id);
-            params.set('instanceName', selectedInstance.name);
-        }
-
-        const encoded = encodeFiltersForUrl(currentFilters);
-        if (encoded) {
-            params.set('f', encoded);
-        }
-
-        const newHash = `#instances?${params.toString()}`;
-        history.replaceState(null, '', newHash);
+        Router.replaceState('instances', buildRouteParams());
     }
 
-    // Build full shareable URL. Identical contract to updateUrl() — single base64
-    // `f` param carries every filter so the recipient gets the exact same view.
     function buildShareableUrl() {
-        const params = new URLSearchParams();
-
-        if (selectedInstance) {
-            params.set('instanceId', selectedInstance.id);
-            params.set('instanceName', selectedInstance.name);
-        }
-
-        const encoded = encodeFiltersForUrl(currentFilters);
-        if (encoded) {
-            params.set('f', encoded);
-        }
-
-        return `${window.location.origin}${window.location.pathname}#instances?${params.toString()}`;
+        return UrlState.buildShareUrl('instances', buildRouteParams());
     }
 
     // Copy shareable link to clipboard (includes datetime filters)
@@ -1430,8 +1330,8 @@ const InstancesPage = (() => {
         // Reset per-instance flow cache (rebuilt by loadFlowsForDropdown)
         allFlows = new Map();
 
-        // Parse URL parameters
-        const urlParams = parseUrlParams();
+        // Router has already decoded the base64 hash into `params`.
+        const urlParams = params || {};
         const urlHasFilters = urlParams.from || urlParams.to || urlParams.status ||
                               urlParams.flow || urlParams.flowId;
 

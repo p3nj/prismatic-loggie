@@ -1209,7 +1209,10 @@ const AnalysisPage = (() => {
                 if (instanceLink) {
                     instanceLink.textContent = state.selectedInstanceName || 'Instance';
                     // Set href to open Instance page with this instance pre-selected
-                    instanceLink.href = `#instances?instanceId=${encodeURIComponent(state.selectedInstanceId)}&instanceName=${encodeURIComponent(state.selectedInstanceName || '')}`;
+                    instanceLink.href = UrlState.buildHref('instances', {
+                        instanceId: state.selectedInstanceId,
+                        instanceName: state.selectedInstanceName || ''
+                    });
                 }
             }
         }

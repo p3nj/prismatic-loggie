@@ -1,7 +1,11 @@
 // Authentication Page Handler
 const AuthPage = (() => {
     let initialized = false;
-    let validationCache = { endpoint: null, token: null, result: null };
+    // Single-entry validation cache keyed by (endpoint, token).
+    // TTL guards against a stale "valid" result if the token is revoked
+    // server-side while the tab stays open.
+    const VALIDATION_TTL_MS = 5 * 60 * 1000;
+    let validationCache = { endpoint: null, token: null, result: null, ts: 0 };
 
     // Initialize the auth page
     function init() {
@@ -188,7 +192,7 @@ const AuthPage = (() => {
         }
 
         // Clear cache and re-validate for new endpoint
-        validationCache = { endpoint: null, token: null, result: null };
+        validationCache = { endpoint: null, token: null, result: null, ts: 0 };
         updateAuthStatus(true);
     }
 
@@ -243,11 +247,11 @@ const AuthPage = (() => {
         }
 
         // Clear cache and validate the new token
-        validationCache = { endpoint: null, token: null, result: null };
+        validationCache = { endpoint: null, token: null, result: null, ts: 0 };
         const result = await API.validateToken();
 
         // Cache the result
-        validationCache = { endpoint, token, result };
+        validationCache = { endpoint, token, result, ts: Date.now() };
 
         if (saveBtn) {
             saveBtn.disabled = false;
@@ -320,11 +324,13 @@ const AuthPage = (() => {
             return;
         }
 
-        // Check cache to avoid repeated API calls
+        // Check cache to avoid repeated API calls. Entries older than the
+        // TTL are ignored so a server-side token revocation eventually shows.
         if (!forceValidate &&
             validationCache.endpoint === currentEndpoint &&
             validationCache.token === currentToken &&
-            validationCache.result) {
+            validationCache.result &&
+            (Date.now() - validationCache.ts) < VALIDATION_TTL_MS) {
             setAuthStatusUI(statusText, authLink, validationCache.result.valid ? 'valid' : 'expired');
             return;
         }
@@ -336,7 +342,7 @@ const AuthPage = (() => {
         const result = await API.validateToken();
 
         // Cache the result
-        validationCache = { endpoint: currentEndpoint, token: currentToken, result };
+        validationCache = { endpoint: currentEndpoint, token: currentToken, result, ts: Date.now() };
 
         if (result.valid) {
             setAuthStatusUI(statusText, authLink, 'valid', result.user?.name || result.user?.email);
@@ -378,7 +384,7 @@ const AuthPage = (() => {
 
     // Clear validation cache (useful when token might have changed externally)
     function clearValidationCache() {
-        validationCache = { endpoint: null, token: null, result: null };
+        validationCache = { endpoint: null, token: null, result: null, ts: 0 };
     }
 
     return {

@@ -62,12 +62,14 @@ const ExecutionPage = (() => {
     }
 
     function stopPolling() {
+        // Reset the in-flight guard first so any micro-task that races
+        // against clearInterval sees the cancelled state and bails out.
+        isPollInFlight = false;
         if (pollTimer) {
             clearInterval(pollTimer);
             pollTimer = null;
             console.log('Live polling stopped');
         }
-        isPollInFlight = false;
         hideLiveIndicator();
     }
 
@@ -135,6 +137,9 @@ const ExecutionPage = (() => {
                 // Re-fetch step results for the now-completed execution
                 try {
                     const stepResults = await fetchAllStepResultsWithProgress(executionId, metadata.startedAt);
+                    // Guard against stale write if the user navigated to a
+                    // different execution while the fetch was in flight.
+                    if (executionId !== currentExecutionId) return;
                     lastStepResults = stepResults;
                     if (allLoadedLogEdges.length > 0 && stepResults && stepResults.length > 0) {
                         UI.updateStepNavigationCombined(allLoadedLogEdges, stepResults, executionId);
@@ -187,13 +192,8 @@ const ExecutionPage = (() => {
         liveLogInsertCount = 0;
         lastStepResults = null;
 
-        // Update URL to include execution ID for sharing/navigation
-        const currentHash = window.location.hash;
-        const baseHash = currentHash.split('?')[0] || '#execution';
-        const newUrl = `${baseHash}?executionId=${executionId}`;
-        if (window.location.hash + window.location.search !== newUrl) {
-            window.history.replaceState({ executionId }, '', newUrl);
-        }
+        // Update URL to include execution ID for sharing/navigation.
+        Router.replaceState('execution', { executionId }, { executionId });
 
         UI.showLoading();
 

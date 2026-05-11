@@ -2484,12 +2484,13 @@ const UI = (() => {
         }
     }
 
-    // Update URL with execution ID for navigation tracking
+    // Push a history entry for the clicked linked execution so browser back
+    // returns to the previous one. fetchResults() then replaces this entry
+    // with the same URL (cheap no-op).
     function updateExecutionUrl(executionId) {
-        const currentHash = window.location.hash;
-        const baseHash = currentHash.split('?')[0] || '#execution';
-        const newUrl = `${baseHash}?executionId=${executionId}`;
-        window.history.pushState({ executionId }, '', newUrl);
+        const href = UrlState.buildHref('execution', { executionId });
+        const fullUrl = `${location.pathname}${location.search}${href}`;
+        window.history.pushState({ executionId }, '', fullUrl);
     }
 
     // Render linked executions panel - grouped by flow name with compact design

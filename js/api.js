@@ -25,13 +25,27 @@ const API = (() => {
         { value: 'https://app.us-gov-west-1.prismatic.io', label: 'US Gov West 1' }
     ];
 
-    // Get current endpoint from localStorage
+    const DEFAULT_ENDPOINT = 'https://app.prismatic.io';
+    const ENDPOINT_RE = /^https?:\/\//;
+
+    // Get current endpoint from localStorage. Defensive: if the stored value
+    // is malformed (not a URL) we clear it and fall back to the default so a
+    // bad localStorage entry can't silently break every fetch.
     function getEndpoint() {
-        return localStorage.getItem('selectedEndpoint') || 'https://app.prismatic.io';
+        const stored = localStorage.getItem('selectedEndpoint');
+        if (stored && ENDPOINT_RE.test(stored)) return stored;
+        if (stored) {
+            console.warn('API: discarding malformed selectedEndpoint from localStorage:', stored);
+            localStorage.removeItem('selectedEndpoint');
+        }
+        return DEFAULT_ENDPOINT;
     }
 
-    // Set endpoint in localStorage
     function setEndpoint(endpoint) {
+        if (!ENDPOINT_RE.test(endpoint || '')) {
+            console.warn('API.setEndpoint: refusing non-http(s) endpoint:', endpoint);
+            return;
+        }
         localStorage.setItem('selectedEndpoint', endpoint);
     }
 
@@ -40,10 +54,12 @@ const API = (() => {
         return getEndpoint() + '/api';
     }
 
-    // Get token for current endpoint
+    // Get token for current endpoint. Empty/non-string values are normalized
+    // to '' so callers can `if (!token)` safely.
     function getToken() {
         const endpoint = getEndpoint();
-        return localStorage.getItem(`apiToken_${endpoint}`) || '';
+        const t = localStorage.getItem(`apiToken_${endpoint}`);
+        return (typeof t === 'string' && t.length > 0) ? t : '';
     }
 
     // Set token for current endpoint
@@ -689,45 +705,6 @@ const API = (() => {
                         id
                         name
                         customer {
-                            id
-                            name
-                        }
-                    }
-                }
-            }
-        }
-    `;
-
-    // GraphQL query for ALL instances daily usage metrics (no instance filter - for aggregation)
-    const allInstancesDailyUsageMetricsQuery = `
-        query GetAllInstancesDailyUsageMetrics($first: Int, $after: String, $snapshotDateGte: Date, $snapshotDateLte: Date) {
-            instanceDailyUsageMetrics(
-                first: $first,
-                after: $after,
-                snapshotDate_Gte: $snapshotDateGte,
-                snapshotDate_Lte: $snapshotDateLte,
-                sortBy: [{field: SNAPSHOT_DATE, direction: ASC}]
-            ) {
-                totalCount
-                pageInfo {
-                    hasNextPage
-                    endCursor
-                }
-                nodes {
-                    id
-                    snapshotDate
-                    successfulExecutionCount
-                    failedExecutionCount
-                    stepCount
-                    spendMbSecs
-                    instance {
-                        id
-                        name
-                        customer {
-                            id
-                            name
-                        }
-                        integration {
                             id
                             name
                         }
@@ -1394,49 +1371,69 @@ const API = (() => {
         return allMetrics;
     }
 
-    // Fetch ALL instances' daily usage metrics (no instance filter - for top performers aggregation)
-    async function fetchAllInstancesDailyUsageMetrics(options = {}) {
-        const { first = 100, after = null, snapshotDateGte = null, snapshotDateLte = null } = options;
-        console.log('Fetching all instances daily usage metrics');
-
-        const variables = { first };
-        if (after) variables.after = after;
-        if (snapshotDateGte) variables.snapshotDateGte = snapshotDateGte;
-        if (snapshotDateLte) variables.snapshotDateLte = snapshotDateLte;
-
-        const data = await graphqlRequest(allInstancesDailyUsageMetricsQuery, variables);
-        return data.instanceDailyUsageMetrics;
-    }
-
-    // Generator to fetch ALL instances' daily metrics with full pagination
+    // Generator that aggregates daily usage metrics across every instance the
+    // user can see. The platform's instanceDailyUsageMetrics field requires
+    // an `instance` argument for callers without org-wide instance permissions
+    // (it returns "Missing required argument 'instance'" otherwise), so we
+    // fan out per-instance and stitch the results client-side.
+    //
+    // Each metric node is enriched with the parent instance's `integration`
+    // data because the per-instance query doesn't return it but the analysis
+    // page's aggregation expects `m.instance.integration.name`.
     async function* fetchAllInstancesDailyUsageMetricsFull(options = {}) {
         const { batchSize = 100, snapshotDateGte = null, snapshotDateLte = null } = options;
-        let allMetrics = [];
-        let cursor = null;
-        let hasMore = true;
-        let totalCount = 0;
+        const allMetrics = [];
 
-        while (hasMore) {
-            const metricsData = await fetchAllInstancesDailyUsageMetrics({
-                first: batchSize,
-                after: cursor,
-                snapshotDateGte,
-                snapshotDateLte
-            });
+        // Page through the full instance list first.
+        const instances = [];
+        let instCursor = null;
+        let instHasMore = true;
+        while (instHasMore) {
+            const page = await fetchInstances({ first: 100, after: instCursor });
+            if (!page || !page.edges) break;
+            for (const edge of page.edges) instances.push(edge.node);
+            instHasMore = page.pageInfo?.hasNextPage || false;
+            instCursor = page.pageInfo?.endCursor || null;
+        }
 
-            if (!metricsData || !metricsData.nodes) break;
+        const totalInstances = instances.length;
+        if (totalInstances === 0) {
+            yield { metrics: [], loadedCount: 0, totalCount: 0, hasMore: false, isComplete: true };
+            return allMetrics;
+        }
 
-            totalCount = metricsData.totalCount || totalCount;
-            allMetrics = allMetrics.concat(metricsData.nodes);
-            hasMore = metricsData.pageInfo?.hasNextPage || false;
-            cursor = metricsData.pageInfo?.endCursor || null;
+        for (let i = 0; i < totalInstances; i++) {
+            const instance = instances[i];
+            let cursor = null;
+            let hasMore = true;
+            while (hasMore) {
+                const page = await fetchInstanceDailyUsageMetrics({
+                    first: batchSize,
+                    after: cursor,
+                    instanceId: instance.id,
+                    snapshotDateGte,
+                    snapshotDateLte
+                });
+                if (!page || !page.nodes) break;
+                for (const node of page.nodes) {
+                    if (node.instance && instance.integration && !node.instance.integration) {
+                        node.instance.integration = instance.integration;
+                    }
+                    allMetrics.push(node);
+                }
+                hasMore = page.pageInfo?.hasNextPage || false;
+                cursor = page.pageInfo?.endCursor || null;
+            }
 
+            // Progress is reported per-instance so the UI shows steady ticks
+            // rather than waiting for any single instance to finish paging.
+            const done = i + 1;
             yield {
                 metrics: allMetrics,
-                loadedCount: allMetrics.length,
-                totalCount: totalCount,
-                hasMore: hasMore,
-                isComplete: !hasMore
+                loadedCount: done,
+                totalCount: totalInstances,
+                hasMore: done < totalInstances,
+                isComplete: done === totalInstances
             };
         }
 
@@ -1543,7 +1540,6 @@ const API = (() => {
         fetchInstancesByCustomer,
         fetchInstanceDailyUsageMetrics,
         fetchAllInstanceDailyUsageMetrics,
-        fetchAllInstancesDailyUsageMetrics,
         fetchAllInstancesDailyUsageMetricsFull,
         fetchRecentExecutionsAnalysis,
         // Legacy methods for backward compatibility
