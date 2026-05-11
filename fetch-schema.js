@@ -7,7 +7,7 @@ const fs = require('fs');
 const https = require('https');
 
 // Configuration
-const ENDPOINT = process.env.PRISMATIC_ENDPOINT || 'https://app.prismatic.io';
+const ENDPOINT = process.env.PRISMATIC_ENDPOINT || 'https://app.ap-southeast-2.prismatic.io';
 const TOKEN = process.env.PRISMATIC_TOKEN || '';
 
 if (!TOKEN) {

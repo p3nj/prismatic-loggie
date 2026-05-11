@@ -3120,3 +3120,169 @@ body.config-modal-open {
     0% { background-color: rgba(25, 135, 84, 0.12); }
     100% { background-color: transparent; }
 }
+
+/* ── Flatpickr overrides ─────────────────────────────────────────────────── */
+
+.flatpickr-input {
+  cursor: pointer;
+}
+
+/* Bootstrap sm sizing harmony */
+.flatpickr-calendar {
+  font-size: 0.8125rem;
+  border-radius: 0.375rem;
+  box-shadow: 0 0.25rem 0.75rem rgba(0,0,0,.15);
+}
+
+/* Range highlight colour matches Bootstrap primary */
+.flatpickr-day.inRange,
+.flatpickr-day.inRange:hover {
+  background: rgba(13, 110, 253, 0.15);
+  border-color: transparent;
+  box-shadow: -5px 0 0 rgba(13, 110, 253, 0.15), 5px 0 0 rgba(13, 110, 253, 0.15);
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange,
+.flatpickr-day.selected:hover,
+.flatpickr-day.startRange:hover,
+.flatpickr-day.endRange:hover {
+  background: #0d6efd;
+  border-color: #0d6efd;
+}
+
+/* Dark mode */
+[data-theme="dark"] .flatpickr-calendar {
+  background: #2b2d31;
+  border-color: #444;
+  color: #e0e0e0;
+  box-shadow: 0 0.25rem 0.75rem rgba(0,0,0,.4);
+}
+
+[data-theme="dark"] .flatpickr-calendar::before,
+[data-theme="dark"] .flatpickr-calendar::after {
+  border-bottom-color: #2b2d31;
+}
+
+[data-theme="dark"] .flatpickr-months .flatpickr-month,
+[data-theme="dark"] .flatpickr-current-month,
+[data-theme="dark"] .flatpickr-weekdays,
+[data-theme="dark"] span.flatpickr-weekday {
+  background: #2b2d31;
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] .flatpickr-day {
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] .flatpickr-day:hover {
+  background: #3a3d42;
+  border-color: #3a3d42;
+}
+
+[data-theme="dark"] .flatpickr-day.today {
+  border-color: #0d6efd;
+}
+
+[data-theme="dark"] .flatpickr-day.today:hover {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+
+[data-theme="dark"] .flatpickr-day.flatpickr-disabled,
+[data-theme="dark"] .flatpickr-day.flatpickr-disabled:hover {
+  color: #555;
+}
+
+[data-theme="dark"] .flatpickr-day.inRange,
+[data-theme="dark"] .flatpickr-day.inRange:hover {
+  background: #1a3a5c;
+  box-shadow: -5px 0 0 #1a3a5c, 5px 0 0 #1a3a5c;
+}
+
+[data-theme="dark"] .flatpickr-day.selected,
+[data-theme="dark"] .flatpickr-day.startRange,
+[data-theme="dark"] .flatpickr-day.endRange {
+  background: #0d6efd;
+  border-color: #0d6efd;
+}
+
+[data-theme="dark"] .flatpickr-time {
+  background: #2b2d31;
+  border-top-color: #444;
+}
+
+[data-theme="dark"] .flatpickr-time input,
+[data-theme="dark"] .flatpickr-time .flatpickr-time-separator,
+[data-theme="dark"] .flatpickr-time .flatpickr-am-pm {
+  color: #e0e0e0;
+  background: #2b2d31;
+}
+
+[data-theme="dark"] .flatpickr-time input:hover,
+[data-theme="dark"] .flatpickr-time .flatpickr-am-pm:hover,
+[data-theme="dark"] .flatpickr-time input:focus,
+[data-theme="dark"] .flatpickr-time .flatpickr-am-pm:focus {
+  background: #3a3d42;
+}
+
+[data-theme="dark"] .numInputWrapper:hover {
+  background: #3a3d42;
+}
+
+[data-theme="dark"] .numInputWrapper span.arrowUp::after {
+  border-bottom-color: #e0e0e0;
+}
+
+[data-theme="dark"] .numInputWrapper span.arrowDown::after {
+  border-top-color: #e0e0e0;
+}
+
+[data-theme="dark"] .flatpickr-months .flatpickr-prev-month,
+[data-theme="dark"] .flatpickr-months .flatpickr-next-month {
+  color: #e0e0e0;
+  fill: #e0e0e0;
+}
+
+[data-theme="dark"] .flatpickr-months .flatpickr-prev-month:hover svg,
+[data-theme="dark"] .flatpickr-months .flatpickr-next-month:hover svg {
+  fill: #0d6efd;
+}
+
+/* Time picker label showing which endpoint is being set */
+.fp-time-label {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 0 4px;
+  border-top: 1px solid #dee2e6;
+}
+
+[data-theme="dark"] .fp-time-label {
+  color: #9ba0a6;
+  border-top-color: #444;
+}
+
+/* Analysis date input: fix the input[type="date"] selector that no longer applies */
+.analysis-date-inputs .flatpickr-input {
+  min-width: 190px;
+}
+
+@media (max-width: 767.98px) {
+  .analysis-date-inputs .flatpickr-input {
+    width: 100%;
+    min-width: 0;
+    font-size: 0.8rem;
+  }
+
+  .flatpickr-calendar {
+    width: calc(100vw - 2rem) !important;
+    max-width: 340px;
+  }
+}

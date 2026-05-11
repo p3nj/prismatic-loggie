@@ -38,6 +38,9 @@ const AnalysisPage = (() => {
         }
     };
 
+    // Flatpickr range picker instance for the analysis date range
+    let fpAnalysis = null;
+
     // Chart instances
     let charts = {
         executionsTime: null,
@@ -105,17 +108,17 @@ const AnalysisPage = (() => {
             });
         });
 
-        // Custom date inputs
-        document.getElementById('analysisDateFrom')?.addEventListener('change', (e) => {
-            state.dateFrom = e.target.value;
-            document.querySelectorAll('#timeRangeButtons button').forEach(b => b.classList.remove('active'));
-            loadAllData();
-        });
-
-        document.getElementById('analysisDateTo')?.addEventListener('change', (e) => {
-            state.dateTo = e.target.value;
-            document.querySelectorAll('#timeRangeButtons button').forEach(b => b.classList.remove('active'));
-            loadAllData();
+        // Date range picker (Flatpickr — date only for analysis)
+        fpAnalysis = flatpickr('#analysisDateRange', {
+            mode: 'range',
+            dateFormat: 'M d, Y',
+            onChange(selectedDates) {
+                if (selectedDates.length !== 2) return;
+                state.dateFrom = formatDateForInput(selectedDates[0]);
+                state.dateTo   = formatDateForInput(selectedDates[1]);
+                document.querySelectorAll('#timeRangeButtons button').forEach(b => b.classList.remove('active'));
+                loadAllData();
+            }
         });
 
         // Auto-refresh toggle
@@ -220,11 +223,7 @@ const AnalysisPage = (() => {
         state.dateFrom = formatDateForInput(fromDate);
         state.dateTo = formatDateForInput(today);
 
-        // Update input fields
-        const fromInput = document.getElementById('analysisDateFrom');
-        const toInput = document.getElementById('analysisDateTo');
-        if (fromInput) fromInput.value = state.dateFrom;
-        if (toInput) toInput.value = state.dateTo;
+        if (fpAnalysis) fpAnalysis.setDate([fromDate, today], false);
     }
 
     // Format date for input field (YYYY-MM-DD)

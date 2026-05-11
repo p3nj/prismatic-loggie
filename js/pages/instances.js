@@ -5,6 +5,7 @@ const InstancesPage = (() => {
     let executionsData = null;
     let selectedInstance = null;
     let searchTimeout = null;
+    let fp = null; // Flatpickr range picker instance
     let allFlows = new Map(); // Map of flow name -> flow id
     let currentFilters = {
         dateFrom: null,
@@ -82,15 +83,44 @@ const InstancesPage = (() => {
             shareFilterBtn.addEventListener('click', copyShareableLink);
         }
 
-        // Date input validation listeners
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
-        if (fromInput) {
-            fromInput.addEventListener('change', validateDateRange);
-        }
-        if (toInput) {
-            toInput.addEventListener('change', validateDateRange);
-        }
+        // Date range picker (Flatpickr)
+        let _fpBlocking = false;
+        fp = flatpickr('#filterDateRange', {
+            mode: 'range',
+            enableTime: true,
+            time_24hr: true,
+            dateFormat: 'M d, Y H:i',
+            onReady(selectedDates, dateStr, instance) {
+                const label = document.createElement('div');
+                label.className = 'fp-time-label';
+                label.textContent = 'Setting: start time';
+                const timeEl = instance.calendarContainer.querySelector('.flatpickr-time');
+                if (timeEl) timeEl.prepend(label);
+            },
+            onChange(selectedDates, dateStr, instance) {
+                const label = instance.calendarContainer.querySelector('.fp-time-label');
+                if (label) label.textContent = selectedDates.length < 2 ? 'Setting: start time' : 'Setting: end time';
+
+                if (_fpBlocking || selectedDates.length !== 2) return;
+                const [s, e] = selectedDates;
+                if (isSameCalendarDay(s, e)) {
+                    _fpBlocking = true;
+                    const dayStart = new Date(s); dayStart.setHours(0, 0, 0, 0);
+                    const dayEnd   = new Date(s); dayEnd.setHours(23, 59, 0, 0);
+                    fp.setDate([dayStart, dayEnd]);
+                    fp.close();
+                    _fpBlocking = false;
+                }
+                validateDateRange();
+            }
+        });
+        setDefaultDateValues();
+    }
+
+    function isSameCalendarDay(a, b) {
+        return a.getFullYear() === b.getFullYear() &&
+               a.getMonth()    === b.getMonth()    &&
+               a.getDate()     === b.getDate();
     }
 
     // Build the params blob the router/UrlState codec expects.
@@ -134,81 +164,43 @@ const InstancesPage = (() => {
         });
     }
 
-    // Validate date range (from cannot be after to)
+    // Validate date range — Flatpickr ensures start ≤ end, so just check a range is selected
     function validateDateRange() {
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
-        const errorDiv = document.getElementById('dateValidationError');
         const applyBtn = document.getElementById('applyFilterBtn');
-
-        if (fromInput.value && toInput.value) {
-            const fromDate = new Date(fromInput.value);
-            const toDate = new Date(toInput.value);
-
-            if (fromDate > toDate) {
-                errorDiv.classList.remove('d-none');
-                applyBtn.disabled = true;
-                fromInput.classList.add('is-invalid');
-                toInput.classList.add('is-invalid');
-                return false;
-            }
-        }
-
-        errorDiv.classList.add('d-none');
-        applyBtn.disabled = false;
-        fromInput.classList.remove('is-invalid');
-        toInput.classList.remove('is-invalid');
-        return true;
+        const valid = fp && fp.selectedDates.length === 2;
+        if (applyBtn) applyBtn.disabled = !valid;
+        return valid;
     }
 
-    // Set default date values (current datetime for "to", 7 days ago for "from")
+    // Set default date values (7 days ago 00:00 → today 00:00) via Flatpickr
     function setDefaultDateValues() {
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
-
-        if (fromInput && !fromInput.value) {
-            // Default "from" to 7 days ago
-            const fromDate = new Date();
-            fromDate.setDate(fromDate.getDate() - 7);
-            fromInput.value = formatDateForInput(fromDate);
-        }
-
-        if (toInput && !toInput.value) {
-            // Default "to" to current datetime
-            const toDate = new Date();
-            toInput.value = formatDateForInput(toDate);
-        }
+        if (!fp || fp.selectedDates.length > 0) return;
+        const fromDate = new Date();
+        fromDate.setDate(fromDate.getDate() - 7);
+        fromDate.setHours(0, 0, 0, 0);
+        const toDate = new Date();
+        toDate.setHours(0, 0, 0, 0);
+        fp.setDate([fromDate, toDate], false);
     }
 
     // Apply all filters
     function applyFilters() {
-        // Stop polling while filters change
         stopExecPolling();
+        if (!validateDateRange()) return;
 
-        // Validate date range first
-        if (!validateDateRange()) {
-            return;
-        }
-
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
+        const [fromDate, toDate] = fp.selectedDates;
         const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
 
-        currentFilters.dateFrom = fromInput.value ? new Date(fromInput.value).toISOString() : null;
-        currentFilters.dateTo = toInput.value ? new Date(toInput.value).toISOString() : null;
-        // Flow select value is the flow ID, get name from selected option text
+        currentFilters.dateFrom = fromDate.toISOString();
+        currentFilters.dateTo = toDate.toISOString();
         currentFilters.flowId = flowSelect.value || null;
         currentFilters.flowName = flowSelect.selectedOptions[0]?.text !== 'All Flows' ? flowSelect.selectedOptions[0]?.text : null;
         currentFilters.status = statusSelect.value || null;
 
-        // Update URL
         updateUrl();
-
-        // Update filter status badge
         updateFilterStatus();
 
-        // Reload executions with filter
         if (selectedInstance) {
             loadExecutions(selectedInstance.id, true);
         }
@@ -216,31 +208,17 @@ const InstancesPage = (() => {
 
     // Clear all filters
     function clearFilters() {
-        // Stop polling while filters change
         stopExecPolling();
 
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
-        const flowSelect = document.getElementById('filterFlow');
-        const statusSelect = document.getElementById('filterStatusSelect');
-        const errorDiv = document.getElementById('dateValidationError');
-
-        // Reset to default date values
         const fromDate = new Date();
         fromDate.setDate(fromDate.getDate() - 7);
-        fromInput.value = formatDateForInput(fromDate);
-
+        fromDate.setHours(0, 0, 0, 0);
         const toDate = new Date();
-        toInput.value = formatDateForInput(toDate);
+        toDate.setHours(0, 0, 0, 0);
+        if (fp) fp.setDate([fromDate, toDate], false);
 
-        flowSelect.value = '';
-        statusSelect.value = '';
-
-        // Clear validation errors
-        errorDiv.classList.add('d-none');
-        fromInput.classList.remove('is-invalid');
-        toInput.classList.remove('is-invalid');
-        document.getElementById('applyFilterBtn').disabled = false;
+        document.getElementById('filterFlow').value = '';
+        document.getElementById('filterStatusSelect').value = '';
 
         currentFilters = {
             dateFrom: null,
@@ -250,13 +228,9 @@ const InstancesPage = (() => {
             status: null
         };
 
-        // Update URL
         updateUrl();
-
-        // Update filter status
         updateFilterStatus();
 
-        // Reload executions without filter
         if (selectedInstance) {
             loadExecutions(selectedInstance.id, true);
         }
@@ -276,21 +250,16 @@ const InstancesPage = (() => {
 
     // Set filter inputs from values
     function setFilterInputs(filters) {
-        const fromInput = document.getElementById('filterDateFrom');
-        const toInput = document.getElementById('filterDateTo');
         const flowSelect = document.getElementById('filterFlow');
         const statusSelect = document.getElementById('filterStatusSelect');
 
-        if (filters.from && fromInput) {
-            const fromDate = new Date(filters.from);
-            fromInput.value = formatDateForInput(fromDate);
+        if (filters.from && filters.to && fp) {
+            fp.setDate([new Date(filters.from), new Date(filters.to)], false);
             currentFilters.dateFrom = filters.from;
-        }
-
-        if (filters.to && toInput) {
-            const toDate = new Date(filters.to);
-            toInput.value = formatDateForInput(toDate);
             currentFilters.dateTo = filters.to;
+        } else if (filters.from && fp) {
+            fp.setDate([new Date(filters.from), new Date()], false);
+            currentFilters.dateFrom = filters.from;
         }
 
         if (filters.flowId && flowSelect) {
@@ -320,16 +289,6 @@ const InstancesPage = (() => {
         }
 
         updateFilterStatus();
-    }
-
-    // Format date for datetime-local input
-    function formatDateForInput(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        return `${year}-${month}-${day}T${hours}:${minutes}`;
     }
 
     // Show filter bar and share button

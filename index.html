@@ -9,8 +9,10 @@
     <!-- Add Prism CSS -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="css/styles.css?v=20260511c" rel="stylesheet">
     <!-- MessagePack decoder for binary step outputs -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack@2.8.0/dist.es5+umd/msgpack.min.js"></script>
     <!-- Chart.js for analytics -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -228,12 +230,9 @@
                                         </select>
                                     </div>
                                     <div class="col-auto">
-                                        <label class="form-label small mb-1" for="filterDateFrom">From</label>
-                                        <input type="datetime-local" class="form-control form-control-sm" id="filterDateFrom">
-                                    </div>
-                                    <div class="col-auto">
-                                        <label class="form-label small mb-1" for="filterDateTo">To</label>
-                                        <input type="datetime-local" class="form-control form-control-sm" id="filterDateTo">
+                                        <label class="form-label small mb-1">Date Range</label>
+                                        <input type="text" class="form-control form-control-sm" id="filterDateRange"
+                                               placeholder="Select date range..." readonly style="min-width:350px">
                                     </div>
                                     <div class="col-auto">
                                         <button class="btn btn-sm btn-primary" id="applyFilterBtn">
@@ -248,9 +247,6 @@
                                     <div class="col-auto ms-auto">
                                         <span id="filterStatusBadge" class="badge bg-info d-none">Filtered</span>
                                     </div>
-                                </div>
-                                <div id="dateValidationError" class="text-danger small mt-1 d-none">
-                                    <i class="bi bi-exclamation-triangle me-1"></i>"From" date cannot be after "To" date
                                 </div>
                             </div>
                             <div class="card-body">
@@ -498,10 +494,9 @@
                                             <button type="button" class="btn btn-outline-primary" data-range="30d">30 Days</button>
                                             <button type="button" class="btn btn-outline-primary" data-range="90d">90 Days</button>
                                         </div>
-                                        <div class="d-flex align-items-center gap-1 analysis-date-inputs">
-                                            <input type="date" class="form-control form-control-sm" id="analysisDateFrom">
-                                            <span class="text-muted small">to</span>
-                                            <input type="date" class="form-control form-control-sm" id="analysisDateTo">
+                                        <div class="analysis-date-inputs">
+                                            <input type="text" class="form-control form-control-sm" id="analysisDateRange"
+                                                   placeholder="Select date range..." readonly style="min-width:260px">
                                         </div>
                                     </div>
                                     <div class="d-flex align-items-center gap-2 ms-sm-auto analysis-controls-right">
