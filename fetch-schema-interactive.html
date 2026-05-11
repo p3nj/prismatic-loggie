@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fetch Prismatic Schema</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #0d6efd;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0b5ed7;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            color: #dc3545;
+        }
+        .success {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fetch Prismatic GraphQL Schema</h1>
+    
+    <div class="form-group">
+        <label for="endpoint">Endpoint:</label>
+        <select id="endpoint">
+            <option value="https://app.prismatic.io">US (app.prismatic.io)</option>
+            <option value="https://app.ap-southeast-2.prismatic.io" selected>Sydney (app.ap-southeast-2.prismatic.io)</option>
+            <option value="https://app.ca-central-1.prismatic.io">Canada (app.ca-central-1.prismatic.io)</option>
+            <option value="https://app.eu-west-1.prismatic.io">Ireland (app.eu-west-1.prismatic.io)</option>
+            <option value="https://app.eu-west-2.prismatic.io">London (app.eu-west-2.prismatic.io)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="token">API Token:</label>
+        <input type="password" id="token" placeholder="Enter your Prismatic API token">
+    </div>
+
+    <button onclick="fetchSchema()">Fetch Schema</button>
+    <button onclick="testInstanceQuery()">Test Instance Query</button>
+
+    <div class="output" id="output" style="display:none;"></div>
+
+    <script>
+        // Try to load saved token
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedEndpoint = localStorage.getItem('selectedEndpoint') || 'https://app.ap-southeast-2.prismatic.io';
+            document.getElementById('endpoint').value = savedEndpoint;
+            
+            const savedToken = localStorage.getItem(`apiToken_${savedEndpoint}`);
+            if (savedToken) {
+                document.getElementById('token').value = savedToken;
+            }
+        });
+
+        async function fetchSchema() {
+            const endpoint = document.getElementById('endpoint').value;
+            const token = document.getElementById('token').value;
+            const output = document.getElementById('output');
+            
+            if (!token) {
+                output.className = 'output error';
+                output.textContent = 'Please enter an API token';
+                output.style.display = 'block';
+                return;
+            }
+
+            output.className = 'output';
+            output.textContent = 'Fetching schema...';
+            output.style.display = 'block';
+
+            const introspectionQuery = `
+                query IntrospectionQuery {
+                    __schema {
+                        queryType { name }
+                        mutationType { name }
+                        types {
+                            kind
+                            name
+                            description
+                            fields(includeDeprecated: true) {
+                                name
+                                description
+                                args {
+                                    name
+                                    description
+                                    type { ...TypeRef }
+                                    defaultValue
+                                }
+                                type { ...TypeRef }
+                                isDeprecated
+                                deprecationReason
+                            }
+                            inputFields {
+                                name
+                                description
+                                type { ...TypeRef }
+                                defaultValue
+                            }
+                            interfaces { ...TypeRef }
+                            enumValues(includeDeprecated: true) {
+                                name
+                                description
+                                isDeprecated
+                                deprecationReason
+                            }
+                            possibleTypes { ...TypeRef }
+                        }
+                        directives {
+                            name
+                            description
+                            locations
+                            args {
+                                name
+                                description
+                                type { ...TypeRef }
+                                defaultValue
+                            }
+                        }
+                    }
+                }
+                
+                fragment TypeRef on __Type {
+                    kind
+                    name
+                    ofType {
+                        kind
+                        name
+                        ofType {
+                            kind
+                            name
+                            ofType {
+                                kind
+                                name
+                                ofType {
+                                    kind
+                                    name
+                                    ofType {
+                                        kind
+                                        name
+                                        ofType {
+                                            kind
+                                            name
+                                            ofType {
+                                                kind
+                                                name
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            `;
+
+            try {
+                const response = await fetch(`${endpoint}/api`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ query: introspectionQuery })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    output.className = 'output error';
+                    output.textContent = `HTTP ${response.status} Error:\n${JSON.stringify(data, null, 2)}`;
+                    return;
+                }
+
+                if (data.errors) {
+                    output.className = 'output error';
+                    output.textContent = `GraphQL Errors:\n${JSON.stringify(data.errors, null, 2)}`;
+                    return;
+                }
+
+                // Save schema
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'schema.json';
+                a.click();
+
+                // Show success and stats
+                const types = data.data.__schema.types;
+                const queries = types.find(t => t.name === 'RootQuery')?.fields?.length || 0;
+                const mutations = types.find(t => t.name === 'RootMutation')?.fields?.length || 0;
+                
+                output.className = 'output success';
+                output.textContent = `✅ Schema fetched and downloaded!\n\nStatistics:\n- Types: ${types.length}\n- Queries: ${queries}\n- Mutations: ${mutations}\n\n`;
+                
+                // Show Instance type fields
+                const instanceType = types.find(t => t.name === 'Instance');
+                if (instanceType) {
+                    output.textContent += 'Instance fields:\n';
+                    instanceType.fields.forEach(field => {
+                        output.textContent += `  - ${field.name}\n`;
+                    });
+                }
+
+            } catch (error) {
+                output.className = 'output error';
+                output.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function testInstanceQuery() {
+            const endpoint = document.getElementById('endpoint').value;
+            const token = document.getElementById('token').value;
+            const output = document.getElementById('output');
+            
+            if (!token) {
+                output.className = 'output error';
+                output.textContent = 'Please enter an API token';
+                output.style.display = 'block';
+                return;
+            }
+
+            output.className = 'output';
+            output.textContent = 'Testing instance query...\n';
+            output.style.display = 'block';
+
+            // First get an instance ID
+            const getInstancesQuery = `
+                query {
+                    instances(first: 1) {
+                        edges {
+                            node {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            `;
+
+            try {
+                const response = await fetch(`${endpoint}/api`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ query: getInstancesQuery })
+                });
+
+                const data = await response.json();
+                
+                if (data.errors) {
+                    output.textContent += `Error getting instances: ${JSON.stringify(data.errors, null, 2)}\n`;
+                    return;
+                }
+
+                if (!data.data?.instances?.edges?.length) {
+                    output.textContent += 'No instances found\n';
+                    return;
+                }
+
+                const instanceId = data.data.instances.edges[0].node.id;
+                const instanceName = data.data.instances.edges[0].node.name;
+                output.textContent += `Found instance: ${instanceName} (${instanceId})\n\n`;
+
+                // Now test the instance query
+                const testQueries = [
+                    {
+                        name: 'Test 1: Basic instance query',
+                        query: `query Test1($id: ID!) {
+                            instance(id: $id) {
+                                id
+                                name
+                                enabled
+                            }
+                        }`,
+                        variables: { id: instanceId }
+                    },
+                    {
+                        name: 'Test 2: With lastDeployedAt',
+                        query: `query Test2($id: ID!) {
+                            instance(id: $id) {
+                                id
+                                name
+                                lastDeployedAt
+                            }
+                        }`,
+                        variables: { id: instanceId }
+                    },
+                    {
+                        name: 'Test 3: With configVariables',
+                        query: `query Test3($id: ID!) {
+                            instance(id: $id) {
+                                id
+                                name
+                                configVariables(first: 5) {
+                                    edges {
+                                        node {
+                                            id
+                                            value
+                                        }
+                                    }
+                                }
+                            }
+                        }`,
+                        variables: { id: instanceId }
+                    },
+                    {
+                        name: 'Test 4: With requiredConfigVariable',
+                        query: `query Test4($id: ID!) {
+                            instance(id: $id) {
+                                id
+                                name
+                                configVariables(first: 5) {
+                                    edges {
+                                        node {
+                                            id
+                                            value
+                                            requiredConfigVariable {
+                                                key
+                                                dataType
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }`,
+                        variables: { id: instanceId }
+                    }
+                ];
+
+                for (const test of testQueries) {
+                    output.textContent += `Running ${test.name}...\n`;
+                    
+                    const testResponse = await fetch(`${endpoint}/api`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ 
+                            query: test.query,
+                            variables: test.variables 
+                        })
+                    });
+
+                    const testData = await testResponse.json();
+                    
+                    if (testData.errors) {
+                        output.className = 'output error';
+                        output.textContent += `  ❌ Failed: ${JSON.stringify(testData.errors[0], null, 2)}\n\n`;
+                        break;
+                    } else {
+                        output.textContent += `  ✅ Success\n`;
+                        output.textContent += `  Result: ${JSON.stringify(testData.data, null, 2).substring(0, 200)}...\n\n`;
+                    }
+                }
+
+            } catch (error) {
+                output.className = 'output error';
+                output.textContent += `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
