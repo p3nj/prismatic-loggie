@@ -240,19 +240,6 @@ const API = (() => {
                             versionNumber
                         }
                         lastExecutedAt
-                        configVariables(first: 100) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                        dataType
-                                        description
-                                    }
-                                }
-                            }
-                        }
                         flowConfigs {
                             nodes {
                                 id
@@ -963,11 +950,15 @@ const API = (() => {
                             node {
                                 id
                                 value
+                                status
                                 scheduleType
                                 requiredConfigVariable {
                                     key
                                     dataType
                                     description
+                                    header
+                                    hasDivider
+                                    sortOrder
                                 }
                             }
                         }

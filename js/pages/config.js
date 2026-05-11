@@ -364,7 +364,7 @@ const ConfigPage = (() => {
         { key: 'connection', label: 'Connections',  icon: 'bi-plug-fill',    types: ['CONNECTION'],                          badgeClass: 'bg-primary'   },
         { key: 'schedule',   label: 'Schedules',    icon: 'bi-clock-fill',   types: ['SCHEDULE'],                            badgeClass: 'bg-info'      },
         { key: 'values',     label: 'Values',       icon: 'bi-sliders',      types: ['STRING', 'NUMBER', 'BOOLEAN', 'PICKLIST'], badgeClass: 'bg-success' },
-        { key: 'code',       label: 'Code',         icon: 'bi-code-slash',   types: ['CODE'],                                badgeClass: 'bg-secondary' },
+        { key: 'code',       label: 'Code',         icon: 'bi-code-slash',   types: ['CODE', 'JSONFORM'],                     badgeClass: 'bg-secondary' },
         { key: 'other',      label: 'Other',        icon: 'bi-gear-fill',    types: [],                                      badgeClass: 'bg-dark'      },
     ];
 
@@ -381,9 +381,16 @@ const ConfigPage = (() => {
             `;
         }
 
+        // Sort by sortOrder so headers/dividers appear in wizard sequence
+        const sorted = [...configVars].sort((a, b) => {
+            const sa = a.node.requiredConfigVariable?.sortOrder ?? 9999;
+            const sb = b.node.requiredConfigVariable?.sortOrder ?? 9999;
+            return sa - sb;
+        });
+
         // Bucket each variable into its group
         const buckets = Object.fromEntries(TYPE_GROUPS.map(g => [g.key, []]));
-        configVars.forEach(edge => {
+        sorted.forEach(edge => {
             const node = edge.node;
             const dt = node.requiredConfigVariable?.dataType || 'STRING';
             const group = TYPE_GROUPS.find(g => g.types.includes(dt)) || TYPE_GROUPS.find(g => g.key === 'other');
@@ -423,9 +430,22 @@ const ConfigPage = (() => {
                 const value       = node.value || '';
                 const dataType    = node.requiredConfigVariable?.dataType || 'STRING';
                 const description = node.requiredConfigVariable?.description || '';
+                const header      = node.requiredConfigVariable?.header || '';
+                const hasDivider  = node.requiredConfigVariable?.hasDivider || false;
                 const isLast      = idx === items.length - 1;
-                const rendered    = renderConfigValue(node.id, key, value, dataType, editMode);
+                const status      = node.status || '';
+                const rendered    = renderConfigValue(node.id, key, value, dataType, editMode, status);
                 const isBlock     = rendered.layout === 'block';
+
+                // Section heading and/or divider from the wizard definition
+                if (hasDivider && idx > 0) {
+                    html += `<div class="config-section-divider border-top mx-3"></div>`;
+                }
+                if (header) {
+                    html += `<div class="config-section-header px-3 pt-3 pb-1">
+                        <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:.05em">${escapeHtml(header)}</span>
+                    </div>`;
+                }
 
                 const meta = `
                     <div class="config-var-meta">
@@ -462,7 +482,7 @@ const ConfigPage = (() => {
 
     // Render the value cell for a config variable.
     // Returns { layout: 'inline' | 'block', html }.
-    function renderConfigValue(id, key, value, dataType, isEditable) {
+    function renderConfigValue(id, key, value, dataType, isEditable, status = '') {
         const inputId = `config-${id}`;
         const safeKey = escapeHtml(key);
         const inline  = (html) => ({ layout: 'inline', html });
@@ -471,16 +491,20 @@ const ConfigPage = (() => {
         // STRING and CODE share a compact preview card that opens a full-screen
         // Monaco-backed editor modal on click. The card shows the first few
         // lines of the value plus a type label and an expand hint.
-        if (dataType === 'STRING' || dataType === 'CODE') {
+        if (dataType === 'STRING' || dataType === 'CODE' || dataType === 'JSONFORM') {
             return block(renderValuePreview(id, value, dataType, isEditable));
         }
 
         // ── View mode for badge-style types ───────────────────────────────────
         if (!isEditable) {
             if (dataType === 'CONNECTION') {
-                return inline(value
-                    ? `<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`
-                    : `<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`);
+                if (status === 'ACTIVE')
+                    return inline(`<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Connected</span>`);
+                if (status === 'ERROR' || status === 'FAILED')
+                    return inline(`<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Error</span>`);
+                if (status === 'PENDING')
+                    return inline(`<span class="badge bg-warning text-dark"><i class="bi bi-hourglass me-1"></i>Pending</span>`);
+                return inline(`<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Not configured</span>`);
             }
             if (dataType === 'BOOLEAN') {
                 return inline(value === 'true'
@@ -527,6 +551,24 @@ const ConfigPage = (() => {
         return inline(`<span class="badge bg-light text-muted border small">Read-only</span>`);
     }
 
+    // Pretty-print a value if it parses as JSON; otherwise return as-is.
+    function beautifyJson(value) {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return value || '';
+        try {
+            return JSON.stringify(JSON.parse(trimmed), null, 2);
+        } catch (_e) {
+            return value;
+        }
+    }
+
+    // True if the trimmed value parses as a JSON object or array (not a bare scalar).
+    function isJsonLike(value) {
+        const trimmed = (value || '').trim();
+        if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return false;
+        try { JSON.parse(trimmed); return true; } catch (_e) { return false; }
+    }
+
     // Detect a sensible Monaco language for a CODE value. Falls back to
     // 'javascript' so curly-braced blobs still get reasonable highlighting.
     function detectCodeLanguage(value) {
@@ -540,7 +582,8 @@ const ConfigPage = (() => {
 
     // Human-friendly type label shown on the preview card.
     function valueTypeLabel(value, dataType) {
-        if (dataType === 'STRING') return 'String';
+        if (dataType === 'STRING') return isJsonLike(value) ? 'JSON' : 'String';
+        if (dataType === 'JSONFORM') return 'JSON Form';
         if (dataType === 'CODE') {
             const lang = detectCodeLanguage(value);
             if (lang === 'json') return 'JSON';
@@ -570,7 +613,8 @@ const ConfigPage = (() => {
     // Enter / Space when focused) opens the full editor modal.
     function renderValuePreview(id, value, dataType, isEditable) {
         const empty = !value;
-        const { text, truncated } = getPreviewText(value);
+        const display = isJsonLike(value) ? beautifyJson(value) : value;
+        const { text, truncated } = getPreviewText(display);
         const label = valueTypeLabel(value, dataType);
         const canEdit = isEditable && dataType === 'STRING';
         const hintIcon = canEdit ? 'bi-pencil-square' : 'bi-arrows-angle-expand';
@@ -643,7 +687,11 @@ const ConfigPage = (() => {
     // Build (or reuse) the modal DOM and mount a Monaco editor inside it.
     function showValueModal(id, key, value, dataType) {
         const canEdit = editMode && dataType === 'STRING';
-        const language = dataType === 'CODE' ? detectCodeLanguage(value) : 'plaintext';
+        const looksJson = isJsonLike(value);
+        if (looksJson) value = beautifyJson(value);
+        const language = looksJson ? 'json'
+                       : dataType === 'CODE' ? detectCodeLanguage(value)
+                       : 'plaintext';
 
         const modal = ensureValueModalShell();
         modal.dataset.configId = id;
