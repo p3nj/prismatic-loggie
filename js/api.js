@@ -935,367 +935,35 @@ const API = (() => {
 
     // Fetch single instance with config variables
     async function fetchInstanceConfig(instanceId) {
-        console.log(`[fetchInstanceConfig] Starting with instanceId: ${instanceId}`);
-        
-        // First, let's verify the instance exists and we can access it
-        // This is the exact same pattern that works in fetchInstanceFlows
-        const testQuery = `
-            query GetInstanceFlows($instanceId: ID!) {
-                instance(id: $instanceId) {
-                    id
-                    name
-                    flowConfigs {
-                        nodes {
-                            id
-                            flow {
-                                id
-                                name
-                            }
-                        }
-                    }
-                }
-            }
-        `;
-        
-        try {
-            console.log('[fetchInstanceConfig] Testing with flows query first...');
-            const testData = await graphqlRequest(testQuery, { instanceId });
-            console.log('[fetchInstanceConfig] Flows query succeeded! Instance name:', testData.instance?.name);
-            console.log('[fetchInstanceConfig] Number of flows:', testData.instance?.flowConfigs?.nodes?.length || 0);
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ERROR: Even the flows query failed!');
-            console.error('[fetchInstanceConfig] This means the instance ID might be invalid or there is a permission issue.');
-            console.error('[fetchInstanceConfig] Instance ID:', instanceId);
-            console.error('[fetchInstanceConfig] Error:', e);
-            throw new Error(`Cannot access instance ${instanceId}: ${e.message}`);
-        }
-        
-        // Now progressively test each field to find what causes the 400
-        console.log('[fetchInstanceConfig] Testing fields progressively...');
-        
-        // Test 1: Just id and name (should work)
-        try {
-            const test1 = `
-                query Test1($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                    }
-                }
-            `;
-            await graphqlRequest(test1, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 1 passed: id, name');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 1 FAILED: Basic fields');
-            throw e;
-        }
-        
-        // Test 2: Add enabled
-        try {
-            const test2 = `
-                query Test2($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        enabled
-                    }
-                }
-            `;
-            await graphqlRequest(test2, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 2 passed: + enabled');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 2 FAILED: enabled field causes error');
-            // Continue anyway
-        }
-        
-        // Test 3: Add lastDeployedAt
-        try {
-            const test3 = `
-                query Test3($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        enabled
-                        lastDeployedAt
-                    }
-                }
-            `;
-            await graphqlRequest(test3, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 3 passed: + lastDeployedAt');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 3 FAILED: lastDeployedAt field causes error');
-            // Continue anyway
-        }
-        
-        // Test 4: Add customer
-        try {
-            const test4 = `
-                query Test4($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        enabled
-                        lastDeployedAt
-                        customer {
-                            id
-                            name
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test4, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 4 passed: + customer');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 4 FAILED: customer field causes error');
-        }
-        
-        // Test 5: Add integration
-        try {
-            const test5 = `
-                query Test5($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        enabled
-                        lastDeployedAt
-                        customer {
-                            id
-                            name
-                        }
-                        integration {
-                            id
-                            name
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test5, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 5 passed: + integration');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 5 FAILED: integration field causes error');
-        }
-        
-        // Test 6: Add configVariables (minimal)
-        try {
-            const test6 = `
-                query Test6($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test6, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 6 passed: configVariables with just id');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 6 FAILED: configVariables field causes error');
-        }
-        
-        // Test 7: Add value to configVariables
-        try {
-            const test7 = `
-                query Test7($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test7, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 7 passed: + value field');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 7 FAILED: value field causes error');
-        }
-        
-        // Test 8: Add requiredConfigVariable
-        try {
-            const test8 = `
-                query Test8($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test8, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 8 passed: + requiredConfigVariable.key');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 8 FAILED: requiredConfigVariable causes error');
-        }
-        
-        // Test 9: Test with more configVariables (first: 200)
-        try {
-            const test9 = `
-                query Test9($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 200) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test9, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 9 passed: configVariables with first: 200');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 9 FAILED: Large number of configVariables causes error');
-        }
-        
-        // Test 10: Add dataType to requiredConfigVariable
-        try {
-            const test10 = `
-                query Test10($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                        dataType
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test10, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 10 passed: + dataType');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 10 FAILED: dataType field causes error');
-        }
-        
-        // Test 11: Add description to requiredConfigVariable
-        try {
-            const test11 = `
-                query Test11($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                        dataType
-                                        description
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test11, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 11 passed: + description');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 11 FAILED: description field causes error');
-        }
-        
-        // Test 12: Test ALL fields together but with small limit
-        try {
-            const test12 = `
-                query Test12($instanceId: ID!) {
-                    instance(id: $instanceId) {
-                        id
-                        name
-                        enabled
-                        lastDeployedAt
-                        customer {
-                            id
-                            name
-                        }
-                        integration {
-                            id
-                            name
-                        }
-                        configVariables(first: 5) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                    requiredConfigVariable {
-                                        key
-                                        dataType
-                                        description
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            `;
-            await graphqlRequest(test12, { instanceId });
-            console.log('[fetchInstanceConfig] ✓ Test 12 passed: All fields with first: 5');
-        } catch (e) {
-            console.error('[fetchInstanceConfig] ✗ Test 12 FAILED: Combined fields with small limit');
-        }
-        
-        // Now build the working query based on what passed
-        console.log('[fetchInstanceConfig] Building final query with working fields...');
-        
-        // Use a minimal working query for now
-        const finalQuery = `
-            query GetInstanceConfig($instanceId: ID!) {
+        const PAGE_SIZE = 100;
+        const query = `
+            query GetInstanceConfig($instanceId: ID!, $after: String) {
                 instance(id: $instanceId) {
                     id
                     name
                     enabled
                     lastDeployedAt
+                    lastExecutedAt
                     customer {
                         id
                         name
+                        externalId
                     }
                     integration {
                         id
                         name
+                        versionNumber
                     }
-                    configVariables(first: 200) {
+                    configVariables(first: ${PAGE_SIZE}, after: $after) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
                         edges {
                             node {
                                 id
                                 value
+                                scheduleType
                                 requiredConfigVariable {
                                     key
                                     dataType
@@ -1307,11 +975,20 @@ const API = (() => {
                 }
             }
         `;
-        
-        const data = await graphqlRequest(finalQuery, { instanceId });
-        console.log('[fetchInstanceConfig] Final query succeeded!');
-        console.log('[fetchInstanceConfig] Number of config variables:', data.instance?.configVariables?.edges?.length || 0);
-        return data.instance;
+
+        const firstPage = await graphqlRequest(query, { instanceId, after: null });
+        const instance = firstPage.instance;
+        const allEdges = [...instance.configVariables.edges];
+
+        let { hasNextPage, endCursor } = instance.configVariables.pageInfo;
+        while (hasNextPage) {
+            const nextPage = await graphqlRequest(query, { instanceId, after: endCursor });
+            allEdges.push(...nextPage.instance.configVariables.edges);
+            ({ hasNextPage, endCursor } = nextPage.instance.configVariables.pageInfo);
+        }
+
+        instance.configVariables.edges = allEdges;
+        return instance;
     }
 
     // Update instance config variables (batch update)
@@ -1324,14 +1001,6 @@ const API = (() => {
                     instance {
                         id
                         name
-                        configVariables(first: 200) {
-                            edges {
-                                node {
-                                    id
-                                    value
-                                }
-                            }
-                        }
                     }
                     errors {
                         field

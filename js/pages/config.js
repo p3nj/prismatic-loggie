@@ -55,6 +55,7 @@ const ConfigPage = (() => {
         // Tab switching
         document.addEventListener('click', (e) => {
             if (e.target.matches('[data-config-tab]')) {
+                e.preventDefault();
                 switchTab(e.target.dataset.configTab);
             }
         });
