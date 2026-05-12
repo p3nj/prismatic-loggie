@@ -235,11 +235,15 @@
                                                placeholder="Select date range..." readonly style="min-width:350px">
                                     </div>
                                     <div class="col-auto">
-                                        <button class="btn btn-sm btn-primary" id="applyFilterBtn">
-                                            <i class="bi bi-funnel me-1"></i>Apply
+                                        <label class="form-label small mb-1 d-block">Sort</label>
+                                        <button class="btn btn-sm btn-outline-secondary" id="sortDirectionBtn"
+                                                data-direction="DESC" title="Toggle sort direction">
+                                            <i class="bi bi-sort-down" id="sortDirectionIcon"></i>
+                                            <span id="sortDirectionLabel" class="ms-1">Newest</span>
                                         </button>
                                     </div>
                                     <div class="col-auto">
+                                        <label class="form-label small mb-1 d-block">&nbsp;</label>
                                         <button class="btn btn-sm btn-outline-secondary" id="clearFilterBtn">
                                             <i class="bi bi-x-circle me-1"></i>Clear
                                         </button>
@@ -258,7 +262,13 @@
                                     </div>
                                 </div>
                                 <div id="executionsLoadMore" class="text-center mt-3 d-none">
-                                    <button class="btn btn-outline-primary" id="loadMoreExecutionsBtn">
+                                    <div id="executionsAutoLoadSentinel" class="py-2">
+                                        <span class="text-muted small">
+                                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                            Loading more...
+                                        </span>
+                                    </div>
+                                    <button class="btn btn-sm btn-link d-none" id="loadMoreExecutionsBtn">
                                         Load More Executions
                                     </button>
                                 </div>

@@ -273,7 +273,7 @@ const API = (() => {
 
     // GraphQL query for executions by instance with datetime, status, and flow filtering
     const executionsByInstanceQuery = `
-        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus, $flowId: ID) {
+        query GetExecutionsByInstance($instanceId: ID!, $first: Int, $after: String, $startedAtGte: DateTime, $startedAtLte: DateTime, $status: ExecutionStatus, $flowId: ID, $direction: OrderDirection = DESC) {
             executionResults(
                 instance: $instanceId,
                 first: $first,
@@ -282,7 +282,7 @@ const API = (() => {
                 startedAt_Lte: $startedAtLte,
                 status: $status,
                 flowConfig_Flow: $flowId,
-                orderBy: {field: STARTED_AT, direction: DESC}
+                orderBy: {field: STARTED_AT, direction: $direction}
             ) {
                 totalCount
                 pageInfo {
@@ -296,6 +296,9 @@ const API = (() => {
                     startedAt
                     endedAt
                     status
+                    invokeType
+                    stepCount
+                    error
                     flow {
                         id
                         name
@@ -1024,7 +1027,7 @@ const API = (() => {
 
     // Fetch executions for a specific instance
     async function fetchExecutionsByInstance(instanceId, options = {}) {
-        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null, flowId = null } = options;
+        const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null, flowId = null, direction = null } = options;
         console.log(`Fetching executions for instance: ${instanceId}`);
 
         const variables = {
@@ -1047,6 +1050,10 @@ const API = (() => {
         // Add flow filter if provided
         if (flowId) {
             variables.flowId = flowId;
+        }
+        // Sort direction (ASC | DESC)
+        if (direction === 'ASC' || direction === 'DESC') {
+            variables.direction = direction;
         }
 
         const data = await graphqlRequest(executionsByInstanceQuery, variables);

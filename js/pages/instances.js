@@ -12,8 +12,13 @@ const InstancesPage = (() => {
         dateTo: null,
         flowId: null,
         flowName: null, // Keep for display purposes
-        status: null
+        status: null,
+        direction: 'DESC' // Sort by startedAt: DESC = newest first, ASC = oldest first
     };
+
+    // IntersectionObserver for infinite scroll of executions list
+    let executionsScrollObserver = null;
+    let isLoadingMoreExecutions = false;
 
     // Live polling state for execution list
     // Prismatic API limit: 20 req/s. Built-in rate limiter: 4 req/s (250ms).
@@ -60,16 +65,27 @@ const InstancesPage = (() => {
             loadMoreInstancesBtn.addEventListener('click', loadMoreInstances);
         }
 
-        // Load more executions button
+        // Load more executions button (fallback for when IntersectionObserver fails)
         const loadMoreExecutionsBtn = document.getElementById('loadMoreExecutionsBtn');
         if (loadMoreExecutionsBtn) {
             loadMoreExecutionsBtn.addEventListener('click', loadMoreExecutions);
         }
 
-        // Filter buttons
-        const applyFilterBtn = document.getElementById('applyFilterBtn');
-        if (applyFilterBtn) {
-            applyFilterBtn.addEventListener('click', applyFilters);
+        // Auto-apply filters when flow or status changes
+        const flowSelect = document.getElementById('filterFlow');
+        if (flowSelect) {
+            flowSelect.addEventListener('change', applyFilters);
+        }
+
+        const statusSelect = document.getElementById('filterStatusSelect');
+        if (statusSelect) {
+            statusSelect.addEventListener('change', applyFilters);
+        }
+
+        // Sort direction toggle
+        const sortBtn = document.getElementById('sortDirectionBtn');
+        if (sortBtn) {
+            sortBtn.addEventListener('click', toggleSortDirection);
         }
 
         const clearFilterBtn = document.getElementById('clearFilterBtn');
@@ -112,6 +128,12 @@ const InstancesPage = (() => {
                     _fpBlocking = false;
                 }
                 validateDateRange();
+            },
+            onClose(selectedDates) {
+                // Auto-apply the filter once a complete range is picked and the calendar closes.
+                if (selectedDates.length === 2 && selectedInstance) {
+                    applyFilters();
+                }
             }
         });
         setDefaultDateValues();
@@ -134,6 +156,9 @@ const InstancesPage = (() => {
         if (currentFilters.dateTo) params.to = currentFilters.dateTo;
         if (currentFilters.status) params.status = currentFilters.status;
         if (currentFilters.flowId) params.flowId = currentFilters.flowId;
+        if (currentFilters.direction && currentFilters.direction !== 'DESC') {
+            params.dir = currentFilters.direction;
+        }
         return params;
     }
 
@@ -166,10 +191,33 @@ const InstancesPage = (() => {
 
     // Validate date range — Flatpickr ensures start ≤ end, so just check a range is selected
     function validateDateRange() {
-        const applyBtn = document.getElementById('applyFilterBtn');
-        const valid = fp && fp.selectedDates.length === 2;
-        if (applyBtn) applyBtn.disabled = !valid;
-        return valid;
+        return fp && fp.selectedDates.length === 2;
+    }
+
+    // Toggle sort direction (DESC <-> ASC) and re-apply
+    function toggleSortDirection() {
+        const btn = document.getElementById('sortDirectionBtn');
+        const icon = document.getElementById('sortDirectionIcon');
+        const label = document.getElementById('sortDirectionLabel');
+        if (!btn) return;
+
+        const newDirection = currentFilters.direction === 'DESC' ? 'ASC' : 'DESC';
+        currentFilters.direction = newDirection;
+        btn.dataset.direction = newDirection;
+
+        if (icon) {
+            icon.classList.remove('bi-sort-down', 'bi-sort-up');
+            icon.classList.add(newDirection === 'DESC' ? 'bi-sort-down' : 'bi-sort-up');
+        }
+        if (label) {
+            label.textContent = newDirection === 'DESC' ? 'Newest' : 'Oldest';
+        }
+
+        if (selectedInstance) {
+            stopExecPolling();
+            loadExecutions(selectedInstance.id, true);
+            updateUrl();
+        }
     }
 
     // Set default date values (7 days ago 00:00 → today 00:00) via Flatpickr
@@ -225,8 +273,20 @@ const InstancesPage = (() => {
             dateTo: null,
             flowId: null,
             flowName: null,
-            status: null
+            status: null,
+            direction: 'DESC'
         };
+
+        // Reset the sort toggle UI to DESC/Newest
+        const sortBtn = document.getElementById('sortDirectionBtn');
+        const sortIcon = document.getElementById('sortDirectionIcon');
+        const sortLabel = document.getElementById('sortDirectionLabel');
+        if (sortBtn) sortBtn.dataset.direction = 'DESC';
+        if (sortIcon) {
+            sortIcon.classList.remove('bi-sort-up');
+            sortIcon.classList.add('bi-sort-down');
+        }
+        if (sortLabel) sortLabel.textContent = 'Newest';
 
         updateUrl();
         updateFilterStatus();
@@ -286,6 +346,19 @@ const InstancesPage = (() => {
         if (filters.status && statusSelect) {
             statusSelect.value = filters.status;
             currentFilters.status = filters.status;
+        }
+
+        if (filters.dir === 'ASC' || filters.dir === 'DESC') {
+            currentFilters.direction = filters.dir;
+            const sortBtn = document.getElementById('sortDirectionBtn');
+            const sortIcon = document.getElementById('sortDirectionIcon');
+            const sortLabel = document.getElementById('sortDirectionLabel');
+            if (sortBtn) sortBtn.dataset.direction = filters.dir;
+            if (sortIcon) {
+                sortIcon.classList.remove('bi-sort-down', 'bi-sort-up');
+                sortIcon.classList.add(filters.dir === 'DESC' ? 'bi-sort-down' : 'bi-sort-up');
+            }
+            if (sortLabel) sortLabel.textContent = filters.dir === 'DESC' ? 'Newest' : 'Oldest';
         }
 
         updateFilterStatus();
@@ -680,6 +753,7 @@ const InstancesPage = (() => {
             if (currentFilters.dateTo) options.startedAtLte = currentFilters.dateTo;
             if (currentFilters.status) options.status = currentFilters.status;
             if (currentFilters.flowId) options.flowId = currentFilters.flowId;
+            if (currentFilters.direction) options.direction = currentFilters.direction;
 
             const data = await API.fetchExecutionsByInstance(selectedInstance.id, options);
             if (!data || !data.nodes) return;
@@ -785,6 +859,10 @@ const InstancesPage = (() => {
             if (currentFilters.flowId) {
                 options.flowId = currentFilters.flowId;
             }
+            // Sort direction (server-side)
+            if (currentFilters.direction) {
+                options.direction = currentFilters.direction;
+            }
 
             const data = await API.fetchExecutionsByInstance(instanceId, options);
 
@@ -840,6 +918,9 @@ const InstancesPage = (() => {
             } else {
                 loadMoreDiv.classList.add('d-none');
             }
+
+            // Re-arm the infinite-scroll observer now that sentinel visibility is set.
+            attachExecutionsScrollObserver();
 
             // Start/stop live polling based on whether active executions exist
             checkAndStartExecPolling();
@@ -1054,17 +1135,19 @@ const InstancesPage = (() => {
     }
 
     // Render executions table (standard view without chain grouping)
+    // Each row is clickable to toggle an inline metadata panel.
     function renderExecutionsTable(executions) {
         let html = `
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover executions-table">
                     <thead>
                         <tr>
+                            <th style="width: 32px;"></th>
                             <th>Status</th>
                             <th>Flow</th>
                             <th>Started</th>
                             <th>Duration</th>
-                            <th>Actions</th>
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1074,17 +1157,24 @@ const InstancesPage = (() => {
             if (!exec) return;
             const statusBadge = getStatusBadge(exec.status);
             const duration = calculateDuration(exec.startedAt, exec.endedAt);
+            const detailHtml = renderExecutionMetadata(exec);
 
             html += `
-                <tr data-execution-id="${exec.id}">
+                <tr class="execution-row" data-execution-id="${exec.id}">
+                    <td class="exec-expand-cell"><i class="bi bi-chevron-right exec-expand-icon"></i></td>
                     <td>${statusBadge}</td>
                     <td>${exec.flow?.name || 'Unknown'}</td>
                     <td><small>${formatDate(exec.startedAt)}</small></td>
                     <td><small>${duration}</small></td>
-                    <td>
+                    <td class="text-end">
                         <button class="btn btn-sm btn-outline-primary view-execution-btn" data-execution-id="${exec.id}" title="View Logs">
                             <i class="bi bi-journal-text"></i> View
                         </button>
+                    </td>
+                </tr>
+                <tr class="execution-detail-row d-none" data-detail-for="${exec.id}">
+                    <td colspan="6" class="execution-detail-cell">
+                        ${detailHtml}
                     </td>
                 </tr>
             `;
@@ -1096,6 +1186,47 @@ const InstancesPage = (() => {
             </div>
         `;
         return html;
+    }
+
+    // Build a compact metadata panel for an execution row.
+    function renderExecutionMetadata(exec) {
+        const duration = calculateDuration(exec.startedAt, exec.endedAt);
+        const escape = (str) => String(str ?? '').replace(/[&<>"']/g, (c) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+        );
+        const errorBlock = exec.error
+            ? `<div class="exec-meta-error mt-2"><strong><i class="bi bi-exclamation-triangle text-danger me-1"></i>Error:</strong>
+                   <pre class="mb-0 mt-1 small">${escape(exec.error)}</pre></div>`
+            : '';
+        return `
+            <div class="execution-meta-panel">
+                <div class="row g-2 small">
+                    <div class="col-md-6">
+                        <div class="exec-meta-item"><span class="exec-meta-label">Execution ID</span>
+                            <code class="exec-meta-id" title="${escape(exec.id)}">${escape(exec.id)}</code>
+                            <button class="btn btn-sm btn-link p-0 ms-1 copy-exec-id" data-copy="${escape(exec.id)}" title="Copy ID">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Flow</span>${escape(exec.flow?.name || 'Unknown')}</div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Status</span>${getStatusBadge(exec.status)}</div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Invoke type</span>${escape(exec.invokeType || 'N/A')}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="exec-meta-item"><span class="exec-meta-label">Started</span>${formatDate(exec.startedAt)}</div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Ended</span>${exec.endedAt ? formatDate(exec.endedAt) : '<em class="text-muted">in progress</em>'}</div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Duration</span>${duration}</div>
+                        <div class="exec-meta-item"><span class="exec-meta-label">Steps</span>${exec.stepCount ?? 'N/A'}</div>
+                    </div>
+                </div>
+                ${errorBlock}
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-primary view-execution-btn" data-execution-id="${escape(exec.id)}">
+                        <i class="bi bi-journal-text me-1"></i>Open Full Logs
+                    </button>
+                </div>
+            </div>
+        `;
     }
 
     // Render executions with chain grouping
@@ -1169,7 +1300,7 @@ const InstancesPage = (() => {
             }
         }
 
-        // Add click handlers for view buttons
+        // Add click handlers for view buttons (Open Full Logs / View Logs)
         contentDiv.querySelectorAll('.view-execution-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1177,6 +1308,49 @@ const InstancesPage = (() => {
                 Router.navigate('execution', { executionId });
             });
         });
+
+        // Click anywhere on an execution row to toggle its metadata panel.
+        contentDiv.querySelectorAll('.execution-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                // Let clicks on actual controls fall through (buttons, links, the copy icon).
+                if (e.target.closest('button, a, .copy-exec-id')) return;
+                const id = row.dataset.executionId;
+                const detail = contentDiv.querySelector(`.execution-detail-row[data-detail-for="${id}"]`);
+                const icon = row.querySelector('.exec-expand-icon');
+                if (!detail) return;
+                const opening = detail.classList.contains('d-none');
+                detail.classList.toggle('d-none', !opening);
+                row.classList.toggle('expanded', opening);
+                if (icon) {
+                    icon.classList.toggle('bi-chevron-right', !opening);
+                    icon.classList.toggle('bi-chevron-down', opening);
+                }
+            });
+        });
+
+        // Copy-to-clipboard for execution IDs.
+        contentDiv.querySelectorAll('.copy-exec-id').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const text = btn.dataset.copy;
+                if (text && navigator.clipboard) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        const icon = btn.querySelector('i');
+                        if (icon) {
+                            icon.classList.remove('bi-clipboard');
+                            icon.classList.add('bi-check2');
+                            setTimeout(() => {
+                                icon.classList.remove('bi-check2');
+                                icon.classList.add('bi-clipboard');
+                            }, 1200);
+                        }
+                    });
+                }
+            });
+        });
+
+        // Wire infinite-scroll observer for the load-more sentinel.
+        attachExecutionsScrollObserver();
 
         // Add toggle icon animation for chain cards
         contentDiv.querySelectorAll('.chain-header-toggle').forEach(header => {
@@ -1198,11 +1372,43 @@ const InstancesPage = (() => {
         });
     }
 
-    // Load more executions (pagination)
-    function loadMoreExecutions() {
-        if (selectedInstance) {
-            loadExecutions(selectedInstance.id, false);
+    // Load more executions (pagination). Guarded so the IntersectionObserver
+    // can't kick off overlapping fetches.
+    async function loadMoreExecutions() {
+        if (!selectedInstance) return;
+        if (isLoadingMoreExecutions) return;
+        if (!executionsData?.pageInfo?.hasNextPage) return;
+        isLoadingMoreExecutions = true;
+        try {
+            await loadExecutions(selectedInstance.id, false);
+        } finally {
+            isLoadingMoreExecutions = false;
         }
+    }
+
+    // Observe the load-more region; when it scrolls into view, fetch the next page.
+    // Re-wired on every render because the sentinel may have been re-inserted.
+    function attachExecutionsScrollObserver() {
+        const sentinel = document.getElementById('executionsLoadMore');
+        if (!sentinel) return;
+
+        if (executionsScrollObserver) {
+            executionsScrollObserver.disconnect();
+            executionsScrollObserver = null;
+        }
+
+        // Skip wiring when there's nothing to load.
+        if (sentinel.classList.contains('d-none')) return;
+
+        executionsScrollObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    loadMoreExecutions();
+                }
+            }
+        }, { rootMargin: '200px' });
+
+        executionsScrollObserver.observe(sentinel);
     }
 
     // Show authentication required message
@@ -1291,13 +1497,13 @@ const InstancesPage = (() => {
         // Router has already decoded the base64 hash into `params`.
         const urlParams = params || {};
         const urlHasFilters = urlParams.from || urlParams.to || urlParams.status ||
-                              urlParams.flow || urlParams.flowId;
+                              urlParams.flow || urlParams.flowId || urlParams.dir;
 
         // Only reset currentFilters if the URL is providing fresh filter state.
         // If the URL has no filter params, keep the in-memory state so that
         // navigating away and back doesn't drop the user's filters.
         if (urlHasFilters) {
-            currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null };
+            currentFilters = { dateFrom: null, dateTo: null, flowId: null, flowName: null, status: null, direction: 'DESC' };
         }
 
         // Load instances if authenticated
@@ -1318,7 +1524,8 @@ const InstancesPage = (() => {
                                     to: urlParams.to,
                                     status: urlParams.status,
                                     flow: urlParams.flow,
-                                    flowId: urlParams.flowId
+                                    flowId: urlParams.flowId,
+                                    dir: urlParams.dir
                                 });
                             }
                             selectInstance(instance, true);
@@ -1330,7 +1537,8 @@ const InstancesPage = (() => {
                             to: urlParams.to,
                             status: urlParams.status,
                             flow: urlParams.flow,
-                            flowId: urlParams.flowId
+                            flowId: urlParams.flowId,
+                            dir: urlParams.dir
                         });
                     }
                 } else if (selectedInstance && !urlHasFilters) {
@@ -1343,7 +1551,8 @@ const InstancesPage = (() => {
                             from: currentFilters.dateFrom,
                             to: currentFilters.dateTo,
                             status: currentFilters.status,
-                            flowId: currentFilters.flowId
+                            flowId: currentFilters.flowId,
+                            dir: currentFilters.direction
                         });
                         selectInstance(instance, true);
                     }
