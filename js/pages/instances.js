@@ -506,10 +506,9 @@ const InstancesPage = (() => {
         // Set default date values
         setDefaultDateValues();
 
-        // Set filters if provided
-        if (filters.from || filters.to || filters.status || filters.flow) {
-            setFilterInputs(filters);
-        }
+        // setFilterInputs guards each branch internally, so call unconditionally.
+        // Keeps this in sync with new filter keys without a parallel allow-list.
+        setFilterInputs(filters);
 
         // Load flows for dropdown first (without flow filter)
         await loadFlowsForDropdown(instanceId);
