@@ -23,6 +23,8 @@ const ConfigPage = (() => {
     let scheduleChanges = {};
     let valueMap = {};            // configVarId -> { key, value, dataType }
     let modalEditor = null;       // the Monaco editor instance currently shown in the modal
+    let modalDiffEditor = null;   // the Monaco diff editor shown in the confirmation step
+    let modalEditState = null;    // { id, key, language, original } for the modal in flight
 
     const PREVIEW_LINES = 3;
     const PREVIEW_MAX_CHARS = 240;
@@ -560,7 +562,7 @@ const ConfigPage = (() => {
                         <button class="btn btn-sm btn-outline-secondary" id="toggleEditBtn">
                             <i class="bi ${editMode ? 'bi-eye' : 'bi-pencil'} me-1"></i>${editMode ? 'View Mode' : 'Edit Mode'}
                         </button>
-                        <button class="btn btn-sm btn-success ${!editMode || !hasUnsavedChanges ? 'd-none' : ''}" id="saveConfigBtn">
+                        <button class="btn btn-sm btn-success ${!hasUnsavedChanges ? 'd-none' : ''}" id="saveConfigBtn">
                             <i class="bi bi-save me-1"></i>Save Changes
                         </button>
                     </div>
@@ -1035,8 +1037,11 @@ const ConfigPage = (() => {
     }
 
     // Build (or reuse) the modal DOM and mount a Monaco editor inside it.
+    // The modal always opens read-only; STRING/CODE/JSONFORM values offer an
+    // explicit in-modal "Edit" button (decoupled from the global edit switch).
     function showValueModal(id, key, value, dataType) {
-        const canEdit = editMode && dataType === 'STRING';
+        // Whether an Edit button should be offered for this type.
+        const editable = dataType === 'STRING' || dataType === 'CODE' || dataType === 'JSONFORM';
         const looksJson = isJsonLike(value);
         if (looksJson) value = beautifyJson(value);
         const language = looksJson ? 'json'
@@ -1046,7 +1051,11 @@ const ConfigPage = (() => {
         const modal = ensureValueModalShell();
         modal.dataset.configId = id;
         modal.dataset.dataType = dataType;
-        modal.dataset.editable = canEdit ? '1' : '0';
+        modal.dataset.editable = editable ? '1' : '0';
+
+        // Remember what we're editing so the edit/diff/confirm steps can rebuild
+        // the editor and compute the diff without re-reading the card.
+        modalEditState = { id, key, language, original: value };
 
         // Header content
         modal.querySelector('.config-modal-title').textContent = key;
@@ -1054,26 +1063,45 @@ const ConfigPage = (() => {
         const typeBadge = modal.querySelector('.config-modal-type');
         typeBadge.textContent = typeLabel;
         typeBadge.className = `config-modal-type badge ${dataType === 'CODE' ? 'bg-secondary' : 'bg-info text-dark'}`;
-        modal.querySelector('.config-modal-mode').textContent = canEdit ? 'Edit mode' : 'Read-only';
 
-        // Footer buttons
-        const saveBtn = modal.querySelector('.config-modal-save');
-        saveBtn.classList.toggle('d-none', !canEdit);
-
-        const cancelBtn = modal.querySelector('.config-modal-cancel');
-        cancelBtn.textContent = canEdit ? 'Cancel' : 'Close';
+        // Start in the read-only view state.
+        setModalState(modal, 'view', editable);
 
         // Show shell, then mount Monaco. Monaco is already loaded for the
         // JSON-view tab; if for some reason it isn't yet, load it.
         modal.style.display = 'block';
         document.body.classList.add('config-modal-open');
 
-        const mount = () => mountModalEditor(value, language, canEdit);
+        const mount = () => mountModalEditor(value, language, false);
         if (typeof monaco !== 'undefined' && monaco.editor) {
             mount();
         } else if (typeof require === 'function') {
             require(['vs/editor/editor.main'], mount);
         }
+    }
+
+    // Swap the modal footer + eyebrow label for the given state:
+    //   'view'    read-only, offers Edit (when editable)
+    //   'edit'    editable Monaco, offers Cancel + Review changes
+    //   'diff'    read-only diff / old-new preview, offers Back + Confirm
+    function setModalState(modal, state, editable) {
+        modal.dataset.modalState = state;
+        const mode = modal.querySelector('.config-modal-mode');
+        const show = (sel, on) => modal.querySelector(sel).classList.toggle('d-none', !on);
+
+        show('.config-modal-edit', state === 'view' && !!editable);
+        show('.config-modal-review', state === 'edit');
+        show('.config-modal-back', state === 'diff');
+        show('.config-modal-confirm', state === 'diff');
+
+        const cancelBtn = modal.querySelector('.config-modal-cancel');
+        cancelBtn.textContent = state === 'edit' ? 'Cancel' : 'Close';
+        // Hide the plain Close while reviewing a diff — Back/Confirm drive it.
+        cancelBtn.classList.toggle('d-none', state === 'diff');
+
+        mode.textContent = state === 'edit' ? 'Editing'
+                         : state === 'diff' ? 'Review changes'
+                         : 'Read-only';
     }
 
     // Create the modal shell once and cache it on the document.
@@ -1104,18 +1132,30 @@ const ConfigPage = (() => {
                 </div>
                 <div class="config-modal-foot">
                     <button type="button" class="btn btn-outline-secondary btn-sm config-modal-cancel">Close</button>
-                    <button type="button" class="btn btn-primary btn-sm config-modal-save d-none">
-                        <i class="bi bi-check2 me-1"></i>Save
+                    <button type="button" class="btn btn-outline-secondary btn-sm config-modal-back d-none">
+                        <i class="bi bi-arrow-left me-1"></i>Back to edit
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm config-modal-edit d-none">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm config-modal-review d-none">
+                        <i class="bi bi-eye me-1"></i>Review changes
+                    </button>
+                    <button type="button" class="btn btn-success btn-sm config-modal-confirm d-none">
+                        <i class="bi bi-check2 me-1"></i>Confirm
                     </button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
 
-        // Wire the dismiss + save handlers once.
+        // Wire the dismiss + state-transition handlers once.
         modal.querySelector('.config-modal-close').addEventListener('click', closeValueModal);
         modal.querySelector('.config-modal-cancel').addEventListener('click', closeValueModal);
-        modal.querySelector('.config-modal-save').addEventListener('click', saveValueModal);
+        modal.querySelector('.config-modal-edit').addEventListener('click', enterModalEditState);
+        modal.querySelector('.config-modal-review').addEventListener('click', enterModalDiffState);
+        modal.querySelector('.config-modal-back').addEventListener('click', backToModalEditState);
+        modal.querySelector('.config-modal-confirm').addEventListener('click', confirmModalEdit);
         // Click outside the content closes the modal.
         modal.addEventListener('mousedown', (e) => {
             if (e.target === modal) closeValueModal();
@@ -1159,6 +1199,17 @@ const ConfigPage = (() => {
         setTimeout(() => modalEditor && modalEditor.focus(), 50);
     }
 
+    // Dispose the diff editor and the two throwaway models it owns.
+    function disposeModalDiffEditor() {
+        if (!modalDiffEditor) return;
+        try {
+            const m = modalDiffEditor.getModel();
+            modalDiffEditor.dispose();
+            if (m) { m.original?.dispose(); m.modified?.dispose(); }
+        } catch (_e) {}
+        modalDiffEditor = null;
+    }
+
     function closeValueModal() {
         const modal = document.getElementById('configValueModal');
         if (!modal) return;
@@ -1166,25 +1217,114 @@ const ConfigPage = (() => {
             try { modalEditor.dispose(); } catch (_e) {}
             modalEditor = null;
         }
+        disposeModalDiffEditor();
+        modalEditState = null;
         modal.style.display = 'none';
         document.body.classList.remove('config-modal-open');
     }
 
-    function saveValueModal() {
+    // ── Modal state transitions ────────────────────────────────────────────────
+
+    // 'view' → 'edit': make the plain Monaco editor writable.
+    function enterModalEditState() {
         const modal = document.getElementById('configValueModal');
         if (!modal || !modalEditor) return;
-        const id = modal.dataset.configId;
-        const entry = valueMap[id];
-        if (!entry) { closeValueModal(); return; }
+        modalEditor.updateOptions({ readOnly: false });
+        setModalState(modal, 'edit', true);
+        modalEditor.focus();
+    }
 
+    // Should the confirmation step use a side-by-side code diff (vs a simple
+    // old → new text display)? True for code/JSON or any multi-line value.
+    function isCodeLikeForDiff(value, dataType) {
+        return dataType !== 'STRING' || isJsonLike(value) || String(value).includes('\n');
+    }
+
+    // 'edit' → 'diff': capture the edit and render the confirmation view.
+    function enterModalDiffState() {
+        const modal = document.getElementById('configValueModal');
+        if (!modal || !modalEditor || !modalEditState) return;
         const newValue = modalEditor.getValue();
-        // No change — just close.
-        if (newValue === entry.value) { closeValueModal(); return; }
+        const { original, language } = modalEditState;
+        const dataType = modal.dataset.dataType;
 
+        // No effective change — nothing to confirm, just close.
+        if (newValue === original) { closeValueModal(); return; }
+        modalEditState.pending = newValue;
+
+        // Tear down the plain editor; the diff/preview owns the body now.
+        if (modalEditor) {
+            try { modalEditor.dispose(); } catch (_e) {}
+            modalEditor = null;
+        }
+        const host = modal.querySelector('.config-modal-editor');
+        host.innerHTML = '';
+
+        if (isCodeLikeForDiff(original, dataType)) {
+            modalDiffEditor = monaco.editor.createDiffEditor(host, {
+                theme: getCurrentTheme(),
+                readOnly: true,
+                renderSideBySide: true,
+                automaticLayout: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                fontSize: 13,
+            });
+            modalDiffEditor.setModel({
+                original: monaco.editor.createModel(original, language),
+                modified: monaco.editor.createModel(newValue, language),
+            });
+        } else {
+            // Plain single-line string → simple old → new display.
+            host.innerHTML = renderSimpleOldNew(original, newValue);
+        }
+        setModalState(modal, 'diff', true);
+    }
+
+    // 'diff' → 'edit': discard the diff view and re-open the editor with the
+    // pending edit preserved.
+    function backToModalEditState() {
+        const modal = document.getElementById('configValueModal');
+        if (!modal || !modalEditState) return;
+        disposeModalDiffEditor();
+        const host = modal.querySelector('.config-modal-editor');
+        host.innerHTML = '';
+        mountModalEditor(modalEditState.pending ?? modalEditState.original, modalEditState.language, true);
+        setModalState(modal, 'edit', true);
+    }
+
+    // 'diff' → confirmed: stage the change and close.
+    function confirmModalEdit() {
+        const modal = document.getElementById('configValueModal');
+        if (!modal || !modalEditState) { closeValueModal(); return; }
+        const id = modalEditState.id;
+        const entry = valueMap[id];
+        const newValue = modalEditState.pending;
+        if (!entry || newValue === undefined || newValue === entry.value) {
+            closeValueModal();
+            return;
+        }
         entry.value = newValue;
         handleConfigChange(id, entry.key, newValue);
         refreshValuePreview(id);
         closeValueModal();
+    }
+
+    // Minimal old → new comparison for plain (single-line) string values.
+    function renderSimpleOldNew(oldValue, newValue) {
+        const cell = (v) => escapeHtml(v) || '<span class="text-muted">(empty)</span>';
+        return `
+            <div class="config-modal-oldnew">
+                <div class="config-modal-oldnew-row config-modal-oldnew-old">
+                    <span class="config-modal-oldnew-label">Current</span>
+                    <code>${cell(oldValue)}</code>
+                </div>
+                <div class="config-modal-oldnew-row config-modal-oldnew-new">
+                    <span class="config-modal-oldnew-label">New</span>
+                    <code>${cell(newValue)}</code>
+                </div>
+            </div>
+        `;
     }
 
     // Handle config value changes
@@ -1229,7 +1369,9 @@ const ConfigPage = (() => {
     function updateSaveButton() {
         const saveBtn = document.getElementById('saveConfigBtn');
         if (saveBtn) {
-            if (editMode && hasUnsavedChanges) {
+            // Shown whenever there are pending changes — code edits can be staged
+            // from the modal even while the global edit switch is off.
+            if (hasUnsavedChanges) {
                 saveBtn.classList.remove('d-none');
             } else {
                 saveBtn.classList.add('d-none');
