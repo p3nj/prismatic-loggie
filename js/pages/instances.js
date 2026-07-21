@@ -494,9 +494,9 @@ const InstancesPage = (() => {
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1 min-width-0">
-                        <div class="instance-name" title="${instance.name}">${instance.name}</div>
-                        <small class="text-muted d-block instance-meta">${instance.customer?.name || 'No customer'}</small>
-                        <small class="text-muted d-block instance-meta">${instance.integration?.name || 'Unknown integration'}</small>
+                        <div class="instance-name" title="${UI.escapeAttr(instance.name)}">${UI.escapeHtml(instance.name)}</div>
+                        <small class="text-muted d-block instance-meta">${UI.escapeHtml(instance.customer?.name || 'No customer')}</small>
+                        <small class="text-muted d-block instance-meta">${UI.escapeHtml(instance.integration?.name || 'Unknown integration')}</small>
                     </div>
                     <div class="ms-2">
                         <i class="bi ${statusIcon} ${statusClass}"></i>
@@ -1058,8 +1058,8 @@ const InstancesPage = (() => {
                                 <i class="bi bi-chevron-right chain-toggle-icon me-2"></i>
                             ` : ''}
                             ${statusBadge}
-                            <span class="ms-2 text-truncate" title="${firstExec.flow?.name || 'Unknown'}">
-                                ${firstExec.flow?.name || 'Unknown'}
+                            <span class="ms-2 text-truncate" title="${UI.escapeAttr(firstExec.flow?.name || 'Unknown')}">
+                                ${UI.escapeHtml(firstExec.flow?.name || 'Unknown')}
                             </span>
                             ${isMultiExecution ? `
                                 <span class="badge bg-secondary ms-2" title="Execution chain with ${chainExecutions.length} runs">
@@ -1163,7 +1163,7 @@ const InstancesPage = (() => {
                 <tr class="execution-row" data-execution-id="${exec.id}">
                     <td class="exec-expand-cell"><i class="bi bi-chevron-right exec-expand-icon"></i></td>
                     <td>${statusBadge}</td>
-                    <td>${exec.flow?.name || 'Unknown'}</td>
+                    <td>${UI.escapeHtml(exec.flow?.name || 'Unknown')}</td>
                     <td><small>${formatDate(exec.startedAt)}</small></td>
                     <td><small>${duration}</small></td>
                     <td class="text-end">
@@ -1451,7 +1451,7 @@ const InstancesPage = (() => {
             return '<span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Canceled</span>';
         }
         // Unknown status (gray)
-        return `<span class="badge bg-secondary">${status || 'Unknown'}</span>`;
+        return `<span class="badge bg-secondary">${UI.escapeHtml(status || 'Unknown')}</span>`;
     }
 
     // Helper: Format date

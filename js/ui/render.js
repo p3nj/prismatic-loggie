@@ -39,21 +39,21 @@
                         <div class="log-card">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
-                                    <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                                    <h5 class="mb-1">${UI.escapeHtml(log.stepName || 'Unnamed Step')}</h5>
                                     <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
                                 </div>
                                 ${log.loopStepName ? `
                                     <span class="badge bg-secondary">
-                                        Loop: ${log.loopStepName} #${log.loopStepIndex}
+                                        Loop: ${UI.escapeHtml(log.loopStepName)} #${UI.escapeHtml(log.loopStepIndex)}
                                     </span>
                                 ` : ''}
                             </div>
                             ${log.loopPath ? `
                                 <div class="loop-info mt-2">
-                                    Loop Path: ${log.loopPath}
+                                    Loop Path: ${UI.escapeHtml(log.loopPath)}
                                 </div>
                             ` : ''}
-                            <pre class="mt-2 log-message">${log.message}</pre>
+                            <pre class="mt-2 log-message">${UI.escapeHtml(log.message)}</pre>
                         </div>
                     </div>
                 `;
@@ -113,18 +113,18 @@
                 <div class="log-card">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                            <h5 class="mb-1">${UI.escapeHtml(log.stepName || 'Unnamed Step')}</h5>
                             <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
                         </div>
                         ${log.loopStepName ? `
                             <span class="badge bg-secondary">
-                                Loop: ${log.loopStepName} #${log.loopStepIndex}
+                                Loop: ${UI.escapeHtml(log.loopStepName)} #${UI.escapeHtml(log.loopStepIndex)}
                             </span>
                         ` : ''}
                     </div>
                     ${log.loopPath ? `
                         <div class="loop-info mt-2">
-                            Loop Path: ${log.loopPath}
+                            Loop Path: ${UI.escapeHtml(log.loopPath)}
                         </div>
                     ` : ''}
                     <pre class="mt-2 log-message">${UI.escapeHtml(log.message)}</pre>
@@ -195,15 +195,15 @@
             <h5 class="border-bottom pb-2 mb-2">Execution Details</h5>
             <div class="mb-2">
                 <strong>Instance:</strong>
-                <div class="detail-text" title="${instanceName}">${instanceName}</div>
+                <div class="detail-text" title="${UI.escapeAttr(instanceName)}">${UI.escapeHtml(instanceName)}</div>
             </div>
             <div class="mb-2">
                 <strong>Flow:</strong>
-                <div class="detail-text" title="${flowName}">${flowName}</div>
+                <div class="detail-text" title="${UI.escapeAttr(flowName)}">${UI.escapeHtml(flowName)}</div>
             </div>
             <div class="mb-2">
                 <strong>Status:</strong>
-                <span class="badge ${getStatusBadgeClass(result.status)}">${result.status || 'Unknown'}</span>
+                <span class="badge ${getStatusBadgeClass(result.status)}">${UI.escapeHtml(result.status || 'Unknown')}</span>
             </div>
             <div class="mb-2">
                 <strong>Started:</strong>
@@ -1483,18 +1483,18 @@
                 <div class="log-card">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <h5 class="mb-1">${log.stepName || 'Unnamed Step'}</h5>
+                            <h5 class="mb-1">${UI.escapeHtml(log.stepName || 'Unnamed Step')}</h5>
                             <div class="timestamp">${new Date(log.timestamp).toLocaleString()}</div>
                         </div>
                         ${log.loopStepName ? `
                             <span class="badge bg-secondary">
-                                Loop: ${log.loopStepName} #${log.loopStepIndex}
+                                Loop: ${UI.escapeHtml(log.loopStepName)} #${UI.escapeHtml(log.loopStepIndex)}
                             </span>
                         ` : ''}
                     </div>
                     ${log.loopPath ? `
                         <div class="loop-info mt-2">
-                            Loop Path: ${log.loopPath}
+                            Loop Path: ${UI.escapeHtml(log.loopPath)}
                         </div>
                     ` : ''}
                     <pre class="mt-2 log-message">${UI.escapeHtml(log.message)}</pre>
