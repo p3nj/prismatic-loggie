@@ -7,11 +7,18 @@ const API = (() => {
 
         async wait() {
             const now = Date.now();
-            const elapsed = now - this.lastRequest;
-            if (elapsed < this.minDelay) {
-                await new Promise(resolve => setTimeout(resolve, this.minDelay - elapsed));
+            // Reserve this request's slot synchronously — BEFORE awaiting — so
+            // concurrent callers (the per-instance metrics fan-out runs several
+            // paginators at once) each get their own spaced slot. The previous
+            // code wrote lastRequest only after awaiting, so simultaneous
+            // callers all read the same stale timestamp and fired together,
+            // defeating the throttle.
+            const scheduled = Math.max(now, this.lastRequest + this.minDelay);
+            this.lastRequest = scheduled;
+            const delay = scheduled - now;
+            if (delay > 0) {
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
-            this.lastRequest = Date.now();
         }
     };
 
@@ -100,7 +107,7 @@ const API = (() => {
             }
 
             const data = await response.json();
-            if (data.errors) {
+            if (data.errors && data.errors.length) {
                 return { valid: false, reason: 'expired', message: data.errors[0].message };
             }
 
@@ -800,7 +807,7 @@ const API = (() => {
 
         const data = await response.json();
 
-        if (data.errors) {
+        if (data.errors && data.errors.length) {
             console.error('GraphQL errors:', data.errors);
             console.error('Query variables:', variables);
             throw new Error(data.errors[0].message);
@@ -857,9 +864,15 @@ const API = (() => {
             const newLogs = logsData.edges || [];
             allLogs = allLogs.concat(newLogs);
 
-            // Update pagination state
+            // Update pagination state. Guard against a malformed page that
+            // claims hasNextPage but returns no (or an unchanged) cursor, which
+            // would otherwise re-request from the start forever.
             hasMore = logsData.pageInfo?.hasNextPage || false;
-            cursor = logsData.pageInfo?.endCursor || null;
+            const nextCursor = logsData.pageInfo?.endCursor || null;
+            if (hasMore && (!nextCursor || nextCursor === cursor)) {
+                hasMore = false;
+            }
+            cursor = nextCursor;
 
             // Yield progress update
             yield {
@@ -963,13 +976,23 @@ const API = (() => {
 
         const firstPage = await graphqlRequest(query, { instanceId, after: null });
         const instance = firstPage.instance;
-        const allEdges = [...instance.configVariables.edges];
+        if (!instance) {
+            throw new Error(`Instance not found or not accessible: ${instanceId}`);
+        }
+        if (!instance.configVariables) {
+            instance.configVariables = { edges: [], pageInfo: {} };
+        }
+        const allEdges = [...(instance.configVariables.edges || [])];
 
-        let { hasNextPage, endCursor } = instance.configVariables.pageInfo;
+        let { hasNextPage, endCursor } = instance.configVariables.pageInfo || {};
         while (hasNextPage) {
+            const prevCursor = endCursor;
             const nextPage = await graphqlRequest(query, { instanceId, after: endCursor });
-            allEdges.push(...nextPage.instance.configVariables.edges);
-            ({ hasNextPage, endCursor } = nextPage.instance.configVariables.pageInfo);
+            allEdges.push(...(nextPage.instance?.configVariables?.edges || []));
+            ({ hasNextPage, endCursor } = nextPage.instance?.configVariables?.pageInfo || {});
+            // Defensive: stop if the server claims more pages but gives no
+            // forward progress on the cursor.
+            if (hasNextPage && (!endCursor || endCursor === prevCursor)) break;
         }
 
         instance.configVariables.edges = allEdges;
@@ -1096,6 +1119,9 @@ const API = (() => {
         console.log(`Replaying execution: ${executionId}`);
         const data = await graphqlRequest(replayExecutionMutation, { executionId });
 
+        if (!data.replayExecution) {
+            throw new Error('Failed to replay execution: no result returned (check permissions and execution id).');
+        }
         if (data.replayExecution.errors && data.replayExecution.errors.length > 0) {
             const errorMessages = data.replayExecution.errors
                 .map(e => e.messages.join(', '))
@@ -1155,9 +1181,11 @@ const API = (() => {
             // Append new steps
             allSteps = allSteps.concat(stepsData.nodes);
 
-            // Update pagination state
+            // Update pagination state (guard against no cursor progress)
             hasMore = stepsData.pageInfo?.hasNextPage || false;
-            cursor = stepsData.pageInfo?.endCursor || null;
+            const nextCursor = stepsData.pageInfo?.endCursor || null;
+            if (hasMore && (!nextCursor || nextCursor === cursor)) hasMore = false;
+            cursor = nextCursor;
 
             // Yield progress update
             yield {
@@ -1237,6 +1265,9 @@ const API = (() => {
 
         const data = await graphqlRequest(importIntegrationMutation, variables);
 
+        if (!data.importIntegration) {
+            throw new Error('Failed to import integration: no result returned (check permissions).');
+        }
         if (data.importIntegration.errors && data.importIntegration.errors.length > 0) {
             const errorMessages = data.importIntegration.errors
                 .map(e => e.messages.join(', '))
@@ -1258,6 +1289,9 @@ const API = (() => {
 
         const data = await graphqlRequest(publishIntegrationMutation, variables);
 
+        if (!data.publishIntegration) {
+            throw new Error('Failed to publish integration: no result returned (check permissions).');
+        }
         if (data.publishIntegration.errors && data.publishIntegration.errors.length > 0) {
             const errorMessages = data.publishIntegration.errors
                 .map(e => e.messages.join(', '))
@@ -1305,7 +1339,9 @@ const API = (() => {
 
             allMetrics = allMetrics.concat(metricsData.nodes);
             hasMore = metricsData.pageInfo?.hasNextPage || false;
-            cursor = metricsData.pageInfo?.endCursor || null;
+            const nextCursor = metricsData.pageInfo?.endCursor || null;
+            if (hasMore && (!nextCursor || nextCursor === cursor)) hasMore = false;
+            cursor = nextCursor;
 
             yield {
                 metrics: allMetrics,
@@ -1379,7 +1415,9 @@ const API = (() => {
 
             allMetrics = allMetrics.concat(metricsData.nodes);
             hasMore = metricsData.pageInfo?.hasNextPage || false;
-            cursor = metricsData.pageInfo?.endCursor || null;
+            const nextCursor = metricsData.pageInfo?.endCursor || null;
+            if (hasMore && (!nextCursor || nextCursor === cursor)) hasMore = false;
+            cursor = nextCursor;
 
             yield {
                 metrics: allMetrics,
@@ -1437,7 +1475,9 @@ const API = (() => {
             if (!page || !page.edges) break;
             for (const edge of page.edges) instances.push(edge.node);
             instHasMore = page.pageInfo?.hasNextPage || false;
-            instCursor = page.pageInfo?.endCursor || null;
+            const nextInstCursor = page.pageInfo?.endCursor || null;
+            if (instHasMore && (!nextInstCursor || nextInstCursor === instCursor)) instHasMore = false;
+            instCursor = nextInstCursor;
         }
 
         const totalInstances = instances.length;
@@ -1491,7 +1531,9 @@ const API = (() => {
                     allMetrics.push(node);
                 }
                 hasMore = page.pageInfo?.hasNextPage || false;
-                cursor = page.pageInfo?.endCursor || null;
+                const nextCursor = page.pageInfo?.endCursor || null;
+                if (hasMore && (!nextCursor || nextCursor === cursor)) hasMore = false;
+                cursor = nextCursor;
             }
 
             completed += 1;
