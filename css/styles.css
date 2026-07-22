@@ -373,8 +373,8 @@ pre[class*="language-"] {
 }
 
 /* Improve responsiveness on smaller screens */
-@media (max-width: 768px) {
-  #page-execution .sidebar .d-flex {
+@media (max-width: 767.98px) {
+  #page-execution .execution-lookup {
     flex-direction: column;
   }
 
@@ -721,7 +721,9 @@ pre[class*="language-"] {
    headers/dividers opt out via `.config-var-item--wide`. */
 .config-group-items {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  /* min(100%, 320px) lets a column shrink below 320px on folded/slab phones
+     instead of overflowing, while still giving 2+ cols on laptop/desktop. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--bs-border-color);
@@ -1006,6 +1008,13 @@ pre[class*="language-"] {
 .config-value-preview:focus-visible .config-value-preview-hint {
   opacity: 1;
   color: var(--bs-primary, #0d6efd);
+}
+
+/* Touch devices have no hover — keep the "click to edit" affordance visible */
+@media (hover: none) {
+  .config-value-preview-hint {
+    opacity: 0.7;
+  }
 }
 
 .config-value-preview-body {
@@ -2800,10 +2809,10 @@ body.config-modal-open {
    ============================================ */
 
 /* --- Auth Page Mobile --- */
+/* Keep this a normal block container: the .container centres via margin:auto
+   and the inner `.row.justify-content-center` centres the card. A flex ROW
+   here collapsed the grid row to content width, shrinking the card to ~1 char. */
 .auth-page-container {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
   min-height: calc(100vh - 80px);
 }
 
@@ -2822,10 +2831,38 @@ body.config-modal-open {
     padding: 1rem;
   }
 
-  #page-auth .form-select,
-  #page-auth .form-control {
-    font-size: 16px; /* Prevents iOS zoom on focus */
+  /* Prevent iOS Safari auto-zoom on focus for every text control app-wide */
+  .main-content .form-control,
+  .main-content .form-select,
+  .main-content textarea {
+    font-size: 16px;
   }
+}
+
+/* Header rows on the Trigger page: let inputs shrink and wrap instead of
+   forcing horizontal overflow on narrow / folded phones. */
+.trigger-header-row {
+  flex-wrap: wrap;
+}
+
+.trigger-header-row .form-control {
+  min-width: 0;
+  flex: 1 1 8rem;
+}
+
+/* Integrations: let version-metadata label/value rows and the YAML editor
+   header wrap and break long values instead of overflowing on narrow phones. */
+#publishedByRow,
+#latestPublishedRow,
+#unpublishedChangesRow,
+#yamlEditorPanel .card-header {
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+#publishedByDisplay,
+#latestPublishedDisplay {
+  word-break: break-word;
 }
 
 /* --- Navbar Mobile Adjustments --- */
@@ -2884,8 +2921,9 @@ body.config-modal-open {
     width: 100%;
   }
 
-  .analysis-date-inputs input[type="date"] {
-    width: auto;
+  .analysis-date-inputs input {
+    width: 100%;
+    min-width: 0;
     flex: 1;
     font-size: 0.8rem;
   }
@@ -2893,10 +2931,12 @@ body.config-modal-open {
   #timeRangeButtons {
     width: 100%;
     display: flex !important;
+    flex-wrap: wrap;
   }
 
   #timeRangeButtons .btn {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 4.5rem;
     font-size: 0.75rem;
     padding: 0.3rem 0.25rem;
   }
@@ -2931,7 +2971,7 @@ body.config-modal-open {
   }
 
   /* Distribution charts - stack fully */
-  #page-analysis .col-md-4 {
+  #page-analysis .col-lg-4 {
     margin-bottom: 0.75rem;
   }
 
@@ -2957,14 +2997,27 @@ body.config-modal-open {
     font-size: 0.8rem;
   }
 
+  /* Chart headers with an inline metric <select>: wrap instead of overlapping */
+  #page-analysis .card-header.d-flex {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  /* Bring small analysis controls up to a tappable size on phones */
+  #page-analysis #clearDrilldownBtn,
+  #chartTypeButtons .btn {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
   /* Top by volume/errors */
   #page-analysis .col-md-6 {
     margin-bottom: 0.75rem;
   }
 }
 
-@media (max-width: 400px) {
-  /* Extra small screens: KPI single column */
+@media (max-width: 360px) {
+  /* Folded / very small screens: KPI single column */
   #kpiCardsRow {
     grid-template-columns: 1fr !important;
   }
@@ -3084,7 +3137,7 @@ body.config-modal-open {
     margin-bottom: 1rem;
   }
 
-  #page-execution .d-flex {
+  #page-execution .execution-lookup {
     flex-direction: column;
   }
 
@@ -3095,6 +3148,15 @@ body.config-modal-open {
 
   #page-execution #loadButton {
     width: 100%;
+  }
+
+  /* Larger tap targets for the step-navigation tree on phones */
+  .step-nav-tree .step-link,
+  .step-nav-tree .loop-link {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0.25rem 0;
   }
 }
 
@@ -3122,13 +3184,19 @@ body.config-modal-open {
   /* Prevent inputs from being too small to tap */
   .form-control-sm,
   .form-select-sm {
-    min-height: 36px;
+    min-height: 40px;
     font-size: 0.85rem;
   }
 
   .btn-sm {
-    min-height: 34px;
-    padding: 0.3rem 0.5rem;
+    min-height: 40px;
+    padding: 0.4rem 0.6rem;
+  }
+
+  /* Icon-only small buttons keep a square, tappable footprint */
+  .btn-sm:has(> i:only-child),
+  .btn-icon.btn-sm {
+    min-width: 40px;
   }
 
   /* Modal adjustments for mobile */
