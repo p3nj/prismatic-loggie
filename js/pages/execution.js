@@ -377,6 +377,15 @@ const ExecutionPage = (() => {
     function onRoute(params) {
         init();
 
+        // No valid token — show the shared "connect" prompt (was: no guard at
+        // all, so the page just showed its normal empty state).
+        if (!API.isAuthenticated()) {
+            UI.showAuthRequired('execution', 'execution logs');
+            if (window.AuthPage) AuthPage.openSetup();
+            return;
+        }
+        UI.hideAuthRequired('execution');
+
         // Check for execution ID in params (from instances page navigation)
         if (params.executionId) {
             setExecutionId(params.executionId);

@@ -1,15 +1,16 @@
 /* ============================================================================
-   workspace.js — collapsible list/detail sidebars
+   workspace.js — universal master–detail collapse
    ----------------------------------------------------------------------------
-   Pages that use a list-sidebar + detail layout (Instances, Config, Execution,
-   Integrations) mark up their grid with:
+   Every list/detail page uses the same shell:
      <div class="row ws-row" data-ws="<key>">
-       <div class="... ws-side"> ...list...  (contains a .ws-toggle button)
-       <div class="... ws-main"> ...detail...
+       <div class="... ws-side">        list / nav  (card with .ws-side-header
+                                        containing a .ws-toggle button)
+       <div class="... ws-main">        detail / editor / form
 
-   Collapsing hides the sidebar and lets the detail area use the full width —
-   maximising screen real estate on wide screens. State persists per page in
-   localStorage. Only active ≥992px; below that the columns stack anyway.
+   Collapsing shrinks the sidebar to a thin rail (CSS) and lets the content take
+   the freed width. The toggle lives at the top-left of the sidebar header and
+   stays there in both states, so it never jumps. State persists per page in
+   localStorage. Only meaningful ≥992px; below that the grid stacks.
    ============================================================================ */
 (function () {
   const KEY = 'loggie:ws-collapsed';
@@ -22,25 +23,12 @@
     try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
   }
 
-  // Ensure each detail column has a "show sidebar" button (shown only when
-  // collapsed via CSS). Injected so page markup stays minimal.
-  function ensureReopen(row) {
-    const main = row.querySelector(':scope > .ws-main');
-    if (main && !main.querySelector(':scope > .ws-reopen')) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ws-reopen btn btn-sm btn-outline-secondary';
-      btn.innerHTML = '<i class="bi bi-layout-sidebar"></i> <span>Show list</span>';
-      main.insertBefore(btn, main.firstChild);
-    }
-  }
-
   function syncToggle(row) {
     const collapsed = row.classList.contains('ws-collapsed');
     row.querySelectorAll('.ws-toggle').forEach(btn => {
       const icon = btn.querySelector('i');
-      if (icon) icon.className = 'bi bi-layout-sidebar-inset';
-      btn.title = 'Hide list';
+      if (icon) icon.className = collapsed ? 'bi bi-layout-sidebar' : 'bi bi-layout-sidebar-inset';
+      btn.title = collapsed ? 'Show list' : 'Hide list';
       btn.setAttribute('aria-pressed', String(collapsed));
     });
   }
@@ -48,7 +36,6 @@
   function applyAll() {
     const s = readState();
     document.querySelectorAll('.ws-row[data-ws]').forEach(row => {
-      ensureReopen(row);
       row.classList.toggle('ws-collapsed', !!s[row.dataset.ws]);
       syncToggle(row);
     });
@@ -60,12 +47,12 @@
     s[row.dataset.ws] = row.classList.contains('ws-collapsed');
     writeState(s);
     syncToggle(row);
-    // Let Monaco / Chart.js recompute now that the detail width changed.
+    // Let Monaco / Chart.js recompute now that the content width changed.
     window.dispatchEvent(new Event('resize'));
   }
 
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.ws-toggle, .ws-reopen');
+    const btn = e.target.closest('.ws-toggle');
     if (!btn) return;
     const row = btn.closest('.ws-row');
     if (row) { e.preventDefault(); toggle(row); }
@@ -76,6 +63,5 @@
   } else {
     applyAll();
   }
-  // Re-apply after route changes render/replace dynamic content.
   window.addEventListener('hashchange', () => setTimeout(applyAll, 60));
 })();

@@ -142,12 +142,13 @@ const ConfigPage = (() => {
     async function onRoute(params) {
         init();
         
-        // Check authentication
+        // No token — prompt for one in place (open the Setup Token popover)
+        // instead of bouncing to the full auth page.
         if (!API.isAuthenticated()) {
-            showToast('Please authenticate first', 'warning');
-            Router.navigate('auth');
+            promptForToken();
             return;
         }
+        UI.hideAuthRequired('config');
 
         // Load instances when page is accessed
         await loadInstances(false);
@@ -156,6 +157,19 @@ const ConfigPage = (() => {
         if (params.instanceId) {
             selectInstanceById(params.instanceId);
         }
+    }
+
+    // Is this error the result of a missing / invalid / expired token?
+    function isAuthError(error) {
+        const msg = (error && error.message ? error.message : '').toLowerCase();
+        return msg.includes('authentication') || msg.includes('api token') ||
+               msg.includes('401') || msg.includes('unauthor');
+    }
+
+    // Show the shared "not connected" state and open the Setup Token popover.
+    function promptForToken() {
+        UI.showAuthRequired('config', 'instance configuration');
+        if (window.AuthPage && AuthPage.openSetup) AuthPage.openSetup();
     }
 
     // Load instances (without config - lazy loading)
@@ -213,6 +227,12 @@ const ConfigPage = (() => {
             }
         } catch (error) {
             console.error('Error loading instances:', error);
+            // A present-but-invalid/expired token surfaces as an auth error here
+            // — prompt for a new one instead of showing a dead error.
+            if (isAuthError(error)) {
+                promptForToken();
+                return;
+            }
             listContainer.innerHTML = `
                 <div class="alert alert-danger m-3">
                     <i class="bi bi-exclamation-triangle me-2"></i>

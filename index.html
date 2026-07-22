@@ -11,7 +11,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="css/styles.css?v=20260722s" rel="stylesheet">
-    <link href="css/theme.css?v=20260722s" rel="stylesheet">
+    <link href="css/theme.css?v=20260722y" rel="stylesheet">
     <!-- MessagePack decoder for binary step outputs -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/@msgpack/msgpack@2.8.0/dist.es5+umd/msgpack.min.js"></script>
@@ -39,11 +39,6 @@
                     <li class="nav-item">
                         <a class="nav-link" href="#instances">
                             <i class="bi bi-collection me-1"></i>Instances
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#trigger">
-                            <i class="bi bi-lightning-charge me-1"></i>Trigger
                         </a>
                     </li>
                     <li class="nav-item">
@@ -180,16 +175,16 @@
             <div class="container-fluid py-4">
                 <div class="row ws-row" data-ws="instances">
                     <!-- Instances List Column -->
-                    <div class="col-lg-4 col-xl-3 ws-side">
+                    <div class="col-lg-3 ws-side">
                         <div class="card sticky-sidebar">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0"><i class="bi bi-collection me-2"></i>Instances</h5>
-                                <div class="d-flex gap-1">
+                            <div class="card-header ws-side-header">
+                                <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Hide list">
+                                    <i class="bi bi-layout-sidebar-inset"></i>
+                                </button>
+                                <h5 class="mb-0 ws-side-title"><i class="bi bi-collection me-2"></i>Instances</h5>
+                                <div class="ws-side-actions">
                                     <button class="btn btn-sm btn-outline-primary" id="refreshInstancesBtn" title="Refresh">
                                         <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Hide list">
-                                        <i class="bi bi-layout-sidebar-inset"></i>
                                     </button>
                                 </div>
                             </div>
@@ -210,17 +205,30 @@
                     </div>
 
                     <!-- Executions List Column -->
-                    <div class="col-lg-8 col-xl-9 ws-main">
+                    <div class="col-lg-9 ws-main">
                         <div id="executionsPanel" class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
-                                <h5 class="mb-0">
-                                    <i class="bi bi-play-circle me-2"></i>
-                                    <span id="selectedInstanceName">Select an Instance</span>
-                                </h5>
-                                <button class="btn btn-sm btn-outline-secondary d-none" id="shareFilterBtn" title="Copy shareable link">
-                                    <i class="bi bi-share me-1"></i>Share
-                                </button>
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div class="d-flex align-items-center gap-2 min-width-0">
+                                    <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Toggle list">
+                                        <i class="bi bi-layout-sidebar-inset"></i>
+                                    </button>
+                                    <h5 class="mb-0 text-truncate">
+                                        <i class="bi bi-play-circle me-2"></i>
+                                        <span id="selectedInstanceName">Select an Instance</span>
+                                    </h5>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button class="btn btn-sm btn-outline-primary d-none" id="instanceModeToggle" title="Trigger a flow on this instance">
+                                        <i class="bi bi-lightning-charge me-1"></i>Trigger
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary d-none" id="shareFilterBtn" title="Copy shareable link">
+                                        <i class="bi bi-share me-1"></i>Share
+                                    </button>
+                                </div>
                             </div>
+
+                            <!-- Executions view -->
+                            <div id="instanceExecutionsView">
                             <!-- Filter Bar -->
                             <div id="executionsFilterBar" class="card-body border-bottom py-2 d-none">
                                 <div class="row g-2 align-items-end">
@@ -284,6 +292,43 @@
                                     </button>
                                 </div>
                             </div>
+                            </div><!-- /instanceExecutionsView -->
+
+                            <!-- Trigger view (acts on the selected instance) -->
+                            <div id="instanceTriggerView" class="d-none">
+                                <div class="card-body border-bottom">
+                                    <label class="form-label small fw-semibold" for="triggerFlowSelect"><i class="bi bi-diagram-2 me-1"></i>Flow</label>
+                                    <select id="triggerFlowSelect" class="form-select form-select-sm" disabled>
+                                        <option value="">Select an instance first</option>
+                                    </select>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="form-label small" for="triggerContentType">Content-Type</label>
+                                        <input type="text" id="triggerContentType" class="form-control form-control-sm" value="application/json">
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <label class="form-label small mb-0">Headers</label>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="triggerAddHeaderBtn">
+                                                <i class="bi bi-plus-lg me-1"></i>Add header
+                                            </button>
+                                        </div>
+                                        <div id="triggerHeaders"></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small" for="triggerPayload">Payload (body)</label>
+                                        <textarea id="triggerPayload" class="form-control font-monospace" rows="10" placeholder='{ "example": "value" }'></textarea>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <button type="button" class="btn btn-primary" id="triggerRunBtn" disabled>
+                                            <i class="bi bi-lightning-charge me-1"></i>Trigger Flow
+                                        </button>
+                                        <span id="triggerStatus" class="text-muted small"></span>
+                                    </div>
+                                    <div id="triggerResult" class="mt-3"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -295,16 +340,13 @@
             <div class="container-fluid py-3 py-lg-4">
                 <div class="row ws-row" data-ws="integrations">
                     <!-- Left Column: Integrations List -->
-                    <div class="col-12 col-lg-3 col-xl-2 mb-3 mb-lg-0 ws-side">
+                    <div class="col-12 col-lg-3 mb-3 mb-lg-0 ws-side">
                         <div class="card sticky-sidebar">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Integrations</h5>
-                                <div class="d-flex gap-1">
+                            <div class="card-header ws-side-header">
+                                <h5 class="mb-0 ws-side-title"><i class="bi bi-diagram-3 me-2"></i>Integrations</h5>
+                                <div class="ws-side-actions">
                                     <button class="btn btn-sm btn-outline-primary" id="refreshIntegrationsBtn" title="Refresh">
                                         <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Hide list">
-                                        <i class="bi bi-layout-sidebar-inset"></i>
                                     </button>
                                 </div>
                             </div>
@@ -324,9 +366,14 @@
                         </div>
                     </div>
 
-                    <!-- Middle Column: Template Information -->
-                    <div class="col-12 col-lg-3 col-xl-2 mb-3 mb-lg-0" id="versionControlColumn">
-                        <div id="versionControlPanel" class="card sticky-sidebar d-none">
+                    <!-- Content Column: info strip + YAML editor -->
+                    <div class="col-lg-9 ws-main">
+                        <div class="ws-content-bar">
+                            <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Toggle list">
+                                <i class="bi bi-layout-sidebar-inset"></i>
+                            </button>
+                        </div>
+                        <div id="versionControlPanel" class="card integrations-info-strip d-none mb-3">
                             <div class="card-header">
                                 <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Template Information</h6>
                             </div>
@@ -439,17 +486,8 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Placeholder when no integration selected -->
-                        <div id="versionControlPlaceholder" class="card">
-                            <div class="card-body text-center text-muted py-4">
-                                <i class="bi bi-arrow-left display-6 d-block mb-2"></i>
-                                <small>Select an integration</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Right Column: YAML Editor -->
-                    <div class="col-12 col-lg-6 col-xl-8 ws-main">
+                        <!-- Kept for JS toggling; the single empty-state is the editor placeholder below -->
+                        <div id="versionControlPlaceholder" class="d-none"></div>
                         <div id="yamlEditorPanel" class="card d-none">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h6 class="mb-0">
@@ -774,16 +812,13 @@
             <div class="container-fluid py-4">
                 <div class="row ws-row" data-ws="config">
                     <!-- Config List Column -->
-                    <div class="col-lg-4 col-xl-3 ws-side">
+                    <div class="col-lg-3 ws-side">
                         <div class="card sticky-sidebar">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>Config</h5>
-                                <div class="d-flex gap-1">
+                            <div class="card-header ws-side-header">
+                                <h5 class="mb-0 ws-side-title"><i class="bi bi-gear me-2"></i>Config</h5>
+                                <div class="ws-side-actions">
                                     <button class="btn btn-sm btn-outline-primary" id="refreshConfigBtn" title="Refresh">
                                         <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Hide list">
-                                        <i class="bi bi-layout-sidebar-inset"></i>
                                     </button>
                                 </div>
                             </div>
@@ -804,9 +839,12 @@
                     </div>
 
                     <!-- Config Details Column -->
-                    <div class="col-lg-8 col-xl-9 ws-main">
+                    <div class="col-lg-9 ws-main">
                         <div id="configPanel" class="card">
-                            <div class="card-header">
+                            <div class="card-header d-flex align-items-center gap-2">
+                                <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Toggle list">
+                                    <i class="bi bi-layout-sidebar-inset"></i>
+                                </button>
                                 <h5 class="mb-0">
                                     <i class="bi bi-gear-fill me-2"></i>
                                     <span id="selectedConfigName">Select an Instance</span>
@@ -827,95 +865,37 @@
         </div>
 
         <!-- Execution Page (Original functionality) -->
-        <div id="page-trigger" class="page-container d-none">
-            <div class="container-fluid py-4">
-                <div class="row">
-                    <div class="col-lg-9 col-xl-8">
-                        <h4 class="mb-1"><i class="bi bi-lightning-charge me-2"></i>Trigger a Flow</h4>
-                        <p class="text-muted small mb-4">Select an instance, pick a flow, add a payload and headers, then trigger it — like Prismatic's instance test page. The resulting execution is linked so you can jump straight to its logs.</p>
-
-                        <div id="trigger-auth-warning" class="alert alert-warning d-none">
-                            <i class="bi bi-exclamation-triangle me-2"></i>Set up an API token first (top-right) to trigger flows.
-                        </div>
-
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <label class="form-label fw-semibold" for="triggerInstanceSearch">1. Instance</label>
-                                <input type="text" id="triggerInstanceSearch" class="form-control" placeholder="Search instances by name…" autocomplete="off">
-                                <div id="triggerInstanceResults" class="list-group mt-1"></div>
-                                <div id="triggerSelectedInstance" class="mt-2 d-none"></div>
-                            </div>
-                        </div>
-
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <label class="form-label fw-semibold" for="triggerFlowSelect">2. Flow</label>
-                                <select id="triggerFlowSelect" class="form-select" disabled>
-                                    <option value="">Select an instance first</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <label class="form-label fw-semibold d-block mb-2">3. Request</label>
-                                <div class="mb-3">
-                                    <label class="form-label small" for="triggerContentType">Content-Type</label>
-                                    <input type="text" id="triggerContentType" class="form-control" value="application/json">
-                                </div>
-                                <div class="mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <label class="form-label small mb-0">Headers</label>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="triggerAddHeaderBtn">
-                                            <i class="bi bi-plus-lg me-1"></i>Add header
-                                        </button>
-                                    </div>
-                                    <div id="triggerHeaders"></div>
-                                </div>
-                                <div>
-                                    <label class="form-label small" for="triggerPayload">Payload (body)</label>
-                                    <textarea id="triggerPayload" class="form-control font-monospace" rows="8" placeholder='{ "example": "value" }'></textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="d-flex align-items-center gap-3 mb-4">
-                            <button type="button" class="btn btn-primary" id="triggerRunBtn" disabled>
-                                <i class="bi bi-lightning-charge me-1"></i>Trigger Flow
-                            </button>
-                            <span id="triggerStatus" class="text-muted small"></span>
-                        </div>
-
-                        <div id="triggerResult"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <div id="page-execution" class="page-container d-none">
             <div class="container-fluid py-4">
                 <div class="row ws-row" data-ws="execution">
-                    <div class="col-md-3 col-lg-2 ws-side">
-                        <div class="sidebar">
-                            <div class="d-flex justify-content-end mb-2">
-                                <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Hide panel">
-                                    <i class="bi bi-layout-sidebar-inset"></i>
-                                </button>
+                    <div class="col-lg-3 col-xl-3 ws-side">
+                        <div class="card sticky-sidebar">
+                            <div class="card-header ws-side-header">
+                                <h5 class="mb-0 ws-side-title"><i class="bi bi-play-circle me-2"></i>Execution</h5>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label" for="executionId">Execution ID</label>
-                                <div class="d-flex execution-lookup">
-                                    <input type="text"
-                                        id="executionId"
-                                        class="form-control me-2"
-                                        placeholder="Enter Execution ID">
-                                    <button class="btn btn-primary" id="loadButton">Load</button>
+                            <div class="card-body">
+                                <div class="sidebar">
+                                    <div class="mb-3">
+                                        <label class="form-label" for="executionId">Execution ID</label>
+                                        <div class="d-flex execution-lookup">
+                                            <input type="text"
+                                                id="executionId"
+                                                class="form-control me-2"
+                                                placeholder="Enter Execution ID">
+                                            <button class="btn btn-primary" id="loadButton">Load</button>
+                                        </div>
+                                    </div>
+                                    <!-- Execution details and step navigation will be added dynamically -->
                                 </div>
                             </div>
-                            <!-- Execution details and step navigation will be added dynamically -->
                         </div>
                     </div>
-                    <div class="col-md-9 col-lg-10 ws-main">
+                    <div class="col-lg-9 col-xl-9 ws-main">
+                        <div class="ws-content-bar">
+                            <button class="btn btn-sm btn-outline-secondary ws-toggle" title="Toggle list">
+                                <i class="bi bi-layout-sidebar-inset"></i>
+                            </button>
+                        </div>
                         <div class="results-container">
                             <div id="error" class="alert alert-danger d-none"></div>
                             <div id="results" class="row"></div>
@@ -961,23 +941,23 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/urlstate.js?v=20260511d"></script>
     <script src="js/router.js?v=20260722a"></script>
-    <script src="js/api.js?v=20260722b"></script>
+    <script src="js/api.js?v=20260722v"></script>
     <script src="js/ui/namespace.js?v=20260511h"></script>
-    <script src="js/ui/util.js?v=20260722a"></script>
-    <script src="js/ui/workspace.js?v=20260722s"></script>
+    <script src="js/ui/util.js?v=20260722v"></script>
+    <script src="js/ui/workspace.js?v=w"></script>
     <script src="js/ui/json-viewer.js?v=20260722r"></script>
     <script src="js/ui/render.js?v=20260722b"></script>
-    <script src="js/pages/auth.js?v=20260511d"></script>
-    <script src="js/pages/instances.js?v=20260722b"></script>
+    <script src="js/pages/auth.js?v=20260722t"></script>
+    <script src="js/pages/instances.js?v=20260722z"></script>
     <script src="js/pages/integrations/namespace.js?v=20260511h"></script>
-    <script src="js/pages/integrations/list.js?v=20260722a"></script>
+    <script src="js/pages/integrations/list.js?v=20260722v"></script>
     <script src="js/pages/integrations/detail.js?v=20260722r"></script>
     <script src="js/pages/integrations/yaml.js?v=20260722a"></script>
-    <script src="js/pages/config.js?v=20260722a"></script>
-    <script src="js/pages/execution.js?v=20260511d"></script>
-    <script src="js/pages/trigger.js?v=20260722a"></script>
-    <script src="js/pages/analysis.js?v=20260722s"></script>
-    <script src="js/app.js?v=20260722a"></script>
+    <script src="js/pages/config.js?v=20260722v"></script>
+    <script src="js/pages/execution.js?v=20260722v"></script>
+    <script src="js/pages/trigger.js?v=20260722z"></script>
+    <script src="js/pages/analysis.js?v=20260722v"></script>
+    <script src="js/app.js?v=20260722y"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.36.1/min/vs/loader.js"></script>
     <script>
       require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.36.1/min/vs' }});

@@ -387,11 +387,33 @@ const AuthPage = (() => {
         validationCache = { endpoint: null, token: null, result: null, ts: 0 };
     }
 
+    // Open the "Setup Token" UI in place. On desktop this is the navbar
+    // "Connect to Prismatic" dropdown popover; on mobile that dropdown is
+    // hidden, so fall back to the full-page auth form. Lets other pages prompt
+    // for a token without bouncing the user away from where they are.
+    function openSetup() {
+        init();
+        loadSavedAuth();
+
+        const link = document.getElementById('authNavLink');
+        if (isMobileView() || !link || !window.bootstrap || !bootstrap.Dropdown) {
+            Router.navigate('auth');
+            return;
+        }
+        try {
+            bootstrap.Dropdown.getOrCreateInstance(link).show();
+            setTimeout(() => document.getElementById('authApiTokenDropdown')?.focus(), 150);
+        } catch (e) {
+            Router.navigate('auth');
+        }
+    }
+
     return {
         init,
         onRoute,
         updateAuthStatus,
-        clearValidationCache
+        clearValidationCache,
+        openSetup
     };
 })();
 

@@ -158,6 +158,51 @@
             .replace(/'/g, '&#39;');
     }
 
+    // ------------------------------------------------------------------
+    // Canonical "not connected to Prismatic" state.
+    // Every page shows the SAME prompt in the SAME place when there is no
+    // valid API token: showAuthRequired() injects a centered card into the
+    // page-container and hides the page's real content (via CSS on
+    // `.auth-blocked`); hideAuthRequired() reverses it. The button and the
+    // page's own guard both call AuthPage.openSetup().
+    // ------------------------------------------------------------------
+    function resolvePage(pageId) {
+        return document.getElementById(pageId && pageId.startsWith('page-') ? pageId : 'page-' + pageId);
+    }
+
+    function showAuthRequired(pageId, noun = 'this data') {
+        const page = resolvePage(pageId);
+        if (!page) return;
+        let wrap = page.querySelector(':scope > .auth-required-wrap');
+        if (!wrap) {
+            wrap = document.createElement('div');
+            wrap.className = 'auth-required-wrap';
+            wrap.innerHTML =
+                '<div class="auth-required">' +
+                    '<i class="bi bi-key-fill auth-required-icon"></i>' +
+                    '<h5 class="auth-required-title">Connect to Prismatic</h5>' +
+                    '<p class="auth-required-text"></p>' +
+                    '<button type="button" class="btn btn-primary auth-required-btn">' +
+                        '<i class="bi bi-key me-1"></i>Set up token' +
+                    '</button>' +
+                '</div>';
+            page.appendChild(wrap);
+            wrap.querySelector('.auth-required-btn').addEventListener('click', (e) => {
+                // Don't let the click reach Bootstrap's document listener, which
+                // would immediately close the popover we're about to open.
+                e.stopPropagation();
+                if (window.AuthPage && window.AuthPage.openSetup) window.AuthPage.openSetup();
+            });
+        }
+        wrap.querySelector('.auth-required-text').textContent = 'Set up an API token to view ' + noun + '.';
+        page.classList.add('auth-blocked');
+    }
+
+    function hideAuthRequired(pageId) {
+        const page = resolvePage(pageId);
+        if (page) page.classList.remove('auth-blocked');
+    }
+
     Object.assign(window.UI, {
         initTheme,
         showError,
@@ -165,6 +210,8 @@
         showLoadingProgress,
         hideLoadingProgress,
         escapeHtml,
-        escapeAttr
+        escapeAttr,
+        showAuthRequired,
+        hideAuthRequired
     });
 })();

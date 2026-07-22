@@ -20,12 +20,13 @@ A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) int
 - **Live polling** — in-flight execution lists auto-refresh every 5 seconds
 - **Opaque shareable URLs** — every view collapses to a single base64 token (`#<base64>`), so links carry the exact view (instance + filters) without exposing query strings; old `#instances?...&f=...` URLs are auto-upgraded in place
 
-### Trigger
-- **Trigger (test-invoke) a flow** — the same operation as Prismatic's instance test page, without leaving Loggie
-- **Guided flow** — search and select an instance, pick one of its flows, then compose the request
+### Trigger (inside Instances)
+- **Lives in the instance view** — select an instance, then use the **Trigger ⇄ Executions** toggle (next to Share) to switch the detail panel between its execution list and a trigger form. There's no separate Trigger tab; the legacy `#trigger` URL redirects to Instances.
+- **Trigger (test-invoke) a flow** — the same operation as Prismatic's instance test page, scoped to the selected instance
 - **Custom request** — set the `Content-Type`, add/remove arbitrary header rows, and supply a raw payload body
 - **Inline result** — response HTTP status, response headers, and response body are shown after triggering
 - **Jump to the execution** — the run's execution is linked, so one click takes you to its full step logs on the Execution page
+- **Shareable** — Share in trigger mode encodes instance + flow + content-type + headers + payload, so the link opens straight into a prefilled trigger form
 - Runs entirely over the GraphQL API (`testInstanceFlowConfig`), so there are no cross-origin/webhook-CORS issues
 
 ### Execution Detail
@@ -54,7 +55,9 @@ A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) int
 - **Dark / light theme** with preference persistence
 - **Design system** — a single `css/theme.css` layer defines the visual language: indigo accent, neutral top bar, compact density, and a token set (colour / radius / shadow) that both light and dark themes and all Bootstrap components track. Layered on top of `css/styles.css` so behaviour/layout stays separate from styling.
 - **Responsive across devices** — dynamic layouts verified from folded phones (~280px) and slab phones through iPad-class tablets to desktop: reflowing KPI/chart grids, ≥40px touch targets, no horizontal overflow, and 16px inputs (no iOS zoom)
-- **Collapsible sidebars** — list/detail pages (Instances, Config, Execution, Integrations) can collapse their list column so the detail area uses the full width; state persists per page in `localStorage`. Desktop-only (≥992px); narrower screens stack.
+- **Universal master–detail layout** — every page except Analysis uses one shell: a collapsible left **sidebar** (list/nav) + a **content** area. Instances → executions *or* trigger form (toggle), Config → config vars, Execution → step output, Integrations → info strip + YAML editor (the old 3rd column is folded into a header strip). One consistent sidebar style, one content shell.
+- **Collapsible sidebar** — the collapse toggle sits at the far-left of the content toolbar; collapsing fully hides the sidebar so the content uses the entire width (no rail / dead space). State persists per page in `localStorage`. Desktop-only (≥992px); narrower screens stack. Driven by the shared `js/ui/workspace.js` (`.ws-row`/`.ws-side`/`.ws-main`).
+- **Unified "not connected" state** — every page (Analysis, Instances, Execution, Config, Integrations) shows the *same* centered "Connect to Prismatic" prompt and opens the Setup Token popover when there's no valid token, via the shared `UI.showAuthRequired()` helper and `AuthPage.openSetup()`. A `401` from any API call (expired/invalid token) routes to the same state. No page-specific banners, sidebar messages, error toasts, or redirects.
 - **No build step** — pure vanilla JS + Bootstrap; just serve and use
 - **Built-in rate limiter** — 4 req/s (250 ms minimum gap) to stay well inside Prismatic's 20 req/s limit
 

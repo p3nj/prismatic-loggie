@@ -130,6 +130,10 @@ const TriggerPage = (() => {
             el('triggerClearInstance')?.addEventListener('click', clearInstance);
         }
 
+        // Reveal the config (flow + request) in the content area.
+        el('triggerConfig')?.classList.remove('d-none');
+        el('triggerEmptyState')?.classList.add('d-none');
+
         setTriggerEnabled();
         loadFlows(id);
     }
@@ -139,6 +143,9 @@ const TriggerPage = (() => {
         selectedFlowConfigId = null;
         const selDiv = el('triggerSelectedInstance');
         if (selDiv) { selDiv.classList.add('d-none'); selDiv.innerHTML = ''; }
+        // Hide the config again and restore the empty state.
+        el('triggerConfig')?.classList.add('d-none');
+        el('triggerEmptyState')?.classList.remove('d-none');
         const flowSelect = el('triggerFlowSelect');
         if (flowSelect) {
             flowSelect.innerHTML = '<option value="">Select an instance first</option>';
@@ -288,17 +295,56 @@ const TriggerPage = (() => {
         }
     }
 
-    // ----- route ---------------------------------------------------------
+    // ----- embedded in Instances page ------------------------------------
 
-    function onRoute() {
+    // Mount the trigger UI for an instance already selected on the Instances
+    // page. Loads that instance's flows, then optionally prefills a shared
+    // request (flow + content-type + headers + payload).
+    async function mountForInstance(id, name, shareState) {
         init();
-        const warn = el('trigger-auth-warning');
-        if (warn) warn.classList.toggle('d-none', API.isAuthenticated());
+        selectedInstance = { id, name };
+        selectedFlowConfigId = null;
+        const resultEl = el('triggerResult');
+        if (resultEl) resultEl.innerHTML = '';
+        setTriggerEnabled();
+        await loadFlows(id);
+        if (shareState) applyShareState(shareState);
+    }
+
+    // Capture the current request so it can be encoded into a shareable URL.
+    function getShareState() {
+        return {
+            flowId: selectedFlowConfigId || (el('triggerFlowSelect')?.value || ''),
+            contentType: el('triggerContentType')?.value || '',
+            payload: el('triggerPayload')?.value || '',
+            headers: collectHeaders() || ''
+        };
+    }
+
+    // Prefill the form from a shared state (called after flows are loaded).
+    function applyShareState(st) {
+        if (!st) return;
+        if (st.contentType != null && el('triggerContentType')) el('triggerContentType').value = st.contentType;
+        if (st.payload != null && el('triggerPayload')) el('triggerPayload').value = st.payload;
+        const hc = el('triggerHeaders');
+        if (hc && st.headers) {
+            hc.innerHTML = '';
+            try {
+                const obj = typeof st.headers === 'string' ? JSON.parse(st.headers) : st.headers;
+                Object.entries(obj).forEach(([k, v]) => addHeaderRow(k, v));
+            } catch (e) { addHeaderRow('', ''); }
+        }
+        if (st.flowId && el('triggerFlowSelect')) {
+            el('triggerFlowSelect').value = st.flowId;
+            selectedFlowConfigId = el('triggerFlowSelect').value || null;
+            setTriggerEnabled();
+        }
     }
 
     return {
         init,
-        onRoute
+        mountForInstance,
+        getShareState
     };
 })();
 
