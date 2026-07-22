@@ -51,28 +51,30 @@ const AnalysisPage = (() => {
         topErrors: null
     };
 
-    // Chart.js default colors
+    // Chart palette — aligned with the indigo/semantic design system.
+    // The categorical `palette` is a curated, muted qualitative set (not a
+    // neon rainbow): distinguishable and legible in both light and dark.
     const chartColors = {
-        success: 'rgba(25, 135, 84, 0.8)',
-        successBg: 'rgba(25, 135, 84, 0.2)',
-        error: 'rgba(220, 53, 69, 0.8)',
-        errorBg: 'rgba(220, 53, 69, 0.2)',
-        primary: 'rgba(13, 110, 253, 0.8)',
-        primaryBg: 'rgba(13, 110, 253, 0.2)',
-        secondary: 'rgba(108, 117, 125, 0.8)',
-        warning: 'rgba(255, 193, 7, 0.8)',
-        info: 'rgba(13, 202, 240, 0.8)',
+        success: 'rgba(22, 163, 74, 0.85)',   // #16a34a
+        successBg: 'rgba(22, 163, 74, 0.20)',
+        error: 'rgba(220, 38, 38, 0.85)',      // #dc2626
+        errorBg: 'rgba(220, 38, 38, 0.20)',
+        primary: 'rgba(79, 70, 229, 0.85)',    // indigo #4f46e5
+        primaryBg: 'rgba(79, 70, 229, 0.20)',
+        secondary: 'rgba(100, 116, 139, 0.85)',// slate #64748b
+        warning: 'rgba(217, 119, 6, 0.85)',    // #d97706
+        info: 'rgba(8, 145, 178, 0.85)',       // #0891b2
         palette: [
-            'rgba(54, 162, 235, 0.8)',
-            'rgba(255, 99, 132, 0.8)',
-            'rgba(255, 206, 86, 0.8)',
-            'rgba(75, 192, 192, 0.8)',
-            'rgba(153, 102, 255, 0.8)',
-            'rgba(255, 159, 64, 0.8)',
-            'rgba(199, 199, 199, 0.8)',
-            'rgba(83, 102, 255, 0.8)',
-            'rgba(255, 99, 255, 0.8)',
-            'rgba(99, 255, 132, 0.8)'
+            'rgba(79, 70, 229, 0.85)',   // indigo
+            'rgba(13, 148, 136, 0.85)',  // teal
+            'rgba(217, 119, 6, 0.85)',   // amber
+            'rgba(225, 29, 72, 0.85)',   // rose
+            'rgba(124, 58, 237, 0.85)',  // violet
+            'rgba(8, 145, 178, 0.85)',   // cyan
+            'rgba(101, 163, 13, 0.85)',  // lime
+            'rgba(219, 39, 119, 0.85)',  // pink
+            'rgba(37, 99, 235, 0.85)',   // blue
+            'rgba(100, 116, 139, 0.85)'  // slate
         ]
     };
 
@@ -282,6 +284,44 @@ const AnalysisPage = (() => {
         }
     }
 
+    // Build a synthetic "today" daily-metrics row from live execution counts.
+    // Uses executionResults.totalCount with a status filter, so it's three cheap
+    // first:1 queries — no full pagination. Step count / spend aren't available
+    // this way, so they're left null (rendered as "—" rather than a bogus 0).
+    async function fetchTodayMetricsFromExecutions() {
+        const todayStr = formatDateForInput(new Date());
+        const base = {
+            first: 1,
+            startedAtGte: todayStr + 'T00:00:00Z',
+            startedAtLte: todayStr + 'T23:59:59Z'
+        };
+        if (state.level === 'instance' && state.selectedInstanceId) {
+            base.instanceId = state.selectedInstanceId;
+        }
+        try {
+            // ExecutionStatus enum: PENDING, SUCCESS, ERROR, QUEUED
+            const [succ, err] = await Promise.all([
+                API.fetchExecutions({ ...base, status: 'SUCCESS' }),
+                API.fetchExecutions({ ...base, status: 'ERROR' })
+            ]);
+            const successful = Number(succ?.totalCount) || 0;
+            const failed = Number(err?.totalCount) || 0;
+            if (successful === 0 && failed === 0) return null;
+            return {
+                id: 'today-synth',
+                snapshotDate: todayStr,
+                successfulExecutionCount: successful,
+                failedExecutionCount: failed,
+                stepCount: null,
+                spendMbSecs: null,
+                __synthesized: true
+            };
+        } catch (e) {
+            console.warn('Could not synthesise today\'s metrics from executions:', e.message);
+            return null;
+        }
+    }
+
     // Load daily metrics
     async function loadDailyMetrics() {
         try {
@@ -330,6 +370,25 @@ const AnalysisPage = (() => {
             } else {
                 metricsData = [];
             }
+
+            // Daily usage snapshots are generated for COMPLETED days, so a range
+            // that includes today (most importantly the "Today" preset) comes back
+            // with no row for today — the whole dashboard reads as zeros. Fill that
+            // gap with a row synthesised from live execution counts.
+            const todayStr = formatDateForInput(new Date());
+            const rangeIncludesToday = state.dateTo === todayStr;
+            const hasTodayRow = metricsData.some(m => m.snapshotDate === todayStr);
+            const canSynth = state.level === 'org' ||
+                (state.level === 'instance' && state.selectedInstanceId);
+            if (rangeIncludesToday && !hasTodayRow && canSynth) {
+                const todayRow = await fetchTodayMetricsFromExecutions();
+                if (todayRow) metricsData = metricsData.concat(todayRow);
+            }
+
+            // Ensure chronological order (oldest → newest) for the time-series chart,
+            // regardless of API order or an appended synthetic row.
+            metricsData.sort((a, b) =>
+                a.snapshotDate < b.snapshotDate ? -1 : a.snapshotDate > b.snapshotDate ? 1 : 0);
 
             state.data.dailyMetrics = metricsData;
             updateKPIs();
@@ -627,7 +686,13 @@ const AnalysisPage = (() => {
         document.getElementById('kpiFailed').textContent = formatLargeNumber(totalFailed);
         document.getElementById('kpiSuccessRate').textContent = successRate + '%';
         document.getElementById('kpiSuccessRateBar').style.width = successRate + '%';
-        document.getElementById('kpiTotalSteps').textContent = formatLargeNumber(totalSteps);
+        // Step count isn't available for a synthesised "today" row — show "—"
+        // instead of a misleading 0 when there are executions but no step data.
+        const stepsEl = document.getElementById('kpiTotalSteps');
+        stepsEl.textContent = (totalSteps === 0 && total > 0) ? '—' : formatLargeNumber(totalSteps);
+        stepsEl.title = (totalSteps === 0 && total > 0)
+            ? "Step counts aren't available for today yet (daily snapshot pending)"
+            : '';
     }
 
     // Update executions over time chart
@@ -825,7 +890,7 @@ const AnalysisPage = (() => {
                     label: 'MB-secs',
                     data: spendData,
                     borderColor: chartColors.info,
-                    backgroundColor: 'rgba(13, 202, 240, 0.2)',
+                    backgroundColor: 'rgba(8, 145, 178, 0.2)',
                     fill: true,
                     tension: 0.3
                 }]

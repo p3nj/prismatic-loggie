@@ -509,7 +509,7 @@
             language: 'json',
             theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
             automaticLayout: true,
-            minimap: { enabled: true },
+            minimap: { enabled: window.innerWidth > 768 },
             folding: true,
             lineNumbers: 'on',
             scrollBeyondLastLine: false
@@ -973,7 +973,7 @@
                     language: 'json',
                     theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
                     automaticLayout: true,
-                    minimap: { enabled: true },
+                    minimap: { enabled: window.innerWidth > 768 },
                     folding: true,
                     lineNumbers: 'on',
                     scrollBeyondLastLine: false

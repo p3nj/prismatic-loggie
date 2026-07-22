@@ -330,7 +330,7 @@
             language: 'yaml',
             theme: getCurrentTheme(),
             automaticLayout: true,
-            minimap: { enabled: true },
+            minimap: { enabled: window.innerWidth > 768 },
             readOnly: readOnly,
             wordWrap: 'on',
             scrollBeyondLastLine: false,

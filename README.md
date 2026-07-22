@@ -52,6 +52,9 @@ A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) int
 ### Cross-cutting
 - **Multi-region support** — US, AP Southeast 2, CA Central 1, EU West 1/2, US Gov West 1
 - **Dark / light theme** with preference persistence
+- **Design system** — a single `css/theme.css` layer defines the visual language: indigo accent, neutral top bar, compact density, and a token set (colour / radius / shadow) that both light and dark themes and all Bootstrap components track. Layered on top of `css/styles.css` so behaviour/layout stays separate from styling.
+- **Responsive across devices** — dynamic layouts verified from folded phones (~280px) and slab phones through iPad-class tablets to desktop: reflowing KPI/chart grids, ≥40px touch targets, no horizontal overflow, and 16px inputs (no iOS zoom)
+- **Collapsible sidebars** — list/detail pages (Instances, Config, Execution, Integrations) can collapse their list column so the detail area uses the full width; state persists per page in `localStorage`. Desktop-only (≥992px); narrower screens stack.
 - **No build step** — pure vanilla JS + Bootstrap; just serve and use
 - **Built-in rate limiter** — 4 req/s (250 ms minimum gap) to stay well inside Prismatic's 20 req/s limit
 
@@ -133,7 +136,8 @@ prismatic-loggie/
 ├── fetch-schema.js           # Script for refreshing schema.json (not in app)
 ├── fetch-schema-interactive.html
 ├── css/
-│   └── styles.css            # Dark/light theme, layout, components
+│   ├── styles.css            # Layout, components, responsive behaviour
+│   └── theme.css             # Design-system layer: tokens, typography, component restyle (loaded after styles.css)
 └── js/
     ├── app.js                # Entry point: theme init, auth init, route registration
     ├── urlstate.js           # base64 JSON codec for the URL hash
@@ -142,6 +146,7 @@ prismatic-loggie/
     ├── ui/                   # Shared DOM rendering, split for cohesion
     │   ├── namespace.js      #   creates window.UI
     │   ├── util.js           #   theme, loading/error indicators, escapeHtml
+    │   ├── workspace.js      #   collapsible list/detail sidebars (persisted)
     │   ├── json-viewer.js    #   JSON detection + Monaco-backed modal
     │   └── render.js         #   logs, step nav, linked executions, exec detail
     └── pages/
