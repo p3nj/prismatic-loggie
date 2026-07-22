@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.register('config', ConfigPage.onRoute);
     Router.register('analysis', AnalysisPage.onRoute);
     Router.register('execution', ExecutionPage.onRoute);
+    Router.register('trigger', TriggerPage.onRoute);
 
     // Tear down the outgoing page on EVERY route change. This must be an
     // onRouteChange hook, not beforeNavigate: navbar links are plain #<hash>

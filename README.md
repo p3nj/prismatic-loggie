@@ -20,6 +20,14 @@ A browser-side, no-build dashboard for the [Prismatic](https://prismatic.io) int
 - **Live polling** — in-flight execution lists auto-refresh every 5 seconds
 - **Opaque shareable URLs** — every view collapses to a single base64 token (`#<base64>`), so links carry the exact view (instance + filters) without exposing query strings; old `#instances?...&f=...` URLs are auto-upgraded in place
 
+### Trigger
+- **Trigger (test-invoke) a flow** — the same operation as Prismatic's instance test page, without leaving Loggie
+- **Guided flow** — search and select an instance, pick one of its flows, then compose the request
+- **Custom request** — set the `Content-Type`, add/remove arbitrary header rows, and supply a raw payload body
+- **Inline result** — response HTTP status, response headers, and response body are shown after triggering
+- **Jump to the execution** — the run's execution is linked, so one click takes you to its full step logs on the Execution page
+- Runs entirely over the GraphQL API (`testInstanceFlowConfig`), so there are no cross-origin/webhook-CORS issues
+
 ### Execution Detail
 - **Step-by-step navigation** with loop iteration tracking
 - **Step outputs** decoded from MessagePack, auto-formatted as JSON
@@ -139,6 +147,7 @@ prismatic-loggie/
     └── pages/
         ├── analysis.js       # Org-wide analysis + charts (default route)
         ├── instances.js      # Instance browser + execution list + filters
+        ├── trigger.js        # Trigger a flow: instance → flow → payload/headers → run
         ├── execution.js      # Single execution viewer + live polling
         ├── integrations/     # Integrations page, split for cohesion
         │   ├── namespace.js  #   creates window.IntegrationsPage
