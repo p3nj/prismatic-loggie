@@ -60,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
         'page-instances': 'instances',
         'page-config': 'instance configuration',
         'page-execution': 'execution logs',
-        'page-trigger': 'the flow trigger',
         'page-integrations': 'integrations'
     };
     window.addEventListener('prismatic:auth-invalid', () => {

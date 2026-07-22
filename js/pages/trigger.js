@@ -7,8 +7,6 @@ const TriggerPage = (() => {
     let initialized = false;
     let selectedInstance = null;      // { id, name }
     let selectedFlowConfigId = null;
-    let searchTimeout = null;
-    let searchSeq = 0;                 // guard so a slow search can't overwrite newer results
 
     // ----- helpers -------------------------------------------------------
 
@@ -37,25 +35,6 @@ const TriggerPage = (() => {
     }
 
     function setupEventListeners() {
-        const search = el('triggerInstanceSearch');
-        if (search) {
-            search.addEventListener('input', (e) => {
-                clearTimeout(searchTimeout);
-                const term = e.target.value.trim();
-                searchTimeout = setTimeout(() => runInstanceSearch(term), 300);
-            });
-        }
-
-        // Instance results (delegated click).
-        const results = el('triggerInstanceResults');
-        if (results) {
-            results.addEventListener('click', (e) => {
-                const item = e.target.closest('[data-instance-id]');
-                if (!item) return;
-                selectInstance(item.dataset.instanceId, item.dataset.instanceName);
-            });
-        }
-
         const flowSelect = el('triggerFlowSelect');
         if (flowSelect) {
             flowSelect.addEventListener('change', (e) => {
@@ -80,80 +59,7 @@ const TriggerPage = (() => {
         if (runBtn) runBtn.addEventListener('click', triggerFlow);
     }
 
-    // ----- instance search / selection -----------------------------------
-
-    async function runInstanceSearch(term) {
-        const results = el('triggerInstanceResults');
-        if (!results) return;
-        if (!API.isAuthenticated()) { results.innerHTML = ''; return; }
-        if (!term) { results.innerHTML = ''; return; }
-
-        const seq = ++searchSeq;
-        results.innerHTML = '<div class="list-group-item text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Searching…</div>';
-        try {
-            const data = await API.fetchInstances({ first: 8, searchTerm: term });
-            if (seq !== searchSeq) return; // superseded
-            const edges = data?.edges || [];
-            if (!edges.length) {
-                results.innerHTML = '<div class="list-group-item text-muted small">No instances found</div>';
-                return;
-            }
-            results.innerHTML = edges.map(edge => {
-                const n = edge.node;
-                const sub = [n.customer?.name, n.integration?.name].filter(Boolean).join(' · ');
-                return `<button type="button" class="list-group-item list-group-item-action"
-                            data-instance-id="${escapeAttr(n.id)}" data-instance-name="${escapeAttr(n.name)}">
-                        <div class="fw-medium">${escapeHtml(n.name)}</div>
-                        ${sub ? `<small class="text-muted">${escapeHtml(sub)}</small>` : ''}
-                    </button>`;
-            }).join('');
-        } catch (err) {
-            if (seq !== searchSeq) return;
-            results.innerHTML = `<div class="list-group-item text-danger small">${escapeHtml(err.message)}</div>`;
-        }
-    }
-
-    function selectInstance(id, name) {
-        selectedInstance = { id, name };
-        selectedFlowConfigId = null;
-
-        const results = el('triggerInstanceResults');
-        if (results) results.innerHTML = '';
-        const search = el('triggerInstanceSearch');
-        if (search) search.value = '';
-
-        const selDiv = el('triggerSelectedInstance');
-        if (selDiv) {
-            selDiv.classList.remove('d-none');
-            selDiv.innerHTML = `<span class="badge bg-primary"><i class="bi bi-check-circle me-1"></i>${escapeHtml(name)}</span>
-                <button type="button" class="btn btn-sm btn-link p-0 ms-2" id="triggerClearInstance">change</button>`;
-            el('triggerClearInstance')?.addEventListener('click', clearInstance);
-        }
-
-        // Reveal the config (flow + request) in the content area.
-        el('triggerConfig')?.classList.remove('d-none');
-        el('triggerEmptyState')?.classList.add('d-none');
-
-        setTriggerEnabled();
-        loadFlows(id);
-    }
-
-    function clearInstance() {
-        selectedInstance = null;
-        selectedFlowConfigId = null;
-        const selDiv = el('triggerSelectedInstance');
-        if (selDiv) { selDiv.classList.add('d-none'); selDiv.innerHTML = ''; }
-        // Hide the config again and restore the empty state.
-        el('triggerConfig')?.classList.add('d-none');
-        el('triggerEmptyState')?.classList.remove('d-none');
-        const flowSelect = el('triggerFlowSelect');
-        if (flowSelect) {
-            flowSelect.innerHTML = '<option value="">Select an instance first</option>';
-            flowSelect.disabled = true;
-        }
-        setTriggerEnabled();
-        el('triggerInstanceSearch')?.focus();
-    }
+    // ----- flows ---------------------------------------------------------
 
     async function loadFlows(instanceId) {
         const flowSelect = el('triggerFlowSelect');
