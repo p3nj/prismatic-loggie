@@ -219,11 +219,32 @@ const API = (() => {
                 flowConfigs {
                     nodes {
                         id
+                        webhookUrl
                         flow {
                             id
                             name
                         }
                     }
+                }
+            }
+        }
+    `;
+
+    // Mutation: trigger (test-invoke) an instance flow. Mirrors Prismatic's
+    // instance test page — runs the deployed flow with the given body/headers
+    // and returns the HTTP-style response plus the created execution.
+    const testInstanceFlowConfigMutation = `
+        mutation TestInstanceFlowConfig($input: TestInstanceFlowConfigInput!) {
+            testInstanceFlowConfig(input: $input) {
+                testInstanceFlowConfigResult {
+                    statusCode
+                    headers
+                    body
+                    execution { id }
+                }
+                errors {
+                    field
+                    messages
                 }
             }
         }
@@ -1048,6 +1069,34 @@ const API = (() => {
         return data.instance;
     }
 
+    // Trigger (test-invoke) an instance flow. `flowConfigId` is the
+    // InstanceFlowConfig id (from fetchInstanceFlows -> flowConfigs.nodes[].id).
+    // `headers` should be a JSON string of { name: value } or null. Returns the
+    // result { statusCode, headers, body, execution } or throws with the
+    // server's error messages.
+    async function testInstanceFlowConfig(flowConfigId, { payload = '', contentType = 'application/json', headers = null } = {}) {
+        if (!flowConfigId) throw new Error('A flow must be selected before triggering.');
+        const input = { id: flowConfigId, payload: payload ?? '', contentType: contentType || 'application/json' };
+        if (headers) input.headers = headers;
+
+        const data = await graphqlRequest(testInstanceFlowConfigMutation, { input });
+        const payloadOut = data.testInstanceFlowConfig;
+        if (!payloadOut) {
+            throw new Error('Trigger failed: no result returned (check permissions and that the flow is deployed).');
+        }
+        // errors may come back as a single object or a list depending on schema.
+        const rawErrors = payloadOut.errors;
+        const errs = Array.isArray(rawErrors) ? rawErrors : (rawErrors ? [rawErrors] : []);
+        if (errs.length) {
+            const msg = errs
+                .map(e => Array.isArray(e.messages) ? e.messages.join(', ') : e.messages)
+                .filter(Boolean)
+                .join('; ');
+            throw new Error(msg || 'Trigger failed.');
+        }
+        return payloadOut.testInstanceFlowConfigResult || null;
+    }
+
     // Fetch executions for a specific instance
     async function fetchExecutionsByInstance(instanceId, options = {}) {
         const { first = 20, after = null, startedAtGte = null, startedAtLte = null, status = null, flowId = null, direction = null } = options;
@@ -1663,6 +1712,7 @@ const API = (() => {
         updateInstanceConfigVariables,
         updateInstanceConfigVariable,
         fetchInstanceFlows,
+        testInstanceFlowConfig,
         fetchExecutionsByInstance,
         fetchExecutions,
         replayExecution,
