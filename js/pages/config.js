@@ -446,6 +446,21 @@ const ConfigPage = (() => {
         return out;
     }
 
+    // Same as inputsAsObject but masks likely-secret inputs, for display
+    // surfaces (the JSON view) that must not echo raw secret values into the
+    // DOM. Uses the same heuristic as the edit form so the two views agree.
+    function inputsAsObjectMasked(node) {
+        const edges = node?.inputs?.edges || [];
+        const out = {};
+        edges.forEach(e => {
+            const n = e?.node;
+            if (n?.name != null) {
+                out[n.name] = isLikelySecretInput(n.name, n.value) ? '•••• hidden' : n.value;
+            }
+        });
+        return out;
+    }
+
     // Live cron expression for a schedule. Prismatic stores the cron on the
     // top-level `value` field of the InstanceConfigVariable regardless of the
     // `scheduleType` category — e.g. a "MINUTE" preset can still carry a
@@ -456,6 +471,39 @@ const ConfigPage = (() => {
         const inputs = inputsAsObject(node);
         return inputs.value ?? inputs.cron ?? inputs.schedule
             ?? Object.values(inputs).find(v => v != null && v !== '') ?? '';
+    }
+
+    // Basic cron sanity check: a standard 5-field or Quartz-style 6-field
+    // expression. This is a shape check, not a full parser — enough to stop an
+    // empty or obviously-garbage cron from being saved.
+    function isValidCron(expr) {
+        if (typeof expr !== 'string') return false;
+        const parts = expr.trim().split(/\s+/);
+        return parts.length === 5 || parts.length === 6;
+    }
+
+    // Validate pending schedule edits before save. Returns an error message, or
+    // null if all good. A non-NONE schedule must carry a valid, non-empty cron:
+    // saving an empty/invalid cron can disable or misfire the instance trigger.
+    function validateScheduleChanges(schedChanges, currentInstance) {
+        const nodesById = new Map();
+        (currentInstance?.configVariables?.edges || []).forEach(e => {
+            if (e.node?.id) nodesById.set(e.node.id, e.node);
+        });
+        for (const [configVarId, bucket] of Object.entries(schedChanges)) {
+            if (!bucket) continue;
+            const node = nodesById.get(configVarId);
+            const newType = (bucket.scheduleType ?? node?.scheduleType ?? 'NONE').toUpperCase();
+            if (newType === 'NONE') continue;
+            const newCron = bucket.cron ?? customScheduleValue(node);
+            if (!newCron || !String(newCron).trim()) {
+                return `Schedule "${bucket.key}" is set to ${newType} but has no cron expression.`;
+            }
+            if (!isValidCron(newCron)) {
+                return `Schedule "${bucket.key}" has an invalid cron expression: "${newCron}". Use 5 or 6 space-separated fields.`;
+            }
+        }
+        return null;
     }
 
     // Prismatic masks secret connection inputs by returning the literal string
@@ -505,7 +553,7 @@ const ConfigPage = (() => {
                 status: node.status || null,
                 refreshAt: node.refreshAt || null,
                 lastSuccessfulRefreshAt: node.lastSuccessfulRefreshAt || null,
-                inputs: inputsAsObject(node),
+                inputs: inputsAsObjectMasked(node),
             };
         }
         if (dt === 'SCHEDULE') {
@@ -1450,7 +1498,12 @@ const ConfigPage = (() => {
                 language: 'json',
                 theme: getCurrentTheme(),
                 automaticLayout: true,
-                readOnly: !editMode,
+                // Always read-only. saveConfiguration only reads the structured
+                // edit buckets (scalar/connection/schedule), never this editor's
+                // buffer, so making it writable silently discarded JSON-tab
+                // edits after a "saved successfully" toast. Editing happens on
+                // the Variables tab; this tab is a faithful read-only view.
+                readOnly: true,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 fontSize: 14,
@@ -1476,7 +1529,11 @@ const ConfigPage = (() => {
                 if (dataType === 'CONNECTION' || dataType === 'SCHEDULE') {
                     effective = effectiveValueForJson(configVar);
                 } else {
-                    effective = configChanges[configVar.id]?.value ?? configVar.value ?? null;
+                    // configChanges is keyed by config-var KEY (see
+                    // handleConfigChange), not id — the previous configVar.id
+                    // lookup was always undefined, so the JSON view never
+                    // reflected pending scalar edits.
+                    effective = configChanges[key]?.value ?? configVar.value ?? null;
                 }
                 configVarsObj[key] = {
                     value: effective,
@@ -1530,6 +1587,16 @@ const ConfigPage = (() => {
         if (!hasUnsavedChanges || (!hasScalarChanges && !hasConnInputChanges && !hasScheduleChanges)) {
             showToast('No changes to save', 'info');
             return;
+        }
+
+        // Block saves that would persist an empty/invalid cron for an enabled
+        // schedule (which can disable or misfire the instance trigger).
+        if (hasScheduleChanges) {
+            const scheduleError = validateScheduleChanges(scheduleChanges, selectedInstanceConfig);
+            if (scheduleError) {
+                showToast(scheduleError, 'error');
+                return;
+            }
         }
 
         // Snapshot live buckets — any further keystrokes go into the
@@ -1621,18 +1688,29 @@ const ConfigPage = (() => {
             const merged = (node.inputs?.edges || []).map(e => {
                 const inp = e.node || {};
                 const override = bucket.inputs[inp.name];
-                let value = inp.value ?? '';
+                // Preserve the original value verbatim for untouched inputs.
+                // The save format is a `values` array of InputExpression
+                // {name,type,value,meta}; a COMPLEX input's data lives in its
+                // own value/meta, so the previous `inp.value ?? ''` collapsed
+                // complex/non-string values to an empty string and wiped them.
+                let value = inp.value;
                 if (override !== undefined) {
                     const isSecret = isLikelySecretInput(inp.name, inp.value);
-                    // User cleared a masked-secret field → echo "NA" so the
-                    // platform leaves the real secret untouched.
-                    value = (isSecret && override === '') ? (inp.value ?? '') : override;
+                    // User cleared a masked-secret field → echo the original so
+                    // the platform leaves the real secret untouched.
+                    value = (isSecret && override === '') ? inp.value : override;
                 }
-                return {
+                const expr = {
                     name: inp.name,
                     type: expressionTypeForInput(inp.type),
                     value,
                 };
+                // Round-trip meta (InputExpression supports it) so COMPLEX and
+                // other meta-bearing inputs aren't silently stripped on save.
+                if (inp.meta !== undefined && inp.meta !== null) {
+                    expr.meta = inp.meta;
+                }
+                return expr;
             });
             out.push({ key: bucket.key, values: JSON.stringify(merged) });
         }
