@@ -5,6 +5,7 @@ const InstancesPage = (() => {
     let executionsData = null;
     let selectedInstance = null;
     let searchTimeout = null;
+    let loadInstancesSeq = 0; // monotonic guard so a slow earlier search can't overwrite newer results
     let fp = null; // Flatpickr range picker instance
     let allFlows = new Map(); // Map of flow name -> flow id
     let currentFilters = {
@@ -220,14 +221,18 @@ const InstancesPage = (() => {
         }
     }
 
-    // Set default date values (7 days ago 00:00 → today 00:00) via Flatpickr
+    // Set default date values (7 days ago 00:00 → end of today) via Flatpickr.
+    // The end boundary must be end-of-today, not today 00:00: otherwise the
+    // moment the user tweaks any other filter, applyFilters reads these
+    // defaults and sets startedAtLte to this morning, silently dropping every
+    // execution that ran today.
     function setDefaultDateValues() {
         if (!fp || fp.selectedDates.length > 0) return;
         const fromDate = new Date();
         fromDate.setDate(fromDate.getDate() - 7);
         fromDate.setHours(0, 0, 0, 0);
         const toDate = new Date();
-        toDate.setHours(0, 0, 0, 0);
+        toDate.setHours(23, 59, 59, 999);
         fp.setDate([fromDate, toDate], false);
     }
 
@@ -262,7 +267,7 @@ const InstancesPage = (() => {
         fromDate.setDate(fromDate.getDate() - 7);
         fromDate.setHours(0, 0, 0, 0);
         const toDate = new Date();
-        toDate.setHours(0, 0, 0, 0);
+        toDate.setHours(23, 59, 59, 999);
         if (fp) fp.setDate([fromDate, toDate], false);
 
         document.getElementById('filterFlow').value = '';
@@ -433,6 +438,11 @@ const InstancesPage = (() => {
         const listContainer = document.getElementById('instancesList');
         const loadMoreDiv = document.getElementById('instancesLoadMore');
 
+        // Sequence guard: only the most recent loadInstances call is allowed to
+        // commit its results. Prevents a slow earlier search/page from landing
+        // after a newer one and clobbering the list.
+        const seq = ++loadInstancesSeq;
+
         if (reset) {
             instancesData = null;
             listContainer.innerHTML = '<div class="p-3 text-center"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</div>';
@@ -440,7 +450,7 @@ const InstancesPage = (() => {
 
         try {
             const options = { first: 20 };
-            if (instancesData && instancesData.pageInfo.endCursor && !reset) {
+            if (instancesData && instancesData.pageInfo?.endCursor && !reset) {
                 options.after = instancesData.pageInfo.endCursor;
             }
             if (searchTerm) {
@@ -449,19 +459,25 @@ const InstancesPage = (() => {
 
             const data = await API.fetchInstances(options);
 
+            // A newer call superseded this one while it was in flight — drop it.
+            if (seq !== loadInstancesSeq) return;
+
+            const edges = data?.edges || [];
+            const pageInfo = data?.pageInfo || { hasNextPage: false };
+
             if (reset) {
-                instancesData = data;
+                instancesData = { ...data, edges, pageInfo };
                 listContainer.innerHTML = '';
             } else {
                 // Append new edges
-                instancesData.edges = [...instancesData.edges, ...data.edges];
-                instancesData.pageInfo = data.pageInfo;
+                instancesData.edges = [...instancesData.edges, ...edges];
+                instancesData.pageInfo = pageInfo;
             }
 
-            renderInstances(reset ? data.edges : data.edges);
+            renderInstances(edges);
 
             // Show/hide load more button
-            if (instancesData.pageInfo.hasNextPage) {
+            if (instancesData.pageInfo?.hasNextPage) {
                 loadMoreDiv.classList.remove('d-none');
             } else {
                 loadMoreDiv.classList.add('d-none');
@@ -473,7 +489,9 @@ const InstancesPage = (() => {
 
         } catch (error) {
             console.error('Error loading instances:', error);
-            listContainer.innerHTML = `<div class="p-3 text-center text-danger"><i class="bi bi-exclamation-circle me-1"></i>${error.message}</div>`;
+            // Don't let a superseded request's error clobber a newer result.
+            if (seq !== loadInstancesSeq) return;
+            listContainer.innerHTML = `<div class="p-3 text-center text-danger"><i class="bi bi-exclamation-circle me-1"></i>${UI.escapeHtml(error.message)}</div>`;
         }
     }
 
@@ -724,14 +742,19 @@ const InstancesPage = (() => {
         if (liveEl) liveEl.remove();
     }
 
-    // Check if polling should be active based on current execution data
+    // Check if polling should be active based on current execution data.
+    // In ASC (oldest-first) display the running executions live on the LAST
+    // page, not the loaded first page, so they can't be detected from
+    // executionsData. In that case start the poller optimistically — it
+    // fetches newest-first and stops itself if nothing is actually active.
     function checkAndStartExecPolling() {
         if (!executionsData || !executionsData.nodes) {
             stopExecPolling();
             return;
         }
 
-        const hasActive = executionsData.nodes.some(exec =>
+        const ascending = currentFilters.direction === 'ASC';
+        const hasActive = ascending || executionsData.nodes.some(exec =>
             exec && isActiveExecStatus(exec.status)
         );
 
@@ -747,13 +770,15 @@ const InstancesPage = (() => {
         isExecPollInFlight = true;
 
         try {
-            // Re-fetch the first page of executions with same filters
-            const options = { first: 50 };
+            // Always poll the NEWEST page (force DESC) regardless of the
+            // display sort: active/new executions are the newest ones, so an
+            // ASC-ordered poll would fetch the oldest page and never observe
+            // them completing or appearing.
+            const options = { first: 50, direction: 'DESC' };
             if (currentFilters.dateFrom) options.startedAtGte = currentFilters.dateFrom;
             if (currentFilters.dateTo) options.startedAtLte = currentFilters.dateTo;
             if (currentFilters.status) options.status = currentFilters.status;
             if (currentFilters.flowId) options.flowId = currentFilters.flowId;
-            if (currentFilters.direction) options.direction = currentFilters.direction;
 
             const data = await API.fetchExecutionsByInstance(selectedInstance.id, options);
             if (!data || !data.nodes) return;
@@ -798,11 +823,17 @@ const InstancesPage = (() => {
                     return newMap.get(exec.id) || exec;
                 });
 
-                // Add new executions at the beginning (they're newer)
-                const existingIds = new Set(executionsData.nodes.map(e => e?.id).filter(Boolean));
-                const newExecs = data.nodes.filter(e => e && !existingIds.has(e.id));
-                if (newExecs.length > 0) {
-                    executionsData.nodes = [...newExecs, ...executionsData.nodes];
+                // Add new executions at the beginning (they're newer). Only do
+                // this in DESC display order — in ASC the newest executions
+                // belong on the last (unloaded) page, so injecting them after
+                // the oldest rows would corrupt the ordering; there we just let
+                // totalCount update and leave the list as-is.
+                if (currentFilters.direction !== 'ASC') {
+                    const existingIds = new Set(executionsData.nodes.map(e => e?.id).filter(Boolean));
+                    const newExecs = data.nodes.filter(e => e && !existingIds.has(e.id));
+                    if (newExecs.length > 0) {
+                        executionsData.nodes = [...newExecs, ...executionsData.nodes];
+                    }
                 }
 
                 // Update totalCount
@@ -813,8 +844,11 @@ const InstancesPage = (() => {
                 renderExecutions(false);
             }
 
-            // Check if we should continue polling
-            const hasActiveExecutions = executionsData.nodes.some(exec =>
+            // Decide whether to keep polling from the freshly-fetched newest
+            // page (data.nodes), not the display list — in ASC the active
+            // executions never enter executionsData, so using it would stop the
+            // poller immediately.
+            const hasActiveExecutions = data.nodes.some(exec =>
                 exec && isActiveExecStatus(exec.status)
             );
 
@@ -976,10 +1010,16 @@ const InstancesPage = (() => {
                 if (executionMap.has(parentId)) {
                     rootId = parentId;
                     rootExec = executionMap.get(parentId);
-                    // Keep traversing up to find the actual root
+                    // Keep traversing up to find the actual root. Guard against
+                    // cyclic lineage (A->B->A) with a visited set so a bad graph
+                    // can't hang the tab in an infinite loop.
+                    const visited = new Set([exec.id, parentId]);
                     while (rootExec.lineage?.invokedBy?.execution?.id &&
                            executionMap.has(rootExec.lineage.invokedBy.execution.id)) {
-                        rootId = rootExec.lineage.invokedBy.execution.id;
+                        const nextId = rootExec.lineage.invokedBy.execution.id;
+                        if (visited.has(nextId)) break;
+                        visited.add(nextId);
+                        rootId = nextId;
                         rootExec = executionMap.get(rootId);
                     }
                 }
