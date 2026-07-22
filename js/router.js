@@ -39,6 +39,21 @@ const Router = (() => {
         beforeNavigateCallbacks.push(callback);
     }
 
+    // Teardown callbacks run on EVERY actual route change (hashchange, popstate
+    // or navigate), unlike beforeNavigate which only fires inside navigate().
+    // This is where page cleanup (stopping live-poll timers, destroying charts)
+    // must live, because navbar links are plain #<hash> anchors that fire
+    // hashchange without ever going through navigate().
+    let routeChangeCallbacks = [];
+    function onRouteChange(callback) {
+        routeChangeCallbacks.push(callback);
+    }
+    function runRouteChange() {
+        for (const cb of routeChangeCallbacks) {
+            try { cb(); } catch (e) { console.error('onRouteChange callback threw:', e); }
+        }
+    }
+
     function runBeforeNavigate(route, params) {
         for (const cb of beforeNavigateCallbacks) {
             try {
@@ -54,7 +69,10 @@ const Router = (() => {
         if (!runBeforeNavigate(route, params)) return;
         const href = UrlState.buildHref(route, params);
         if (window.location.hash === href || (href === '#' && !window.location.hash)) {
-            // Same target — force a route handler run.
+            // Same target — force a route handler run. Clear the dedupe baseline
+            // first, otherwise handleRouteChange short-circuits on the identical
+            // hash and the forced re-run never happens.
+            lastRenderedHash = null;
             handleRouteChange();
         } else {
             window.location.hash = href;
@@ -69,6 +87,10 @@ const Router = (() => {
         if (window.location.hash !== href) {
             window.history.replaceState(historyState, '', fullUrl);
             invalidateDecodeCache();
+            // Keep the dedupe baseline aligned with the URL we just wrote, so a
+            // later navigate() back to the previous hash isn't dropped as a
+            // "same hash" no-op. Read back the browser-normalized hash.
+            lastRenderedHash = window.location.hash;
         }
     }
 
@@ -133,6 +155,11 @@ const Router = (() => {
         const currentHash = window.location.hash;
         if (currentHash === lastRenderedHash) return;
         lastRenderedHash = currentHash;
+
+        // Tear down the outgoing page (stop pollers, destroy charts) before we
+        // render the next one. Runs for every real route change, including
+        // navbar-anchor hashchanges and Back/Forward popstate.
+        runRouteChange();
 
         const state = resolveCurrentState();
 
@@ -217,6 +244,7 @@ const Router = (() => {
         getParams,
         clearParams,
         beforeNavigate,
+        onRouteChange,
         init,
         getCurrentRoute
     };
