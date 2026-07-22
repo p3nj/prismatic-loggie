@@ -6,11 +6,28 @@
     // attribute is set by setupJsonViewerForContainer) so live polling that
     // re-invokes this for the new tail doesn't re-walk older logs.
     function detectAndSetupJsonViewersForRange(startIndex, endIndex) {
+        // The selector already excludes processed nodes, so the whole returned
+        // set is exactly the newly-added logs that need setup. The previous
+        // code indexed this filtered list with GLOBAL start/end indices: once
+        // the first 100 logs were marked processed, the second batch's start
+        // index (100) exceeded the ~100-long unprocessed NodeList, so the loop
+        // body never ran and every log past the first page silently lost its
+        // "View JSON" button. Just process every unprocessed container.
         const logContainers = document.querySelectorAll('.log-message:not([data-json-processed])');
+        logContainers.forEach(setupJsonViewerForContainer);
+    }
 
-        for (let i = startIndex; i < endIndex && i < logContainers.length; i++) {
-            const container = logContainers[i];
-            setupJsonViewerForContainer(container);
+    // Dispose whichever Monaco editors are currently shown in the modal.
+    // Operates on the stable window.current* references so it always disposes
+    // the LIVE editors, regardless of which showJsonModal call created them.
+    function disposeModalEditors() {
+        if (window.currentMainEditor) {
+            try { window.currentMainEditor.dispose(); } catch (e) { /* already gone */ }
+            window.currentMainEditor = null;
+        }
+        if (window.currentNestedEditor) {
+            try { window.currentNestedEditor.dispose(); } catch (e) { /* already gone */ }
+            window.currentNestedEditor = null;
         }
     }
 
@@ -418,30 +435,19 @@
             `;
             document.body.appendChild(modal);
 
-            // Add close functionality with proper editor cleanup
+            // Close handlers are attached ONCE (modal is created once and reused).
+            // They must dispose the currently-shown editors via the stable
+            // window.current* refs — capturing this first call's locals would
+            // leave later editors undisposed and dispose a stale one.
             modal.querySelector('.close-modal').addEventListener('click', () => {
-                if (mainEditor) {
-                    mainEditor.dispose();
-                    mainEditor = null;
-                }
-                if (nestedEditor) {
-                    nestedEditor.dispose();
-                    nestedEditor = null;
-                }
+                disposeModalEditors();
                 modal.style.display = 'none';
             });
 
             // Close when clicking outside the modal
             window.addEventListener('click', (event) => {
                 if (event.target === modal) {
-                    if (mainEditor) {
-                        mainEditor.dispose();
-                        mainEditor = null;
-                    }
-                    if (nestedEditor) {
-                        nestedEditor.dispose();
-                        nestedEditor = null;
-                    }
+                    disposeModalEditors();
                     modal.style.display = 'none';
                 }
             });
@@ -449,7 +455,10 @@
             // Setup the resize handle functionality
             setupResizeHandle(modal);
         } else {
-            // Clear the editors if modal exists
+            // Modal is being reused: dispose the previously-shown editors before
+            // clearing their containers, otherwise each reopen orphans a heavy
+            // Monaco editor + model.
+            disposeModalEditors();
             document.getElementById('jsonContainer').innerHTML = '';
             document.getElementById('nestedJsonContent').innerHTML = '';
         }
@@ -870,19 +879,34 @@
                     }
                 };
 
-                // Add the global click handler
+                // Add the global click handler. fixDropdownDisplay runs on every
+                // modal open with nested JSON, so remove the previous run's
+                // handler first — otherwise N mousedown listeners stack on
+                // document and each scans the DOM on every click.
+                if (window._jsonDropdownOutsideHandler) {
+                    document.removeEventListener('mousedown', window._jsonDropdownOutsideHandler);
+                }
+                window._jsonDropdownOutsideHandler = outsideClickHandler;
                 document.addEventListener('mousedown', outsideClickHandler);
 
-                // Clean up when modal closes
-                modal.querySelector('.close-modal').addEventListener('click', function() {
-                    // Remove all menus from popup container
-                    while (popupContainer.firstChild) {
-                        popupContainer.removeChild(popupContainer.firstChild);
-                    }
-
-                    // Remove the global click handler
-                    document.removeEventListener('mousedown', outsideClickHandler);
-                });
+                // Clean up when modal closes. Bind this ONCE (popupContainer and
+                // modal are singletons) so the close listener doesn't accumulate
+                // across opens too.
+                const closeBtn = modal.querySelector('.close-modal');
+                if (closeBtn && !closeBtn.dataset.dropdownCleanupBound) {
+                    closeBtn.dataset.dropdownCleanupBound = 'true';
+                    closeBtn.addEventListener('click', function() {
+                        // Remove all menus from popup container
+                        while (popupContainer.firstChild) {
+                            popupContainer.removeChild(popupContainer.firstChild);
+                        }
+                        // Remove the active global click handler
+                        if (window._jsonDropdownOutsideHandler) {
+                            document.removeEventListener('mousedown', window._jsonDropdownOutsideHandler);
+                            window._jsonDropdownOutsideHandler = null;
+                        }
+                    });
+                }
             };
 
             // Apply the dropdown fixes
@@ -990,7 +1014,7 @@
         // Notify Monaco editor of layout change
         setTimeout(() => {
             if (mainEditor) mainEditor.layout();
-            if (nestedEditor) mainEditor.layout();
+            if (nestedEditor) nestedEditor.layout();
         }, 100);
     }
 

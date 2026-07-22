@@ -107,6 +107,11 @@
             const logDiv = document.createElement('div');
             logDiv.className = 'col-12 mb-3';
             logDiv.id = `log-${index}`;
+            // Stable per-log key for step-navigation lookups. Array indices
+            // break once live polling prepends new logs (their ids become
+            // log-live-N and the old ids shift), so the nav must resolve by the
+            // log's own id, not its position.
+            if (log.id != null) logDiv.dataset.logId = String(log.id);
             logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
 
             logDiv.innerHTML = `
@@ -321,7 +326,21 @@
         `;
     }
 
-    // Build a hierarchical dictionary of steps for navigation
+    // Resolve a rendered log element by its stable log id (set as data-log-id).
+    // Unlike getElementById(`log-${arrayIndex}`), this survives live-poll
+    // prepends that renumber the DOM. Returns null if not found.
+    function findLogElementByLogId(logId) {
+        if (logId == null || logId === '') return null;
+        try {
+            return document.querySelector(`[data-log-id=${CSS.escape(String(logId))}]`);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Build a hierarchical dictionary of steps for navigation. Stores each
+    // occurrence's stable log id (logIds) for DOM lookups; `indices` is kept
+    // only for the occurrence count shown in the tree.
     function buildStepDictionary(logEdges) {
         const stepDict = {};
 
@@ -332,11 +351,13 @@
             if (!stepDict[stepName]) {
                 stepDict[stepName] = {
                     indices: [],
+                    logIds: [],
                     loops: {}
                 };
             }
 
             stepDict[stepName].indices.push(index);
+            stepDict[stepName].logIds.push(log.id);
 
             // Track loop relationships if present
             if (log.loopStepName) {
@@ -346,11 +367,13 @@
                     stepDict[stepName].loops[loopKey] = {
                         name: log.loopStepName,
                         index: log.loopStepIndex,
-                        indices: []
+                        indices: [],
+                        logIds: []
                     };
                 }
 
                 stepDict[stepName].loops[loopKey].indices.push(index);
+                stepDict[stepName].loops[loopKey].logIds.push(log.id);
             }
         });
 
@@ -437,12 +460,10 @@
             stepLink.textContent = `${stepName} (${stepData.indices.length})`;
             stepLink.onclick = function(e) {
                 e.preventDefault();
-                // Jump to the first occurrence of this step
-                if (stepData.indices.length > 0) {
-                    document.getElementById(`log-${stepData.indices[0]}`).scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
+                // Jump to the first occurrence of this step (by stable log id)
+                const target = findLogElementByLogId(stepData.logIds[0]);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             };
             stepHeader.appendChild(stepLink);
@@ -467,11 +488,9 @@
                     loopLink.onclick = function(e) {
                         e.preventDefault();
                         // Jump to the first occurrence of this loop iteration
-                        if (loopData.indices.length > 0) {
-                            document.getElementById(`log-${loopData.indices[0]}`).scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
+                        const target = findLogElementByLogId(loopData.logIds[0]);
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
                     };
 
@@ -643,18 +662,17 @@
 
                 stepLink.onclick = function(e) {
                     e.preventDefault();
-                    // Jump to the first occurrence of this step in logs
-                    if (stepData.indices.length > 0) {
-                        const logElement = document.getElementById(`log-${stepData.indices[0]}`);
-                        if (logElement) {
-                            logElement.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
-                            // Highlight the log entry briefly
-                            logElement.classList.add('highlight-log');
-                            setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
-                        }
+                    // Jump to the first occurrence of this step in logs (by
+                    // stable log id — array indices break after live prepends).
+                    const logElement = findLogElementByLogId(stepData.logIds[0]);
+                    if (logElement) {
+                        logElement.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                        // Highlight the log entry briefly
+                        logElement.classList.add('highlight-log');
+                        setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
                     }
                     // Also scroll the step navigation to keep this item visible
                     scrollStepNavToItem(stepItem);
@@ -733,17 +751,16 @@
                     loopLink.onclick = function(e) {
                         e.preventDefault();
                         // Jump to the first occurrence of this loop iteration
-                        if (loopData.indices.length > 0) {
-                            const logElement = document.getElementById(`log-${loopData.indices[0]}`);
-                            if (logElement) {
-                                logElement.scrollIntoView({
-                                    behavior: 'smooth',
-                                    block: 'start'
-                                });
-                                // Highlight the log entry briefly
-                                logElement.classList.add('highlight-log');
-                                setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
-                            }
+                        // (by stable log id — array indices break after prepends).
+                        const logElement = findLogElementByLogId(loopData.logIds[0]);
+                        if (logElement) {
+                            logElement.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'
+                            });
+                            // Highlight the log entry briefly
+                            logElement.classList.add('highlight-log');
+                            setTimeout(() => logElement.classList.remove('highlight-log'), 2000);
                         }
                         // Also scroll the step navigation to keep this item visible
                         scrollStepNavToItem(loopItem);
@@ -757,11 +774,19 @@
                     loopCountBadge.style.fontSize = '0.55rem';
                     loopItem.appendChild(loopCountBadge);
 
-                    // Find matching step result for this loop iteration and add view button
-                    const loopStepResult = stepResultsList.find(s =>
-                        s.loopStepIndex === loopData.index ||
-                        (s.loopPath && s.loopPath.includes(loopData.name))
-                    );
+                    // Find matching step result for THIS loop iteration.
+                    // Match on the iteration index (normalized — GraphQL may
+                    // return it as a string vs number). The old code fell back
+                    // to a name-only loopPath match, which returned the FIRST
+                    // result of the loop regardless of iteration, so iteration
+                    // 3's eye icon could open iteration 0's output. The fallback
+                    // now also requires the path to reference this specific index.
+                    const loopStepResult = stepResultsList.find(s => {
+                        if (Number(s.loopStepIndex) === Number(loopData.index)) return true;
+                        return s.loopPath &&
+                            s.loopPath.includes(loopData.name) &&
+                            s.loopPath.includes(String(loopData.index));
+                    });
                     if (loopStepResult && loopStepResult.resultsUrl) {
                         const viewBtn = document.createElement('button');
                         viewBtn.className = 'btn btn-sm btn-outline-info ms-1 p-0 px-1';
@@ -1090,11 +1115,23 @@
             const buffer = await response.arrayBuffer();
             const bytes = new Uint8Array(buffer);
 
+            // Empty body: nothing to decode. Returning null avoids JSON.parse('')
+            // throwing a misleading "unsupported format" error below.
+            if (bytes.length === 0) {
+                return null;
+            }
+
+            // A leading UTF-8 BOM (0xEF 0xBB 0xBF) marks text/JSON. Without this
+            // check 0xEF (>= 0x80) is misread as MessagePack and valid JSON
+            // fails to decode. TextDecoder() strips the BOM on the JSON path.
+            const hasBom = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+
             // Check if it looks like gzipped data (starts with 0x1f 0x8b)
             const isGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
 
-            // Check if it looks like MessagePack (common binary markers)
-            const isMsgPack = bytes[0] >= 0x80 || bytes[0] === 0xdc || bytes[0] === 0xdd;
+            // Check if it looks like MessagePack (high-bit binary marker), but
+            // never for BOM-prefixed UTF-8 text. (0xdc/0xdd are already >= 0x80.)
+            const isMsgPack = !hasBom && bytes[0] >= 0x80;
 
             let outputData;
 
@@ -1477,6 +1514,7 @@
             const logDiv = document.createElement('div');
             logDiv.className = 'col-12 mb-3 live-log-new';
             logDiv.id = `log-live-${liveIndexStart + i}`;
+            if (log.id != null) logDiv.dataset.logId = String(log.id);
             logDiv.dataset.stepName = log.stepName || 'Unnamed Step';
 
             logDiv.innerHTML = `
