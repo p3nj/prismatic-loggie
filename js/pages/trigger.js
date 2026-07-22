@@ -7,10 +7,61 @@ const TriggerPage = (() => {
     let initialized = false;
     let selectedInstance = null;      // { id, name }
     let selectedFlowConfigId = null;
+    let payloadEditor = null;         // Monaco editor for the payload body
 
     // ----- helpers -------------------------------------------------------
 
     function el(id) { return document.getElementById(id); }
+
+    function monacoTheme() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs';
+    }
+
+    // Lazily create the Monaco JSON editor for the payload. Falls back to the
+    // plain <textarea> (#triggerPayload) if Monaco isn't available yet, and
+    // retries once the loader resolves. Safe to call repeatedly.
+    function ensurePayloadEditor() {
+        const container = el('triggerPayloadEditor');
+        const ta = el('triggerPayload');
+        if (!container) return;
+        if (payloadEditor) { payloadEditor.layout(); return; }
+
+        if (typeof monaco === 'undefined' || !monaco.editor) {
+            if (ta) ta.classList.remove('d-none');   // show the plain fallback
+            if (window.require) {
+                try { require(['vs/editor/editor.main'], () => ensurePayloadEditor()); } catch (e) { /* noop */ }
+            }
+            return;
+        }
+
+        if (ta) ta.classList.add('d-none');
+        payloadEditor = monaco.editor.create(container, {
+            value: ta ? ta.value : '',
+            language: 'json',
+            theme: monacoTheme(),
+            automaticLayout: true,
+            minimap: { enabled: false },
+            wordWrap: 'on',
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            lineNumbers: 'on',
+            lineNumbersMinChars: 3,
+            folding: true,
+            tabSize: 2,
+            formatOnPaste: true
+        });
+    }
+
+    function getPayload() {
+        return payloadEditor ? payloadEditor.getValue() : (el('triggerPayload')?.value || '');
+    }
+
+    function setPayload(value) {
+        const v = value || '';
+        if (payloadEditor) payloadEditor.setValue(v);
+        const ta = el('triggerPayload');
+        if (ta) ta.value = v;   // keep the fallback in sync
+    }
 
     function escapeHtml(s) {
         return (window.UI && UI.escapeHtml) ? UI.escapeHtml(s) : String(s ?? '');
@@ -31,6 +82,10 @@ const TriggerPage = (() => {
         setupEventListeners();
         // Start with one empty header row for convenience.
         addHeaderRow('', '');
+        // Keep the payload editor's theme in sync with the app theme.
+        new MutationObserver(() => {
+            if (payloadEditor && typeof monaco !== 'undefined') monaco.editor.setTheme(monacoTheme());
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         initialized = true;
     }
 
@@ -119,7 +174,7 @@ const TriggerPage = (() => {
     async function triggerFlow() {
         if (!selectedInstance || !selectedFlowConfigId) return;
 
-        const payload = el('triggerPayload')?.value ?? '';
+        const payload = getPayload();
         const contentType = el('triggerContentType')?.value.trim() || 'application/json';
         const headers = collectHeaders();
 
@@ -212,6 +267,7 @@ const TriggerPage = (() => {
         selectedFlowConfigId = null;
         const resultEl = el('triggerResult');
         if (resultEl) resultEl.innerHTML = '';
+        ensurePayloadEditor();   // view is visible now, so Monaco can lay out
         setTriggerEnabled();
         await loadFlows(id);
         if (shareState) applyShareState(shareState);
@@ -222,7 +278,7 @@ const TriggerPage = (() => {
         return {
             flowId: selectedFlowConfigId || (el('triggerFlowSelect')?.value || ''),
             contentType: el('triggerContentType')?.value || '',
-            payload: el('triggerPayload')?.value || '',
+            payload: getPayload(),
             headers: collectHeaders() || ''
         };
     }
@@ -231,7 +287,7 @@ const TriggerPage = (() => {
     function applyShareState(st) {
         if (!st) return;
         if (st.contentType != null && el('triggerContentType')) el('triggerContentType').value = st.contentType;
-        if (st.payload != null && el('triggerPayload')) el('triggerPayload').value = st.payload;
+        if (st.payload != null) setPayload(st.payload);
         const hc = el('triggerHeaders');
         if (hc && st.headers) {
             hc.innerHTML = '';
