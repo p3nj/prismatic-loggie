@@ -544,7 +544,7 @@
             } else {
                 label = `v${v.versionNumber}${availableTag}`;
             }
-            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''} data-unpublished="${v.isUnpublished || false}" data-comment="${escapeHtml(v.comment || '')}">
+            return `<option value="${v.versionNumber}" ${isCurrent ? 'selected' : ''} data-unpublished="${v.isUnpublished || false}" data-comment="${escapeAttr(v.comment || '')}">
                 ${label}
             </option>`;
         }).join('');
@@ -756,12 +756,24 @@
         });
     }
 
-    // HTML escape helper
+    // HTML escape helper (text content only — does NOT escape quotes).
     function escapeHtml(text) {
         if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Attribute-safe escape: also encodes quotes so a value can't break out
+    // of a title="..."/data-*="..." attribute.
+    function escapeAttr(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // Cleanup when leaving page

@@ -134,11 +134,28 @@
         }
     }
 
-    // Helper function to escape HTML
+    // Escape HTML for use as TEXT CONTENT between tags. Encodes & < >
+    // (via the DOM) but NOT quotes — do not use this for attribute values;
+    // use escapeAttr for those. null/undefined become '' rather than the
+    // literal strings "null"/"undefined".
     function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text);
         return div.innerHTML;
+    }
+
+    // Escape a value for use inside a double- or single-quoted HTML attribute
+    // (title="...", data-*="...", value="..."). Encodes quotes as well so the
+    // value can't break out of the attribute.
+    function escapeAttr(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     Object.assign(window.UI, {
@@ -147,6 +164,7 @@
         showLoading,
         showLoadingProgress,
         hideLoadingProgress,
-        escapeHtml
+        escapeHtml,
+        escapeAttr
     });
 })();
