@@ -226,9 +226,16 @@ const AnalysisPage = (() => {
         if (fpAnalysis) fpAnalysis.setDate([fromDate, today], false);
     }
 
-    // Format date for input field (YYYY-MM-DD)
+    // Format date for input field (YYYY-MM-DD).
+    // Use LOCAL calendar components, not toISOString(): the Dates here are
+    // built at local midnight, so toISOString() (which is UTC) rolls back to
+    // the previous calendar day in any UTC+ timezone — dropping "today" from
+    // every KPI/chart and shifting the whole range back a day.
     function formatDateForInput(date) {
-        return date.toISOString().split('T')[0];
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
 
     // Format date for display
@@ -1603,14 +1610,20 @@ const AnalysisPage = (() => {
     }
 
     // Route handler
-    function onRoute(params) {
+    async function onRoute(params) {
         init();
 
         // Parse URL params for deep linking
         if (params.customerId) {
-            selectCustomer(params.customerId, params.customerName || null);
+            // Await the customer load before selecting an instance. selectCustomer
+            // is async (it awaits loadInstances + metric fetches); selectInstance
+            // synchronously flips state.level to 'instance', so firing them without
+            // awaiting made the customer-level Promise.all run at instance level —
+            // double-fetching metrics and briefly rendering the wrong data.
+            // keepInstance avoids clearing the instance id we're about to select.
+            await selectCustomer(params.customerId, params.customerName || null, !!params.instanceId);
             if (params.instanceId) {
-                selectInstance(params.instanceId, params.instanceName || null);
+                await selectInstance(params.instanceId, params.instanceName || null);
             }
         } else {
             loadAllData();
@@ -1625,6 +1638,13 @@ const AnalysisPage = (() => {
     // Cleanup when leaving page
     function cleanup() {
         stopAutoRefresh();
+        // Destroy Chart.js instances so they don't leak across page visits.
+        Object.keys(charts).forEach(k => {
+            if (charts[k]) {
+                charts[k].destroy();
+                charts[k] = null;
+            }
+        });
     }
 
     // Public API
