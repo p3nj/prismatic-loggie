@@ -459,7 +459,11 @@
                 // Small delay to ensure download starts before continuing
                 await new Promise(resolve => setTimeout(resolve, 500));
             } else {
-                IntegrationsPage.showToast('Warning: No current definition to backup', 'info');
+                // Without a current definition we cannot produce the promised
+                // backup. Abort rather than overwrite the current unpublished
+                // version with no way to restore it.
+                IntegrationsPage.showToast('Cannot back up the current version (no definition available) — aborting swap to avoid data loss.', 'error');
+                return;
             }
 
             // Step 2: Import the historical version (currently in the editor)
