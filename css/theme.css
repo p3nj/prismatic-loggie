@@ -526,3 +526,6 @@ hr { border-color: var(--border-color); opacity: 1; }
   color: var(--text-muted);
   margin-bottom: 1.25rem;
 }
+
+/* Trigger payload Monaco editor */
+.trigger-payload-editor { height: 280px; overflow: hidden; }
