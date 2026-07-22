@@ -172,21 +172,15 @@
             showAuthRequired();
             return;
         }
+        UI.hideAuthRequired('integrations');
 
         loadIntegrations();
     }
 
-    // Show auth required message
+    // Show the shared "not connected" state (canonical across all pages).
     function showAuthRequired() {
-        const list = document.getElementById('integrationsList');
-        if (list) {
-            list.innerHTML = `
-                <div class="text-center text-muted p-4">
-                    <i class="bi bi-key display-4 mb-3 d-block"></i>
-                    <p>Please connect to Prismatic first</p>
-                </div>
-            `;
-        }
+        UI.showAuthRequired('integrations', 'integrations');
+        if (window.AuthPage) AuthPage.openSetup();
     }
 
     // Load integrations list

@@ -4,6 +4,9 @@ const InstancesPage = (() => {
     let instancesData = null;
     let executionsData = null;
     let selectedInstance = null;
+    let instanceMode = 'executions';   // 'executions' | 'trigger'
+    let pendingView = null;            // restore target from a shared URL
+    let pendingTriggerState = null;
     let searchTimeout = null;
     let loadInstancesSeq = 0; // monotonic guard so a slow earlier search can't overwrite newer results
     let fp = null; // Flatpickr range picker instance
@@ -100,6 +103,13 @@ const InstancesPage = (() => {
             shareFilterBtn.addEventListener('click', copyShareableLink);
         }
 
+        const modeToggle = document.getElementById('instanceModeToggle');
+        if (modeToggle) {
+            modeToggle.addEventListener('click', () => {
+                setInstanceMode(instanceMode === 'trigger' ? 'executions' : 'trigger');
+            });
+        }
+
         // Date range picker (Flatpickr)
         let _fpBlocking = false;
         fp = flatpickr('#filterDateRange', {
@@ -152,6 +162,18 @@ const InstancesPage = (() => {
         if (selectedInstance) {
             params.instanceId = selectedInstance.id;
             if (selectedInstance.name) params.instanceName = selectedInstance.name;
+        }
+        // Trigger mode: share the flow + request instead of execution filters.
+        if (instanceMode === 'trigger') {
+            params.view = 'trigger';
+            if (window.TriggerPage && TriggerPage.getShareState) {
+                const st = TriggerPage.getShareState();
+                if (st.flowId) params.tflow = st.flowId;
+                if (st.contentType) params.tct = st.contentType;
+                if (st.payload) params.tpayload = st.payload;
+                if (st.headers) params.theaders = st.headers;
+            }
+            return params;
         }
         if (currentFilters.dateFrom) params.from = currentFilters.dateFrom;
         if (currentFilters.dateTo) params.to = currentFilters.dateTo;
@@ -369,12 +391,59 @@ const InstancesPage = (() => {
         updateFilterStatus();
     }
 
-    // Show filter bar and share button
+    // Show filter bar + share/mode-toggle buttons. The current view mode
+    // (executions/trigger) is preserved across instance switches — applyView()
+    // re-applies it after the new instance loads.
     function showFilterBar() {
         const filterBar = document.getElementById('executionsFilterBar');
         const shareBtn = document.getElementById('shareFilterBtn');
+        const modeToggle = document.getElementById('instanceModeToggle');
         if (filterBar) filterBar.classList.remove('d-none');
         if (shareBtn) shareBtn.classList.remove('d-none');
+        if (modeToggle) modeToggle.classList.remove('d-none');
+    }
+
+    // Switch the instance detail between the executions list and the trigger form.
+    function setInstanceMode(mode, shareState, skipUrl) {
+        instanceMode = mode;
+        const execView = document.getElementById('instanceExecutionsView');
+        const trigView = document.getElementById('instanceTriggerView');
+        const toggle = document.getElementById('instanceModeToggle');
+
+        if (mode === 'trigger') {
+            stopExecPolling();
+            execView?.classList.add('d-none');
+            trigView?.classList.remove('d-none');
+            if (toggle) {
+                toggle.innerHTML = '<i class="bi bi-list-ul me-1"></i>Executions';
+                toggle.title = 'Back to executions';
+            }
+            if (window.TriggerPage && TriggerPage.mountForInstance && selectedInstance) {
+                TriggerPage.mountForInstance(selectedInstance.id, selectedInstance.name, shareState);
+            }
+        } else {
+            trigView?.classList.add('d-none');
+            execView?.classList.remove('d-none');
+            if (toggle) {
+                toggle.innerHTML = '<i class="bi bi-lightning-charge me-1"></i>Trigger';
+                toggle.title = 'Trigger a flow on this instance';
+            }
+        }
+        if (!skipUrl) updateUrl();
+    }
+
+    // Called at the end of instance selection. Honors a shared ?view=trigger
+    // URL first; otherwise re-applies the current mode so switching instances
+    // keeps the executions/trigger view the user was on.
+    function applyView() {
+        if (pendingView === 'trigger') {
+            const st = pendingTriggerState;
+            pendingView = null;
+            pendingTriggerState = null;
+            setInstanceMode('trigger', st, true);
+        } else {
+            setInstanceMode(instanceMode, null, true);
+        }
     }
 
     // Populate flow dropdown with flow IDs as values
@@ -573,6 +642,8 @@ const InstancesPage = (() => {
 
         // Load executions for this instance
         loadExecutions(instance.id, true);
+
+        applyView();
     }
 
     // Select instance by ID (for URL-based selection)
@@ -606,6 +677,8 @@ const InstancesPage = (() => {
 
         // Load executions for this instance
         await loadExecutions(instanceId, true);
+
+        applyView();
     }
 
     // Fetch complete execution chains for executions that have lineage data
@@ -1451,18 +1524,10 @@ const InstancesPage = (() => {
         executionsScrollObserver.observe(sentinel);
     }
 
-    // Show authentication required message
+    // Show the shared "not connected" state (canonical across all pages).
     function showAuthRequired() {
-        const listContainer = document.getElementById('instancesList');
-        listContainer.innerHTML = `
-            <div class="p-4 text-center">
-                <i class="bi bi-key display-4 text-warning mb-3 d-block"></i>
-                <p class="mb-3">Please set up your API token to view instances.</p>
-                <button class="btn btn-primary" onclick="Router.navigate('auth')">
-                    <i class="bi bi-key me-1"></i>Setup Token
-                </button>
-            </div>
-        `;
+        UI.showAuthRequired('instances', 'instances');
+        if (window.AuthPage) AuthPage.openSetup();
     }
 
     // Helper: Get status badge HTML
@@ -1539,6 +1604,18 @@ const InstancesPage = (() => {
         const urlHasFilters = urlParams.from || urlParams.to || urlParams.status ||
                               urlParams.flow || urlParams.flowId || urlParams.dir;
 
+        // A shared "trigger" URL: remember it so the instance detail switches to
+        // the trigger view (prefilled) once the instance is selected.
+        if (urlParams.view === 'trigger') {
+            pendingView = 'trigger';
+            pendingTriggerState = {
+                flowId: urlParams.tflow || '',
+                contentType: urlParams.tct || '',
+                payload: urlParams.tpayload || '',
+                headers: urlParams.theaders || ''
+            };
+        }
+
         // Only reset currentFilters if the URL is providing fresh filter state.
         // If the URL has no filter params, keep the in-memory state so that
         // navigating away and back doesn't drop the user's filters.
@@ -1548,6 +1625,7 @@ const InstancesPage = (() => {
 
         // Load instances if authenticated
         if (API.isAuthenticated()) {
+            UI.hideAuthRequired('instances');
             loadInstances(true).then(() => {
                 // Check if we have an instance to select from URL params
                 if (urlParams.instanceId) {

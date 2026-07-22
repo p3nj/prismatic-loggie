@@ -1678,6 +1678,16 @@ const AnalysisPage = (() => {
     async function onRoute(params) {
         init();
 
+        // No valid token — show the shared "connect" prompt instead of firing
+        // loads that would spam error toasts and spin forever.
+        if (!API.isAuthenticated()) {
+            stopAutoRefresh();
+            UI.showAuthRequired('analysis', 'organization analytics');
+            if (window.AuthPage) AuthPage.openSetup();
+            return;
+        }
+        UI.hideAuthRequired('analysis');
+
         // Parse URL params for deep linking
         if (params.customerId) {
             // Await the customer load before selecting an instance. selectCustomer

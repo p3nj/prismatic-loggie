@@ -814,6 +814,9 @@ const API = (() => {
 
         if (!response.ok) {
             if (response.status === 401) {
+                // Let the app surface the shared "connect" state for a token that
+                // is present but invalid/expired.
+                try { window.dispatchEvent(new CustomEvent('prismatic:auth-invalid')); } catch (e) { /* noop */ }
                 throw new Error('Authentication failed. Please check your API token.');
             }
             const errorText = await response.text();

@@ -425,31 +425,104 @@ hr { border-color: var(--border-color); opacity: 1; }
 .kpi-card .display-6 { font-weight: 650; letter-spacing: -0.02em; }
 
 /* ---------------------------------------------------------------------------
-   10. Collapsible workspace sidebar (list/detail pages)
-   Hides the list column and lets the detail area span the full width. Desktop
-   only — below 992px the grid stacks, so collapsing isn't needed.
+   10. Universal master–detail workspace (list/detail pages)
+   Every page (except Analysis) uses the same shell: a collapsible left sidebar
+   + a content area. Collapsing FULLY hides the sidebar (no dead space) and the
+   content takes the whole width. The collapse toggle lives in the content
+   toolbar (far-left) so it's always visible and never moves.
+   Desktop only — below 992px the grid stacks.
    --------------------------------------------------------------------------- */
-.ws-reopen { display: none; }
+.ws-side-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ws-side-title { flex: 1 1 auto; min-width: 0; }
+.ws-side-actions { flex: 0 0 auto; display: flex; gap: 0.25rem; }
+
+/* The collapse toggle sits at the far-left of a content toolbar / card header. */
 .ws-toggle { flex: 0 0 auto; }
+.ws-content-bar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
 
 @media (min-width: 992px) {
-  .ws-row.ws-collapsed > .ws-side { display: none !important; }
+  .ws-row.ws-collapsed > .ws-side { display: none; }
   .ws-row.ws-collapsed > .ws-main { flex: 0 0 100%; max-width: 100%; }
-  .ws-row.ws-collapsed > .ws-main > .ws-reopen {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-bottom: 0.75rem;
-  }
-
-  /* Integrations keeps its info column; give the freed space to list→editor. */
-  #page-integrations .ws-row.ws-collapsed > #versionControlColumn { flex: 0 0 25%; max-width: 25%; }
-  #page-integrations .ws-row.ws-collapsed > .ws-main { flex: 0 0 75%; max-width: 75%; }
 }
 
-/* On phones these pages reduce container padding to 0.5rem; shrink the row
-   gutter to match so the row's negative margins don't overhang the viewport. */
+/* Below 992px the grid stacks; the sidebar is always shown (collapse is a
+   desktop space-saver only) and the toggle is hidden. */
+@media (max-width: 991.98px) {
+  .ws-row.ws-collapsed > .ws-side { display: block; }
+  .ws-toggle { display: none; }
+}
 @media (max-width: 767.98px) {
-  #page-instances .ws-row,
-  #page-integrations .ws-row { --bs-gutter-x: 1rem; }
+  .ws-row { --bs-gutter-x: 1rem; }
+}
+
+/* Execution's sidebar wraps the ID input + dynamically-injected step-nav in the
+   universal card; let it scroll normally instead of the flush list treatment. */
+#page-execution .ws-side .card-body { overflow-y: auto; max-height: calc(100vh - 130px); }
+#page-execution .ws-side .sidebar { position: static; max-height: none; overflow: visible; }
+
+/* Integrations: the old middle "Template Information" column now sits as a
+   compact horizontal toolbar strip above the YAML editor. */
+.integrations-info-strip { position: static !important; max-height: none !important; }
+.integrations-info-strip > .card-header { display: none; }
+.integrations-info-strip > .card-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem 1.25rem;
+  padding: 0.75rem 1rem !important;
+}
+.integrations-info-strip > .card-body > div {
+  border-bottom: 0 !important;
+  padding: 0 !important;
+  margin: 0;
+  flex: 0 1 auto;
+}
+.integrations-info-strip .template-header-section { flex: 1 1 240px; min-width: 0; }
+.integrations-info-strip .template-header-section .btn { width: auto !important; margin-top: 0.4rem !important; }
+.integrations-info-strip .version-section { flex: 1 1 200px; }
+.integrations-info-strip .version-metadata-section { flex: 1 1 220px; }
+.integrations-info-strip .actions-section { flex: 1 1 100%; }
+.integrations-info-strip .actions-section .d-grid,
+.integrations-info-strip .edit-mode .d-grid { display: flex !important; flex-wrap: wrap; gap: 0.5rem; }
+.integrations-info-strip .actions-section .d-grid > .btn { width: auto; }
+.integrations-info-strip .form-label { margin-bottom: 0.25rem; }
+
+/* ---------------------------------------------------------------------------
+   11. Canonical "not connected to Prismatic" state
+   Shown identically on every page when there's no valid API token. The page's
+   real content is hidden and this centered prompt takes its place.
+   --------------------------------------------------------------------------- */
+.auth-required-wrap { display: none; }
+
+.page-container.auth-blocked > .auth-required-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 140px);
+  padding: 2.5rem 1rem;
+}
+.page-container.auth-blocked > *:not(.auth-required-wrap) { display: none !important; }
+
+.auth-required {
+  max-width: 340px;
+  text-align: center;
+}
+.auth-required-icon {
+  font-size: 2.25rem;
+  color: var(--primary-color);
+  display: block;
+  margin-bottom: 0.75rem;
+}
+.auth-required-title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--text-color);
+}
+.auth-required-text {
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
 }

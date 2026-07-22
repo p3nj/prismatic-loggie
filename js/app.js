@@ -16,7 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.register('config', ConfigPage.onRoute);
     Router.register('analysis', AnalysisPage.onRoute);
     Router.register('execution', ExecutionPage.onRoute);
-    Router.register('trigger', TriggerPage.onRoute);
+    // Trigger now lives inside the Instances page (Executions ⇄ Trigger toggle).
+    // Redirect the legacy #trigger route there.
+    Router.register('trigger', () => Router.navigate('instances'));
 
     // Tear down the outgoing page on EVERY route change. This must be an
     // onRouteChange hook, not beforeNavigate: navbar links are plain #<hash>
@@ -47,6 +49,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         return true;
+    });
+
+    // A present-but-invalid/expired token surfaces as a 401 from any API call.
+    // Route it to the SAME canonical "connect" state as the no-token case, on
+    // whichever page is currently active. Debounced so parallel 401s don't spam.
+    let _authInvalidAt = 0;
+    const PAGE_NOUNS = {
+        'page-analysis': 'organization analytics',
+        'page-instances': 'instances',
+        'page-config': 'instance configuration',
+        'page-execution': 'execution logs',
+        'page-trigger': 'the flow trigger',
+        'page-integrations': 'integrations'
+    };
+    window.addEventListener('prismatic:auth-invalid', () => {
+        const now = Date.now();
+        if (now - _authInvalidAt < 3000) return;
+        _authInvalidAt = now;
+
+        if (AuthPage.clearValidationCache) AuthPage.clearValidationCache();
+        AuthPage.updateAuthStatus();
+
+        const active = document.querySelector('.page-container:not(.d-none)');
+        if (active && active.id && active.id !== 'page-auth' && UI.showAuthRequired) {
+            UI.showAuthRequired(active.id, PAGE_NOUNS[active.id] || 'this data');
+        }
+        AuthPage.openSetup();
     });
 
     // Initialize router
